@@ -68,11 +68,11 @@ class WebHost:
     """drives the shared App from requestAnimationFrame in the worker"""
 
     def __init__(self, options):
-        """`options`: the page's URL query parameters (env, algo, population, seed)"""
+        """`options`: the page's URL query parameters (env, algo, population, seed, speed)"""
         self.canvas = pyjs.js.canvas
         self.ctx = create_webgl2_context(self.canvas)
         kwargs = {k: options[k] for k in ("env", "algo") if k in options}
-        kwargs.update({k: int(options[k]) for k in ("population", "seed") if k in options})
+        kwargs.update({k: int(options[k]) for k in ("population", "seed", "speed") if k in options})
         self.app = App(**kwargs)
         self.frames = 0
         self.history_sent = 0  # entries of app.history already sent to the page

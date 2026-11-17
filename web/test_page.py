@@ -9,6 +9,7 @@ import argparse
 import functools
 import http.server
 import threading
+import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -42,6 +43,7 @@ def main():
     parser.add_argument("--query", default="", help="URL query, e.g. env=LunarLander")
     parser.add_argument("--stress", type=float, default=0, help="seconds per env at max population / speed")
     parser.add_argument("--crash", action="store_true", help="crash python (wasm trap), expect a restart")
+    parser.add_argument("--converge", type=float, help="time training until the mean return reaches this")
     args = parser.parse_args()
     url = serve(DIST) + (f"?{args.query}" if args.query else "")
     with sync_playwright() as p:
@@ -60,6 +62,23 @@ def main():
         )
         page.wait_for_timeout(3000)
         print("train:", page.inner_text("#state"))
+        if args.converge:
+            # seconds of training in the browser until the population's mean return
+            # reaches `converge` (from a fresh run)
+            page.click("button:text('Stop')")
+            page.wait_for_timeout(500)
+            start = time.perf_counter()
+            page.click("button:text('Train')")
+            page.wait_for_function(
+                """(target) => {
+                const m = document.getElementById('state').textContent.match(/mean\\/best (-?\\d+)/);
+                return m && Number(m[1]) >= target;
+                }""",
+                arg=args.converge,
+                timeout=600_000,
+            )
+            print(f"converged (mean >= {args.converge}) after {time.perf_counter() - start:.1f} s:",
+                  page.inner_text("#state").replace("\n", " | "))
         if args.crash:
             # a wasm trap in the worker: the page restarts it, python runs again
             errors.clear()  # the crash itself is logged as an error on purpose

@@ -40,14 +40,16 @@ MAX_POPULATION = (b2d.MAX_WORLDS - 8) // 4 * 4
 class App:
     """see the module docstring"""
 
-    def __init__(self, env="CartPole", algo="cem", population=32, seed=0):
+    def __init__(self, env="CartPole", algo="cem", population=32, seed=0, speed=SPEEDS[-1]):
         self.algo = algo
         self.population = min(population, MAX_POPULATION)
+        # population steps per frame (at most: the frame budget keeps the page smooth);
+        # default: as fast as possible
+        self.speed = speed if speed in SPEEDS else SPEEDS[-1]
         self.env = None
         self.envs = None
         self.trainer = None
         self.seed = seed
-        self.speed = 4
         self.controller = "agent"  # watch mode: "agent" (the policy) or "human" (keyboard)
         self.keys = set()  # keys held down (human controller)
         # watch mode: a new episode when one ends; off: the env goes on after the end
@@ -125,7 +127,7 @@ class App:
             {"type": "button", "name": "reset", "label": "Reset episode"},
             {"type": "checkbox", "name": "auto_reset", "label": "Auto reset (when not training)",
              "value": self.auto_reset},
-            {"type": "slider", "name": "speed", "label": "Training speed (x real time)", "min": 0,
+            {"type": "slider", "name": "speed", "label": "Training speed (max, x real time)", "min": 0,
              "max": len(SPEEDS) - 1, "step": 1, "value": SPEEDS.index(self.speed),
              "labels": [f"{s}x" for s in SPEEDS]},
         ]

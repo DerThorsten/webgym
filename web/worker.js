@@ -3,6 +3,7 @@
 //   page -> worker: {type: "init", canvas, base}, {type: "resize", width, height},
 //                   {type: "event", kind, x, y, delta, key} (pointer: drawing-buffer px; keys),
 //                   {type: "command", name, value} (a widget changed),
+//                   {type: "exec", id, code} (python; -> {type: "result", id, value}),
 //                   {type: "install", name, packages}
 //   worker -> page: {type: "progress", id, phase, done, total}, {type: "ready"},
 //                   {type: "controls", controls}, {type: "history", entries, reset},
@@ -57,7 +58,7 @@ const lap = (name) => (times[name] = +((performance.now() - t0) / 1000).toFixed(
 
 /** start python, unpack the core, start the host (rendering into `canvas`) */
 async function init(canvas, pageUrl) {
-  self.canvas = canvas; // host_web.py reads it via pyjs.js.canvas
+  self.canvas = canvas; // host_web.py reads it via pyjs.js.canvas (null: compute only)
   base = pageUrl;
   // the URL query parameters (?env=LunarLander&algo=cem...) for host_web.start
   self.webgymOptions = JSON.stringify(Object.fromEntries(new URL(pageUrl).searchParams));
@@ -76,9 +77,9 @@ import sys, importlib
 sys.path.insert(0, "/app")
 sys.dont_write_bytecode = True  # code edited in the page is re-imported
 importlib.invalidate_caches()
-from webgym import host_web
-_host = host_web.start()
 `);
+  // without a canvas: a compute-only worker (benchmarks, later a training pool)
+  if (canvas) await pyjs.async_exec_eval("from webgym import host_web\n_host = host_web.start()");
   lap("running");
   progress("startup", "done");
   console.info("webgym loading times (s since start):", times);
@@ -122,6 +123,11 @@ self.onmessage = async ({ data }) => {
       self.canvas.width = data.width;
       self.canvas.height = data.height;
     } else if (data.type === "install") await install(data.name, data.packages, data.check);
+    else if (data.type === "exec") {
+      // compute-only workers: run python, the value of the last expression comes back
+      const value = await pyjs.async_exec_eval(data.code);
+      post({ type: "result", id: data.id, value: String(value), memory: pyjs.HEAPU8?.byteLength });
+    }
   } catch (e) {
     console.error(e);
     report(e);
