@@ -50,6 +50,10 @@ class Env:
         """what the env is about (its module's docstring)"""
         return (sys.modules[cls.__module__].__doc__ or "").strip()
 
+    def focus(self):
+        """a world point the camera follows (None: fixed camera)"""
+        return None
+
     def human_action(self, keys):
         """the action for a human pressing `keys` (a set of names like "left", "up",
         "space"): default zeros (no keyboard play)"""

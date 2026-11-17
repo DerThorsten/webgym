@@ -107,8 +107,9 @@ class App:
             {"type": "button", "name": "reset", "label": "Reset episode"},
             {"type": "checkbox", "name": "auto_reset", "label": "Auto reset (when not training)",
              "value": self.auto_reset},
-            {"type": "slider", "name": "speed", "label": "Training speed (steps / frame)", "min": 0,
-             "max": len(SPEEDS) - 1, "step": 1, "value": SPEEDS.index(self.speed), "display": self.speed},
+            {"type": "slider", "name": "speed", "label": "Training speed (x real time)", "min": 0,
+             "max": len(SPEEDS) - 1, "step": 1, "value": SPEEDS.index(self.speed),
+             "labels": [f"{s}x" for s in SPEEDS]},
         ]
 
     def command(self, name, value=None):
@@ -246,11 +247,26 @@ class App:
             self.debug_draw = GLDebugDraw(self.camera)
         self.camera.set_size(width, height)
         gl.glViewport(0, 0, width, height)
-        self.debug_draw.begin_draw()
         if self.training:
-            for env in self.envs:
-                if not env.done:
-                    self.debug_draw.draw_world(env.world, color=GHOST_COLOR, alpha=GHOST_ALPHA)
+            alive = [env for env in self.envs if not env.done]
+            # the leader: the alive candidate with the highest return so far
+            leader = max(alive, key=lambda env: env.episode_return) if alive else None
         else:
-            self.debug_draw.draw_world(self.env.world)
+            alive, leader = [], self.env
+        self._follow(leader)
+        self.debug_draw.begin_draw()
+        for env in alive:
+            if env is not leader:
+                self.debug_draw.draw_world(env.world, color=GHOST_COLOR, alpha=GHOST_ALPHA)
+        if leader is not None:
+            self.debug_draw.draw_world(leader.world)  # on top, own colors
         self.debug_draw.end_draw()
+
+    def _follow(self, env):
+        """the camera follows env.focus() horizontally (smoothly), unless panning"""
+        point = env.focus() if env is not None else None
+        if point is None or self.panning is not None:
+            return
+        x = self.camera.center[0] + 0.1 * (point[0] - self.camera.center[0])
+        self.camera.center = b2d.Vec2(x, self.camera.center[1])
+        self.camera._matrix = None

@@ -7,7 +7,7 @@ const canvas = document.getElementById("canvas");
 const statusEl = document.getElementById("status");
 const stateEl = document.getElementById("state");
 const plotEl = document.getElementById("plot");
-let history = []; // training stats per iteration (from the worker)
+let stats = []; // training stats per iteration (from the worker)
 const bars = new Map(); // progress id -> {label, value, bar}
 
 /** show a message (errors in red) */
@@ -73,9 +73,12 @@ function showControls(controls) {
     const el = document.createElement("div");
     el.className = "control";
     if (c.type === "info") {
-      el.className = "info";
-      el.textContent = c.text;
-      root.append(el);
+      // first line always visible, the rest on click
+      const [first, ...rest] = c.text.split("\n");
+      const details = Object.assign(document.createElement("details"), { className: "info" });
+      const summary = Object.assign(document.createElement("summary"), { textContent: first });
+      details.append(summary, rest.join("\n").trim());
+      root.append(details);
       continue;
     }
     const label = document.createElement("label");
@@ -105,8 +108,10 @@ function showControls(controls) {
       };
     } else {
       input = Object.assign(document.createElement("input"), { type: "range", min: c.min, max: c.max, step: c.step, value: c.value });
-      value.textContent = c.display ?? c.value;
-      input.oninput = () => (value.textContent = c.display === undefined ? input.value : "");
+      // optional labels per slider position (e.g. "4x")
+      const show = () => (value.textContent = c.labels ? c.labels[input.value] : input.value);
+      show();
+      input.oninput = show;
       input.onchange = () => {
         send(c.name, Number(input.value));
         input.blur();
@@ -116,13 +121,17 @@ function showControls(controls) {
     root.append(el);
   }
   root.append(buttons);
+  // the URL names the current env / algo: reload or share the link to get them
+  const url = new URL(location.href);
+  for (const c of controls) if (c.name === "env" || c.name === "algo") url.searchParams.set(c.name, c.value);
+  history.replaceState(null, "", url);
 }
 
 /** the reward curves of the current run */
 function showHistory() {
   plot(plotEl, [
-    { label: "mean return", color: "#4fa3ff", values: history.map((h) => h.mean_return) },
-    { label: "best return", color: "#f5a742", values: history.map((h) => h.best_return) },
+    { label: "mean return", color: "#4fa3ff", values: stats.map((h) => h.mean_return) },
+    { label: "best return", color: "#f5a742", values: stats.map((h) => h.best_return) },
   ]);
 }
 new ResizeObserver(showHistory).observe(plotEl);
@@ -132,11 +141,11 @@ worker.onmessage = ({ data }) => {
   else if (data.type === "ready") status("");
   else if (data.type === "controls") showControls(data.controls);
   else if (data.type === "history") {
-    history = data.reset ? data.entries : history.concat(data.entries);
+    stats = data.reset ? data.entries : stats.concat(data.entries);
     showHistory();
   } else if (data.type === "state") {
     const s = data.state;
-    const last = history.at(-1);
+    const last = stats.at(-1);
     stateEl.textContent =
       `mode      ${s.mode}\n` +
       `policy    ${s.policy}\n` +

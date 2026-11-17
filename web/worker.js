@@ -55,6 +55,8 @@ const lap = (name) => (times[name] = +((performance.now() - t0) / 1000).toFixed(
 async function init(canvas, pageUrl) {
   self.canvas = canvas; // host_web.py reads it via pyjs.js.canvas
   base = pageUrl;
+  // the URL query parameters (?env=LunarLander&algo=cem...) for host_web.start
+  self.webgymOptions = JSON.stringify(Object.fromEntries(new URL(pageUrl).searchParams));
   progress("startup", "starting python");
   const config = await (await fetch(new URL("config.json", base), { cache: "no-cache" })).json();
   pyjs = await initializePyjsRuntime({

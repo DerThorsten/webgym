@@ -64,6 +64,17 @@ reference to copy from.
   big package (torch, jax: MB downloaded / total, cached, unpacking, importing). Details under
   Loading.
 
+## Status / findings (2026-11-17)
+- Milestone 0 done: pyjs (npm 4.4.1, py 3.14) in a module worker, WebGL2 on an OffscreenCanvas
+  via PyOpenGL, pyb2d3 1.0.0 from emscripten-forge. Page start ~1.6 s (localhost), core archive
+  7.3 MB. pytorch from the channel: 8 s download + 3.6 s import; jax: 6 s + 2.7 s, **CPU device
+  only** (this jaxlib build has no WebGPU backend).
+- Envs: CartPole, LunarLander, Walker; numpy MLP + CEM (all three learn; CartPole < 1 s native).
+- Plots live in the host UI (HTML canvas in the page, implot natively), fed by `App.history`;
+  only the world is drawn in GL.
+- Watch mode extras: human controller (keyboard via `Env.human_action`), auto reset switch,
+  end-of-episode pause; training draws the leader (best alive candidate) solid over the ghosts.
+
 ## Layout
 ```
 pixi.toml                  envs: default (native: pyb2d3, numpy, pyopengl, imgui-bundle, pytest),

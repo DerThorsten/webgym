@@ -39,8 +39,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--install", help="also install this package (button) and wait for it")
+    parser.add_argument("--query", default="", help="URL query, e.g. env=LunarLander")
     args = parser.parse_args()
-    url = serve(DIST)
+    url = serve(DIST) + (f"?{args.query}" if args.query else "")
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
         page = browser.new_page(viewport={"width": 1200, "height": 700})
