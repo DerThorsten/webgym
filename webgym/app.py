@@ -30,8 +30,11 @@ import webgym.envs  # noqa: F401 (registers the built-in envs)
 
 GHOST_COLOR = 0x4FA3FF
 GHOST_ALPHA = 70
-SPEEDS = [1, 2, 4, 8, 16, 64, 256]  # population steps per frame while training
+SPEEDS = [1, 2, 4, 8, 16, 64, 256]  # population steps per frame while training (at most)
+FRAME_BUDGET_S = 0.012  # training time per frame: the rest of a 60 Hz frame draws
 END_SECONDS = 1.0  # watch mode: the world goes on this long after an episode ended
+# one box2d world per candidate: box2d has at most b2d.MAX_WORLDS (128) at a time
+MAX_POPULATION = (b2d.MAX_WORLDS - 8) // 4 * 4
 
 
 class App:
@@ -39,7 +42,10 @@ class App:
 
     def __init__(self, env="CartPole", algo="cem", population=32, seed=0):
         self.algo = algo
-        self.population = population
+        self.population = min(population, MAX_POPULATION)
+        self.env = None
+        self.envs = None
+        self.trainer = None
         self.seed = seed
         self.speed = 4
         self.controller = "agent"  # watch mode: "agent" (the policy) or "human" (keyboard)
@@ -57,6 +63,9 @@ class App:
 
     def set_env(self, name):
         """switch the env: forget the policy and the history, watch mode"""
+        self._close_population()
+        if self.env is not None:
+            self.env.close()
         self.env_name = name
         self.env = make(name)
         self.policy = MLP(self.env.observation_space.shape[0], self.env.action_space.shape[0])
@@ -70,8 +79,7 @@ class App:
 
     def watch(self):
         """watch mode: the current policy drives one env, the pointer drags bodies"""
-        self.trainer = None
-        self.envs = None
+        self._close_population()
         self.obs, _ = self.env.reset(seed=self.seed)
         self.episode_return = 0.0
         self.end_timer = None  # seconds until the next episode (after one ended)
@@ -83,9 +91,19 @@ class App:
         """train mode: a new trainer on a population of envs (continues from nothing:
         a fresh run, the history is cleared)"""
         self.mouse_drag.end()
+        self._close_population()
         self.envs = [make(self.env_name) for _ in range(self.population)]
         self.trainer = ALGOS[self.algo](self.envs, self.policy, seed=self.seed)
         self.history = []
+
+    def _close_population(self):
+        """stop the trainer and free the worlds of its population right away"""
+        if self.trainer is not None:
+            self.trainer.close()
+        self.trainer = None
+        for env in self.envs or ():
+            env.close()
+        self.envs = None
 
     @property
     def training(self):
@@ -101,7 +119,7 @@ class App:
             {"type": "select", "name": "controller", "label": "Controller (when not training)",
              "options": ["agent", "human"], "value": self.controller},
             {"type": "select", "name": "algo", "label": "Algorithm", "options": sorted(ALGOS), "value": self.algo},
-            {"type": "slider", "name": "population", "label": "Population", "min": 4, "max": 128, "step": 4,
+            {"type": "slider", "name": "population", "label": "Population", "min": 4, "max": MAX_POPULATION, "step": 4,
              "value": self.population},
             {"type": "button", "name": "stop" if self.training else "train", "label": "Stop" if self.training else "Train"},
             {"type": "button", "name": "reset", "label": "Reset episode"},
@@ -122,7 +140,7 @@ class App:
         elif name == "algo":
             self.algo = value
         elif name == "population":
-            self.population = int(value)
+            self.population = min(int(value), MAX_POPULATION)
         elif name == "train":
             self.train()
         elif name == "stop":
@@ -157,7 +175,7 @@ class App:
         """one animation frame into the current GL context of size (width, height) px"""
         t0 = time.perf_counter()
         if self.training:
-            self._train_steps()
+            self._train_steps(FRAME_BUDGET_S)
         else:
             self._watch_step()
         self._draw(width, height)
@@ -199,10 +217,14 @@ class App:
 
     # -- internals ----------------------------------------------------------------
 
-    def _train_steps(self):
-        """advance the trainer by `speed` population steps; new stats -> history and
-        the watched policy"""
+    def _train_steps(self, budget_s=None):
+        """advance the trainer by up to `speed` population steps, but at most for
+        `budget_s` seconds (the frame rate stays smooth at any speed); new stats ->
+        history and the watched policy"""
+        deadline = None if budget_s is None else time.perf_counter() + budget_s
         for _ in range(self.speed):
+            if deadline is not None and time.perf_counter() > deadline:
+                return
             item = next(self.trainer, "finished")
             if item == "finished":
                 self.watch()

@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--install", help="also install this package (button) and wait for it")
     parser.add_argument("--query", default="", help="URL query, e.g. env=LunarLander")
+    parser.add_argument("--stress", type=float, default=0, help="seconds per env at max population / speed")
+    parser.add_argument("--crash", action="store_true", help="crash python (wasm trap), expect a restart")
     args = parser.parse_args()
     url = serve(DIST) + (f"?{args.query}" if args.query else "")
     with sync_playwright() as p:
@@ -58,6 +60,37 @@ def main():
         )
         page.wait_for_timeout(3000)
         print("train:", page.inner_text("#state"))
+        if args.crash:
+            # a wasm trap in the worker: the page restarts it, python runs again
+            errors.clear()  # the crash itself is logged as an error on purpose
+            with page.expect_console_message(lambda m: READY in m.text, timeout=60_000):
+                page.evaluate("webgymCrashTest()")
+            print("after crash:", page.inner_text("#status").splitlines()[0])
+            assert "restarted" in page.inner_text("#status")
+            page.wait_for_timeout(1000)
+            errors.clear()
+        if args.stress:
+            # max population + max speed, train every env a while (box2d world limit,
+            # memory): no errors allowed
+            for env in ("CartPole", "LunarLander", "Walker", "CartPole"):
+                page.select_option("#controls select >> nth=0", env)
+                page.wait_for_timeout(300)
+                for name in ("Population", "Training speed"):
+                    page.evaluate(
+                        """(name) => {
+                        const label = [...document.querySelectorAll('#controls .control')]
+                            .find((c) => c.textContent.includes(name));
+                        const input = label.querySelector('input');
+                        input.value = input.max;
+                        input.dispatchEvent(new Event('change'));
+                        }""",
+                        name,
+                    )
+                    page.wait_for_timeout(300)
+                page.click("button:text('Train')")
+                page.wait_for_timeout(args.stress * 1000)
+                print(f"stress {env}:", page.inner_text("#state").replace("\n", " | "))
+                page.click("button:text('Stop')")
         if args.install:
             button = "#load-torch" if args.install == "pytorch" else "#load-jax"
             with page.expect_console_message(lambda m: "installed" in m.text, timeout=600_000) as msg:
@@ -65,7 +98,7 @@ def main():
             print(msg.value.text, page.inner_text("#status"))
         if args.screenshot:
             page.screenshot(path=str(args.screenshot))
-        if errors or "error" in page.inner_text("#status"):
+        if errors or page.inner_text("#status").startswith("error"):
             raise SystemExit("errors:\n" + "\n".join(errors) + page.inner_text("#status"))
         browser.close()
 

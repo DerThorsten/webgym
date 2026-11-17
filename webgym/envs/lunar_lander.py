@@ -16,7 +16,7 @@ import math
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import Box, Env, register_env
+from webgym.core import Box, Env, new_world, register_env
 
 HULL = [(-0.5, -0.25), (0.5, -0.25), (0.35, 0.35), (-0.35, 0.35)]
 LEG_ANGLE = 0.35  # the legs splay outwards
@@ -42,7 +42,7 @@ class LunarLander(Env):
     gravity = 5.0
 
     def __init__(self):
-        world = b2d.World(gravity=(0, -self.gravity))
+        world = new_world(gravity=(0, -self.gravity))
         ground = world.create_static_body(position=(0, -0.5))
         ground.create_shape(b2d.shape_def(material=b2d.surface_material(friction=0.8)), b2d.box(14, 0.5))
         # the flags of the pad: decoration, nothing collides with them

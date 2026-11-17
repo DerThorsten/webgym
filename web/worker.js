@@ -6,7 +6,8 @@
 //                   {type: "install", name, packages}
 //   worker -> page: {type: "progress", id, phase, done, total}, {type: "ready"},
 //                   {type: "controls", controls}, {type: "history", entries, reset},
-//                   {type: "state", state}, {type: "installed", name, seconds}, {type: "error", error}
+//                   {type: "state", state}, {type: "installed", name, seconds}, {type: "error", error},
+//                   {type: "fatal", error} (wasm trap: the page restarts the worker)
 // (archive download / unpack: from pyb2d3/examples/web/main.js)
 
 import { initializePyjsRuntime } from "@derthorsten/pyjs";
@@ -18,6 +19,9 @@ const progress = (id, phase, done = 0, total = 0) => post({ type: "progress", id
 async function download(url, onBytes) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+  // a dev server answers a missing file with index.html (200)
+  if ((response.headers.get("content-type") ?? "").includes("text/html"))
+    throw new Error(`${url} is missing (an HTML page came instead): the archives were rebuilt, reload the page`);
   const reader = response.body.getReader();
   const chunks = [];
   let received = 0;
@@ -92,6 +96,23 @@ async function install(name, packages, check) {
   post({ type: "installed", name, seconds: { install: downloaded, total: (performance.now() - start) / 1000 }, result: String(result) });
 }
 
+// wasm traps / aborts: the runtime's memory is in an unknown state afterwards, the
+// page restarts the worker (python exceptions are reported by host_web.py and the
+// app goes on)
+const FATAL = /RuntimeError|Aborted|unreachable|out of memory|out of bounds/i;
+const report = (e) => {
+  const text = String(e?.stack ?? e?.message ?? e);
+  post({ type: FATAL.test(text) ? "fatal" : "error", error: text });
+};
+self.addEventListener("error", (e) => {
+  e.preventDefault();
+  report(e.error ?? e.message);
+});
+self.addEventListener("unhandledrejection", (e) => {
+  e.preventDefault();
+  report(e.reason);
+});
+
 self.onmessage = async ({ data }) => {
   try {
     if (data.type === "init") await init(data.canvas, data.base);
@@ -103,6 +124,6 @@ self.onmessage = async ({ data }) => {
     } else if (data.type === "install") await install(data.name, data.packages, data.check);
   } catch (e) {
     console.error(e);
-    post({ type: "error", error: String(e?.stack ?? e) });
+    report(e);
   }
 };

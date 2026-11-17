@@ -14,7 +14,7 @@ o / l = right hip, p / ; = right knee.
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import Box, Env, register_env
+from webgym.core import Box, Env, new_world, register_env
 
 HIP_Y = 1.2  # standing height of the hips
 THIGH, SHIN = 0.32, 0.3  # half lengths
@@ -31,7 +31,7 @@ class Walker(Env):
     view_zoom = 3.5
 
     def __init__(self):
-        world = b2d.World(gravity=(0, -10))
+        world = new_world(gravity=(0, -10))
         ground = world.create_static_body(position=(0, 0))
         ground.create_shape(
             b2d.shape_def(material=b2d.surface_material(friction=1.0)),

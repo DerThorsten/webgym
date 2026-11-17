@@ -75,6 +75,21 @@ reference to copy from.
 - Watch mode extras: human controller (keyboard via `Env.human_action`), auto reset switch,
   end-of-episode pause; training draws the leader (best alive candidate) solid over the ghosts.
 
+## Error handling
+- **Python exceptions** (env / trainer / edited code): reported with traceback, the app falls
+  back to watch mode, python keeps running.
+- **Hard errors** (wasm traps: memory access out of bounds, unreachable, abort, OOM): the
+  runtime's memory is undefined afterwards. The worker reports them as `fatal` (also via its
+  global error handlers); the page terminates it and starts a fresh worker on a fresh canvas
+  (~1.5 s, cached), env / algo kept via the URL, notice shown. > 3 crashes / minute: no more
+  restarts, error + "Reload page". Tested with a real trap (`webgymCrashTest()`,
+  `test_page.py --crash`).
+- **Prevention**: guards that turn would-be corruption into python exceptions, e.g.
+  `core.new_world()` (box2d silently returns an invalid world beyond `b2d.MAX_WORLDS` = 128:
+  the cause of the first crash), populations freed right away (`Env.close()`), population
+  capped at 120. Upstream idea: pyb2d3 should raise on an invalid new world itself.
+- Later: auto-saved checkpoints (IndexedDB) so a restart resumes the last policy.
+
 ## Layout
 ```
 pixi.toml                  envs: default (native: pyb2d3, numpy, pyopengl, imgui-bundle, pytest),

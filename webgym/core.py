@@ -3,6 +3,7 @@
 import sys
 
 import numpy as np
+import pyb2d3 as b2d
 
 
 class Box:
@@ -59,6 +60,11 @@ class Env:
         "space"): default zeros (no keyboard play)"""
         return np.zeros(self.action_space.shape, dtype=np.float32)
 
+    def close(self):
+        """free the box2d world now (box2d has at most b2d.MAX_WORLDS = 128 worlds at a
+        time; don't wait for the garbage collector)"""
+        self.world.destroy()
+
     def reset(self, seed=None):
         """start a new episode -> (obs, info)"""
         if seed is not None or not hasattr(self, "rng"):
@@ -99,3 +105,12 @@ def make(name, **kwargs):
     if name not in ENVS:
         import webgym.envs  # noqa: F401 (registers the built-in envs)
     return ENVS[name](**kwargs)
+
+
+def new_world(**kwargs):
+    """b2d.World(**kwargs) for an env, checked: box2d hands out an invalid world (no
+    error) when all b2d.MAX_WORLDS (128) are in use, and using it corrupts memory"""
+    world = b2d.World(**kwargs)
+    if not world.is_valid:
+        raise RuntimeError(f"too many box2d worlds (at most {b2d.MAX_WORLDS}): close() unused envs")
+    return world

@@ -105,18 +105,22 @@ def pack_core(path, conda_pkgs):
 
 
 def build():
-    """write public/core-<hash>.tar.gz and public/config.json (old archives removed)"""
+    """write public/core-<hash>.tar.gz and public/config.json. A page loading meanwhile
+    (dev server) always finds the archive its config.json names: new archive first,
+    then config.json (atomic rename), old archives removed last"""
     PUBLIC.mkdir(exist_ok=True)
-    for old in PUBLIC.glob("core-*.tar.gz"):
-        old.unlink()
-    tmp = PUBLIC / "core.tar.gz"
+    tmp = PUBLIC / "core.tar.gz.tmp"
     pack_core(tmp, fetch_packages(PACKAGES))
     data = tmp.read_bytes()
     digest = hashlib.sha256(data).hexdigest()[:16]
     url = f"core-{digest}.tar.gz"
-    tmp.rename(PUBLIC / url)
+    tmp.replace(PUBLIC / url)
     config = {"archives": [{"name": "core", "url": url, "path": "/", "hash": digest, "size": len(data)}]}
-    (PUBLIC / "config.json").write_text(json.dumps(config, indent=2))
+    (PUBLIC / "config.json.tmp").write_text(json.dumps(config, indent=2))
+    (PUBLIC / "config.json.tmp").replace(PUBLIC / "config.json")
+    for old in PUBLIC.glob("core-*.tar.gz"):
+        if old.name != url:
+            old.unlink()
     print(f"{url}: {len(data) / 1e6:.1f} MB")
 
 

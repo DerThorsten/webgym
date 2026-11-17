@@ -112,6 +112,10 @@ class WebHost:
 
     def command(self, name, value):
         """a widget of the page changed, see App.command"""
+        if name == "__crash__":
+            # tests of the page's crash handling: a real wasm trap (memory access out
+            # of bounds: read beyond the 4 GB of wasm32)
+            ctypes.string_at(2**32 - 16, 64)
         try:
             self.app.command(str(name), None if value is None else value)
             self.send_controls()

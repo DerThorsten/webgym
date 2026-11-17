@@ -79,6 +79,38 @@ def test_without_auto_reset_the_env_goes_on():
     assert app.episodes == 2
 
 
+def test_no_world_leak_at_max_population():
+    """box2d has at most 128 worlds: train / stop / switch envs at the max population
+    many times, every world must be valid (populations are freed right away)"""
+    from webgym.app import MAX_POPULATION
+
+    app = make_app()
+    app.command("population", 10_000)  # capped
+    assert app.population == MAX_POPULATION
+    for name in ["CartPole", "LunarLander", "Walker", "CartPole"] * 2:
+        app.command("env", name)
+        app.command("train")
+        app._train_steps()
+        assert all(env.world.is_valid for env in app.envs)
+        app.command("stop")
+    assert app.env.world.is_valid
+
+
+def test_too_many_worlds_raise():
+    """an invalid world (all worlds in use) is an error, not silent memory corruption"""
+    import pytest
+    import pyb2d3 as b2d
+
+    from webgym.core import new_world
+
+    worlds = []
+    with pytest.raises(RuntimeError, match="too many box2d worlds"):
+        for _ in range(b2d.MAX_WORLDS + 1):
+            worlds.append(new_world())
+    for w in worlds:
+        w.destroy()
+
+
 def test_train_then_watch():
     """train via commands: history grows, the watched policy is set; stop -> watch,
     no dragging while training"""

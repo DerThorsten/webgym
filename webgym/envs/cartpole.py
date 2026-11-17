@@ -11,7 +11,7 @@ Keys (human controller): left / right arrow push the cart.
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import Box, Env, register_env
+from webgym.core import Box, Env, new_world, register_env
 
 
 @register_env("CartPole")
@@ -24,7 +24,7 @@ class CartPole(Env):
     view_zoom = 3.0
 
     def __init__(self):
-        world = b2d.World(gravity=(0, -10))
+        world = new_world(gravity=(0, -10))
         ground = world.create_static_body(position=(0, 0))
         # cart and pole don't collide with the ground or each other (the joints hold
         # them): ground category 4, cart / pole category 2 with mask 1 = only the
