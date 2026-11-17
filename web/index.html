@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>webgym</title>
+    <style>
+      html, body { margin: 0; height: 100%; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
+      #app { display: flex; height: 100dvh; }
+      #side { width: 300px; padding: 12px; box-sizing: border-box; overflow: auto; background: #1b1b1b; }
+      #stage { flex: 1; position: relative; min-width: 0; }
+      #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+      h3 { margin: 0 0 8px; }
+      h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; color: #888; }
+      .bar { margin: 8px 0; }
+      .bar label { display: flex; justify-content: space-between; font-size: 12px; color: #aaa; }
+      .bar progress { width: 100%; }
+      .control { margin: 8px 0; }
+      .control label { display: flex; justify-content: space-between; font-size: 12px; color: #aaa; }
+      .control select, .control input { width: 100%; }
+      button { margin: 4px 4px 0 0; padding: 4px 10px; }
+      button.primary { background: #2f6fd6; color: #fff; border: 0; border-radius: 3px; }
+      #plot { width: 100%; height: 160px; display: block; --grid: #444; color: #aaa; }
+      #state { font: 12px monospace; color: #8c8; white-space: pre; }
+      #status.error { color: #f66; white-space: pre-wrap; font: 11px monospace; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="side">
+        <h3>webgym</h3>
+        <div id="bars"></div>
+        <div id="controls"></div>
+        <h4>Training</h4>
+        <canvas id="plot"></canvas>
+        <div id="state"></div>
+        <h4>Packages</h4>
+        <div>
+          <button id="load-torch">load pytorch</button>
+          <button id="load-jax">load jax</button>
+        </div>
+        <p id="status"></p>
+      </div>
+      <div id="stage"><canvas id="canvas"></canvas></div>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

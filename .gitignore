@@ -1,0 +1,9 @@
+.pixi/
+build/
+web/node_modules/
+web/dist/
+web/public/pyjs/
+web/public/core-*.tar.gz
+web/public/config.json
+__pycache__/
+.claude/settings.local.json

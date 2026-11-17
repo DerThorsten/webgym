@@ -1,0 +1,14 @@
+{
+  "name": "webgym-page",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "pyjs copy-assets public/pyjs --arch wasm32"
+  },
+  "dependencies": {
+    "@derthorsten/pyjs": "4.4.1"
+  },
+  "devDependencies": {
+    "vite": "6.3.5"
+  }
+}

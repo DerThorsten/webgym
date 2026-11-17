@@ -1,0 +1,64 @@
+[workspace]
+name = "webgym"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64", "osx-64", "win-64"]
+
+[dependencies]
+python = "3.14.*"
+numpy = "*"
+pyopengl = "*"
+imgui-bundle = "*"
+pytest = "*"
+ruff = "*"
+# the web page: vite + npm packages (pyjs, monaco)
+nodejs = ">=22"
+
+[pypi-dependencies]
+pyb2d3 = ">=1.0.0"
+webgym = { path = ".", editable = true }
+
+[tasks.test]
+description = "Run the tests"
+cmd = "python -m pytest tests"
+
+[tasks.format]
+description = "Format python"
+cmd = "ruff format && ruff check --fix"
+
+[tasks.npm-install]
+description = "Install the JS dependencies of the page"
+cmd = "npm install"
+cwd = "web"
+inputs = ["web/package.json"]
+outputs = ["web/node_modules/.package-lock.json"]
+
+[tasks.web-archives]
+description = "Pack the python archives of the page + config.json into web/public"
+cmd = "python web/build_page.py"
+
+[tasks.web-dev]
+description = "Serve the page with the vite dev server"
+cmd = "npx vite"
+cwd = "web"
+depends-on = ["npm-install", "web-archives"]
+
+[tasks.web-build]
+description = "Build the static page into web/dist"
+cmd = "npx vite build"
+cwd = "web"
+depends-on = ["npm-install", "web-archives"]
+
+# the built page in headless chromium (playwright; its browser lives in .pixi)
+[feature.web-test.dependencies]
+playwright-python = "*"
+
+[feature.web-test.activation.env]
+PLAYWRIGHT_BROWSERS_PATH = "$PIXI_PROJECT_ROOT/.pixi/ms-playwright"
+
+[feature.web-test.tasks.web-test]
+description = "Build the page, load it in headless chromium (cold + cached), fail on errors"
+cmd = "playwright install chromium && python web/test_page.py --screenshot build/page.png"
+depends-on = ["web-build"]
+
+[environments]
+web-test = ["web-test"]
