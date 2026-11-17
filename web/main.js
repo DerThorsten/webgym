@@ -13,6 +13,8 @@ const stateEl = document.getElementById("state");
 const plotEl = document.getElementById("plot");
 let stats = []; // training stats per iteration (from the worker)
 const afterInstall = new Map(); // package -> the command to send once it is loaded
+const requested = new Set(); // package groups asked for in this worker (see loadPackage)
+const brokenPackages = new Set(); // package groups that crashed python (this page visit)
 const bars = new Map(); // progress id -> {label, value, bar}
 
 /** show a message (errors in red) */
@@ -45,12 +47,14 @@ function showProgress({ id, phase, done, total }) {
 }
 
 const loading = new Map(); // id -> what it is doing (startup, core, pytorch, jax)
-/** the hourglass overlay over the canvas while something loads */
+/** the hourglass overlay over the canvas while the user waits: the start, or a
+ * package an action waits for (the background loading shows in the panel only) */
 function showBusy() {
   const el = document.getElementById("busy");
-  el.hidden = loading.size === 0;
+  const waiting = [...loading].filter(([id]) => id === "startup" || id === "core" || afterInstall.has(id));
+  el.hidden = waiting.length === 0;
   if (el.hidden) return;
-  const lines = [...loading].map(([id, what]) => `${id}: ${what}`).join("<br>");
+  const lines = waiting.map(([id, what]) => `${id}: ${what}`).join("<br>");
   el.innerHTML = `<div class="big">⏳ please wait</div><div class="small">${lines}</div>`;
 }
 
@@ -199,18 +203,22 @@ function onMessage({ data }) {
   if (data.type === "progress") showProgress(data);
   else if (data.type === "ready") {
     if (Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
-    for (const name of rememberedPackages()) loadPackage(name); // loaded on an earlier visit
+    // in the background, a bit later: the restore of the autosave goes first (the
+    // installs keep python busy)
+    setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
   }
   else if (data.type === "controls") {
     showControls(data.controls);
     checkpoints.onControls(data.controls, freshWorker);
     freshWorker = false;
   } else if (data.type === "checkpoint" || data.type === "delete_checkpoint") checkpoints.onMessage(data);
+  else if (data.type === "compile_request") compileRequest(data);
   else if (data.type === "need_package") {
     // e.g. Train with PPO (pytorch) before pytorch is loaded: load it, then train
     status(`loading ${data.package} for this algorithm…`);
     afterInstall.set(data.package, data.command);
-    loadPackage(data.package);
+    loadPackage(data.package); // (already loading in the background: then it just waits)
+    showBusy();
   }
   else if (data.type === "history") {
     stats = data.reset ? data.entries : stats.concat(data.entries);
@@ -231,8 +239,7 @@ function onMessage({ data }) {
       `frame     ${s.frame_ms.toFixed(1)} ms`;
   } else if (data.type === "installed") {
     console.info(`${data.name} installed:`, data.seconds, data.result);
-    status(`${data.name}: ${data.result} (${data.seconds.total.toFixed(1)} s)`);
-    rememberPackage(data.name);
+    showPackageResult(data.name, `${data.result} (loaded in ${data.seconds.total.toFixed(1)} s)`);
     if (afterInstall.has(data.name)) {
       send({ type: "command", name: afterInstall.get(data.name) });
       afterInstall.delete(data.name);
@@ -261,20 +268,31 @@ function startWorker() {
   worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   worker.onmessage = onMessage;
   freshWorker = true;
+  requested.clear(); // (a new worker loads them again, from the package cache)
   worker.onerror = (e) => {
     e.preventDefault();
-    if (/RuntimeError|Aborted|unreachable|out of memory|out of bounds/i.test(e.message)) restartAfterCrash(e.message);
+    if (/RuntimeError: (unreachable|memory access out of bounds|null function|indirect call)|Aborted\(|out of memory/i.test(e.message))
+      restartAfterCrash(e.message);
     else status(`worker error: ${e.message}`, true);
   };
   const offscreen = canvas.transferControlToOffscreen();
   send({ type: "init", canvas: offscreen, base: location.href }, [offscreen]);
   resize();
-  for (const b of document.querySelectorAll("#load-torch, #load-jax")) b.disabled = false;
 }
 
 /** the worker crashed (`error`): restart it, unless it crashes too often */
 function restartAfterCrash(error) {
   console.error("python crashed:", error);
+  // a package that was loading / being checked: probably the cause, skipped from now on
+  for (const id of loading.keys()) {
+    if (id in PACKAGES) {
+      brokenPackages.add(id);
+      showPackageResult(id, `crashed python while loading / checking (${error.split("\n")[0]}), skipped`);
+      afterInstall.delete(id);
+    }
+  }
+  loading.clear();
+  showBusy();
   worker.terminate();
   worker = null;
   const now = Date.now();
@@ -336,48 +354,103 @@ stage.addEventListener(
   { passive: false },
 );
 
-// milestone 0: load the big packages from the channel and run a tiny forward/backward
-const CHECKS = {
-  pytorch: `
+// The big packages, always loaded in the background after the start (from the
+// worker's package cache after the first visit), one after the other; each is
+// checked once loaded (the result shows in the packages panel). "webgpu": IREE (jax ->
+// WebGPU), checked with a small benchmark on the GPU (webgym/gpu.py)
+const PACKAGES = {
+  pytorch: {
+    packages: ["pytorch"],
+    check: `
 import time, torch
 torch.autograd.set_multithreading_enabled(False)
 t = time.perf_counter()
-m = torch.nn.Linear(8, 2)
-loss = m(torch.randn(64, 8)).pow(2).mean()
+loss = torch.nn.Linear(8, 2)(torch.randn(64, 8)).pow(2).mean()
 loss.backward()
 f"torch {torch.__version__}, fwd+bwd {1e3 * (time.perf_counter() - t):.1f} ms"
 `,
-  jax: `
+  },
+  jax: {
+    packages: ["jax"],
+    check: `
 import time, jax, jax.numpy as jnp
 t = time.perf_counter()
-g = jax.jit(jax.grad(lambda w: (w ** 2).sum()))
-g(jnp.ones(8)).block_until_ready()
-f"jax {jax.__version__} on {jax.devices()}, jit+grad {1e3 * (time.perf_counter() - t):.1f} ms"
+jax.jit(jax.grad(lambda w: (w ** 2).sum()))(jnp.ones(8)).block_until_ready()
+f"jax {jax.__version__}, jit+grad {1e3 * (time.perf_counter() - t):.1f} ms"
 `,
+  },
+  webgpu: {
+    // (the compiler runs in the compile worker, see below)
+    packages: ["iree-base-runtime"],
+    check: "from webgym import gpu\nawait gpu.probe()",
+  },
 };
-const BUTTONS = { pytorch: "load-torch", jax: "load-jax" };
 
-/** load a big package in the worker (from the package cache when it was loaded before) */
+// ---- the compile worker: IREE's compiler (StableHLO -> WebGPU) -----------------------
+// jaxlib and the IREE compiler both bring MLIR python bindings, which abort python when
+// loaded into one process: the compiler lives in its own compute-only worker, started
+// on the first compile request (python start + 29 MB compiler, cached after that)
+let compiler = null;
+
+/** the compile worker: {exec(code) -> value}; resolves when the compiler is loaded */
+function compileWorker() {
+  compiler ??= new Promise((resolve, reject) => {
+    const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+    const pending = new Map();
+    let nextId = 0;
+    const exec = (code) =>
+      new Promise((res, rej) => {
+        const id = nextId++;
+        pending.set(id, { res, rej });
+        w.postMessage({ type: "exec", id, code });
+      });
+    w.onmessage = ({ data }) => {
+      if (data.type === "progress") {
+        // its own bars would mix with the main worker's: one "compiler" entry
+        showProgress({ ...data, id: "compiler", phase: `${data.id}: ${data.phase}` });
+        if (data.id === "startup" && data.phase === "done")
+          w.postMessage({ type: "install", name: "compiler", packages: ["iree-base-compiler"], check: "'ok'" });
+      } else if (data.type === "installed") {
+        showProgress({ id: "compiler", phase: "done" });
+        resolve({ exec });
+      } else if (data.type === "result") pending.get(data.id).res(data.value);
+      else if (data.type === "error" || data.type === "fatal") {
+        for (const p of pending.values()) p.rej(new Error(data.error));
+        pending.clear();
+        reject(new Error(data.error));
+      }
+    };
+    w.postMessage({ type: "init", canvas: null, base: location.href });
+  });
+  return compiler;
+}
+
+/** a compile request of the main worker: StableHLO -> IREE module for WebGPU (base64) */
+async function compileRequest({ id, mlir }) {
+  try {
+    const { exec } = await compileWorker();
+    const data = await exec(`from webgym import gpu\ngpu.compile_b64(${JSON.stringify(mlir)})`);
+    send({ type: "compile_result", id, data });
+  } catch (e) {
+    send({ type: "compile_result", id, error: String(e?.message ?? e) });
+  }
+}
+
+/** load a package group in the worker once (installs run one after the other); not
+ * one that crashed python (wasm trap) while it was loading / checked: no crash loop */
 function loadPackage(name) {
-  document.getElementById(BUTTONS[name]).disabled = true;
-  send({ type: "install", name, packages: [name], check: CHECKS[name] });
+  if (requested.has(name) || brokenPackages.has(name)) return;
+  requested.add(name);
+  send({ type: "install", name, packages: PACKAGES[name].packages, check: PACKAGES[name].check });
 }
-for (const name of Object.keys(BUTTONS)) document.getElementById(BUTTONS[name]).addEventListener("click", () => loadPackage(name));
 
-// the packages loaded on an earlier visit load again by themselves (no prompt): they
-// come from the worker's package cache. Remembered per browser (localStorage)
-const REMEMBERED = "webgym.packages";
-function rememberedPackages() {
-  try {
-    return JSON.parse(localStorage.getItem(REMEMBERED) ?? "[]").filter((name) => name in BUTTONS);
-  } catch {
-    return [];
+/** the result of a package's check, in the packages panel */
+function showPackageResult(name, text) {
+  const id = `package-${name}`;
+  let el = document.getElementById(id);
+  if (!el) {
+    el = Object.assign(document.createElement("div"), { id, className: "package-result" });
+    document.getElementById("packages").append(el);
   }
-}
-function rememberPackage(name) {
-  try {
-    localStorage.setItem(REMEMBERED, JSON.stringify([...new Set([...rememberedPackages(), name])]));
-  } catch {
-    // (no storage, e.g. some private windows: then no auto load)
-  }
+  el.textContent = `${name}: ${text}`;
 }

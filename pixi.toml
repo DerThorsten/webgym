@@ -69,6 +69,11 @@ platforms = ["osx-arm64", "linux-64"]
 pytorch = "*"
 jax = "*"
 
+# IREE (jax -> StableHLO -> IREE; natively on the CPU, in the browser on WebGPU)
+[feature.ml.pypi-dependencies]
+iree-base-compiler = "*"
+iree-base-runtime = "*"
+
 [environments]
 web-test = ["web-test"]
 ml = ["ml"]

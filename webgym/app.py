@@ -229,18 +229,23 @@ class App:
     def _param_controls(self):
         """sliders for the current algorithm's parameters (collapsible group)"""
         algo = ALGOS[self.algo]
-        return [
-            {"type": "slider", "name": f"hp.{key}", "group": "Algorithm parameters",
-             "label": key + (" (new run)" if key in algo.new_run else ""),
-             "min": lo, "max": hi, "step": step, "value": self.hp[self.algo][key]}
-            for key, (_, lo, hi, step) in algo.params.items()
-        ]
+        controls = []
+        for key, spec in algo.params.items():
+            label = key + (" (new run)" if key in algo.new_run else "")
+            common = {"name": f"hp.{key}", "group": "Algorithm parameters", "label": label,
+                      "value": self.hp[self.algo][key]}
+            if isinstance(spec[1], list):  # (default, [choices])
+                controls.append({"type": "select", "options": spec[1], **common})
+            else:  # (default, min, max, step)
+                controls.append({"type": "slider", "min": spec[1], "max": spec[2], "step": spec[3], **common})
+        return controls
 
     def command(self, name, value=None):
         """a widget changed / a button was pressed"""
         if name.startswith("hp."):
             key = name[3:]
-            self.hp[self.algo][key] = type(ALGOS[self.algo].params[key][0])(value)
+            default = ALGOS[self.algo].params[key][0]
+            self.hp[self.algo][key] = value if isinstance(default, str) else type(default)(value)
             if key in ALGOS[self.algo].new_run:
                 self.new_run()  # (e.g. another network size)
             elif self.training:

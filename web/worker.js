@@ -4,6 +4,7 @@
 //                   {type: "event", kind, x, y, delta, key} (pointer: drawing-buffer px; keys),
 //                   {type: "command", name, value} (a widget changed),
 //                   {type: "restore", data} (a checkpoint, base64 .safetensors),
+//                   {type: "compile_result", id, data | error} (an IREE module, base64),
 //                   {type: "exec", id, code} (python; -> {type: "result", id, value}),
 //                   {type: "install", name, packages}
 //   worker -> page: {type: "progress", id, phase, done, total}, {type: "ready"},
@@ -11,7 +12,8 @@
 //                   {type: "state", state}, {type: "installed", name, seconds}, {type: "error", error},
 //                   {type: "fatal", error} (wasm trap: the page restarts the worker),
 //                   {type: "checkpoint", name, env, algo, iteration, mean_return, data},
-//                   {type: "delete_checkpoint", name, env, algo}
+//                   {type: "delete_checkpoint", name, env, algo},
+//                   {type: "compile_request", id, mlir} (StableHLO for the compile worker)
 // (archive download / unpack: from pyb2d3/examples/web/main.js)
 
 import { initializePyjsRuntime } from "@derthorsten/pyjs";
@@ -73,6 +75,18 @@ async function unpackArchive(pyjs, archive) {
   progress(archive.name, "done");
 }
 
+// IREE compiles in another worker (the page's compile worker): jaxlib and the IREE
+// compiler bring their own MLIR python bindings, which cannot be loaded into one
+// process (nanobind aborts). python awaits self.webgymCompile(mlir) -> base64 module
+const compiles = new Map();
+let nextCompile = 0;
+self.webgymCompile = (mlir) =>
+  new Promise((resolve, reject) => {
+    const id = nextCompile++;
+    compiles.set(id, { resolve, reject });
+    post({ type: "compile_request", id, mlir });
+  });
+
 let pyjs = null;
 // the page's url: config.json, the archives and pyjs/ live there (the bundled
 // worker itself is in assets/)
@@ -117,7 +131,13 @@ async function install(name, packages, check) {
   await pyjs.installPackages(packages, { logger: { log: (m) => progress(name, String(m)), warn: console.warn, error: console.error } });
   const downloaded = (performance.now() - start) / 1000;
   progress(name, "importing");
-  const result = await pyjs.async_exec_eval(check);
+  let result;
+  try {
+    result = await pyjs.async_exec_eval(check);
+  } catch (e) {
+    // a failed check (python exception): reported as the result, the page goes on
+    result = `failed: ${String(e?.message ?? e).trim().split("\n").at(-1)}`;
+  }
   progress(name, "ready");
   post({ type: "installed", name, seconds: { install: downloaded, total: (performance.now() - start) / 1000 }, result: String(result) });
 }
@@ -125,7 +145,8 @@ async function install(name, packages, check) {
 // wasm traps / aborts: the runtime's memory is in an unknown state afterwards, the
 // page restarts the worker (python exceptions are reported by host_web.py and the
 // app goes on)
-const FATAL = /RuntimeError|Aborted|unreachable|out of memory|out of bounds/i;
+// (the JS RuntimeError of a wasm trap, not a python RuntimeError(...))
+const FATAL = /RuntimeError: (unreachable|memory access out of bounds|null function|indirect call|divide by zero|integer overflow|call stack)|Aborted\(|out of memory/i;
 const report = (e) => {
   const text = String(e?.stack ?? e?.message ?? e);
   post({ type: FATAL.test(text) ? "fatal" : "error", error: text });
@@ -145,7 +166,14 @@ self.onmessage = async ({ data }) => {
     else if (data.type === "event") self.webgymEvent?.(data.kind, data.x ?? 0, data.y ?? 0, data.delta ?? 0, data.key ?? "");
     else if (data.type === "command") self.webgymCommand?.(data.name, data.value ?? null);
     else if (data.type === "restore") self.webgymRestore?.(data.data);
+    else if (data.type === "compile_result") {
+      const { resolve, reject } = compiles.get(data.id);
+      compiles.delete(data.id);
+      if (data.error) reject(new Error(data.error));
+      else resolve(data.data);
+    }
     else if (data.type === "resize") {
+      if (!self.canvas) return; // (not initialized: the init message sets the size anyway)
       self.canvas.width = data.width;
       self.canvas.height = data.height;
     } else if (data.type === "install") await install(data.name, data.packages, data.check);

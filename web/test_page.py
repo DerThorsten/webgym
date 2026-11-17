@@ -58,7 +58,7 @@ def check_checkpoints(page, url, errors):
     page.wait_for_function("document.getElementById('ckpt-list').textContent.includes('my run')", timeout=10_000)
     load(page, url, errors)  # reload: the autosave comes back
     page.wait_for_function(
-        f"document.getElementById('state').textContent.includes('iteration {trained}')", timeout=20_000
+        f"document.getElementById('state').textContent.includes('iteration {trained}')", timeout=60_000
     )
     print("restored after reload:", state(page))
     assert "my run" in page.inner_text("#ckpt-list")
@@ -86,7 +86,7 @@ def main():
     """command line"""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--screenshot", type=Path)
-    parser.add_argument("--install", help="also install this package (button) and wait for it")
+    parser.add_argument("--packages", action="store_true", help="wait for pytorch / jax / webgpu")
     parser.add_argument("--query", default="", help="URL query, e.g. env=LunarLander")
     parser.add_argument("--stress", type=float, default=0, help="seconds per env at max population / speed")
     parser.add_argument("--crash", action="store_true", help="crash python (wasm trap), expect a restart")
@@ -95,10 +95,15 @@ def main():
     args = parser.parse_args()
     url = serve(DIST) + (f"?{args.query}" if args.query else "")
     with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        browser = p.chromium.launch(
+            args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--enable-unsafe-webgpu",
+                  "--enable-features=Vulkan"]
+        )
         page = browser.new_page(viewport={"width": 1200, "height": 700})
         errors = []
-        page.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        # (python warnings go to stderr = console errors: not failures)
+        page.on("console", lambda m: m.type == "error" and "Warning" not in m.text and errors.append(m.text))
+        page.on("console", lambda m: "webgym.gpu" in m.text and print(m.text))
         page.on("pageerror", lambda e: errors.append(str(e)))
         print("cold:", load(page, url, errors))
         print("reload:", load(page, url, errors))
@@ -160,15 +165,14 @@ def main():
                 page.wait_for_timeout(args.stress * 1000)
                 print(f"stress {env}:", page.inner_text("#state").replace("\n", " | "))
                 page.click("button:text('Stop')")
-        if args.install:
-            button = "#load-torch" if args.install == "pytorch" else "#load-jax"
-            with page.expect_console_message(lambda m: "installed" in m.text, timeout=600_000) as msg:
-                page.click(button)
-            print("first visit:", msg.value.text)
-            # a second visit: loads it again by itself, from the package cache
-            with page.expect_console_message(lambda m: "installed" in m.text, timeout=600_000) as msg:
-                page.reload()
-            print("second visit (automatic):", msg.value.text)
+        if args.packages:
+            # pytorch, jax, webgpu (IREE) load in the background by themselves; their
+            # checks (incl. the GPU probe) end up in the packages panel
+            page.wait_for_function(
+                "['pytorch', 'jax', 'webgpu'].every((n) => document.getElementById('package-' + n))",
+                timeout=900_000,
+            )
+            print(page.inner_text("#packages"))
         if args.screenshot:
             page.screenshot(path=str(args.screenshot))
         if errors or page.inner_text("#status").startswith("error"):

@@ -419,6 +419,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xorg-libxrender-0.9.13-h7cc23a3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_7.conda
+      - pypi: https://files.pythonhosted.org/packages/1c/6d/75d5b65e18c3108bfe4812234de603dd55a961a081f4a22b4178628ac7aa/iree_base_compiler-3.14.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/fe/c6/19bdeb7d037d20ac4a12a40ba23fd5df9c1916c9fe88cf90573383850196/iree_base_runtime-3.14.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/17/b92a69476e43c66435cfe8190f103e43a637559f7bf54b4a737e8c0bc98e/pyb2d3-1.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: ./
       osx-arm64:
@@ -521,6 +523,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hf451053_7.conda
+      - pypi: https://files.pythonhosted.org/packages/a6/91/64226399b374f0d37dd497a1b35bbcdb364ba96f42dfd78524a4d5d549cd/iree_base_compiler-3.14.0-cp312-abi3-macosx_13_0_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/30/0f/9d765e6bb01326ef4e3d86ce4bf660724eced803ca9568528169c66507e5/iree_base_runtime-3.14.0-cp312-abi3-macosx_13_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/a7/5f/ae7b416052a94f737eb05f1ab8929c4211ab7e515dacfcb51fa2c3036ac8/pyb2d3-1.0.0-cp312-abi3-macosx_11_0_arm64.whl
       - pypi: ./
   web-test:
@@ -1403,6 +1407,38 @@ packages:
   - pkg:pypi/iniconfig?source=compressed-mapping
   size: 14485
   timestamp: 1791588553866
+- pypi: https://files.pythonhosted.org/packages/1c/6d/75d5b65e18c3108bfe4812234de603dd55a961a081f4a22b4178628ac7aa/iree_base_compiler-3.14.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  name: iree-base-compiler
+  version: 3.14.0
+  sha256: df19f8598fd90bdbdd5b5bc2aebb96a9b9059cbf2fb740c874eff4baea7c0955
+  requires_dist:
+  - numpy
+  - sympy
+  - onnx>=1.16.0 ; extra == 'onnx'
+- pypi: https://files.pythonhosted.org/packages/a6/91/64226399b374f0d37dd497a1b35bbcdb364ba96f42dfd78524a4d5d549cd/iree_base_compiler-3.14.0-cp312-abi3-macosx_13_0_universal2.whl
+  name: iree-base-compiler
+  version: 3.14.0
+  sha256: 26ff03072de5150bb2ef027af4d2d7e379ee438b78a374a6971404551c5c5248
+  requires_dist:
+  - numpy
+  - sympy
+  - onnx>=1.16.0 ; extra == 'onnx'
+- pypi: https://files.pythonhosted.org/packages/30/0f/9d765e6bb01326ef4e3d86ce4bf660724eced803ca9568528169c66507e5/iree_base_runtime-3.14.0-cp312-abi3-macosx_13_0_universal2.whl
+  name: iree-base-runtime
+  version: 3.14.0
+  sha256: 92e5c97714693eb5f1a8b7f14e49d6eabe4d0000b7045b9d29bddfe00c197a08
+  requires_dist:
+  - numpy
+  - ml-dtypes
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/fe/c6/19bdeb7d037d20ac4a12a40ba23fd5df9c1916c9fe88cf90573383850196/iree_base_runtime-3.14.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  name: iree-base-runtime
+  version: 3.14.0
+  sha256: cfbddc3a53346517327cd0d629842fbfb393f64b4b8743f03a59ec3e95012a52
+  requires_dist:
+  - numpy
+  - ml-dtypes
+  requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/conda-forge/noarch/jax-0.12.0.1-pyhd8ed1ab_0.conda
   sha256: ef8b0b1a77224bce8b1bbbf6a523f850267b538d4e98a19d7e7ded6f799518b7
   md5: 47f517f4a42759d5d1d39aaa2f51392a

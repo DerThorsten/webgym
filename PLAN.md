@@ -245,6 +245,12 @@ Fix things where they belong instead of working around them in webgym:
   move it into compiled code: either into the pyb2d3 bindings or a small new package
   (C++/nanobind) with a recipe on emscripten-forge (wasm32 + wasm64) and conda-forge (native).
   Python stays the readable, editable layer; compiled code only for measured hot spots.
+- **recipes: jaxlib vs. iree-base-compiler (found 2026-11-17):** both ship their own MLIR
+  python bindings; in the emscripten builds they register into the same nanobind domain,
+  so importing both aborts python ("Critical nanobind error: refusing to add duplicate key
+  NotSpeculatable ... Speculatability" -> Aborted() -> wasm `unreachable`). Natively (PyPI)
+  they coexist. Fix upstream: build one of them with its own `NB_DOMAIN`. Workaround in
+  webgym: the IREE compiler runs in a separate compile worker (jax only in the main one).
 webgym then builds its page from local builds of these packages (local channel first) until
 they are published.
 

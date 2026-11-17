@@ -39,6 +39,7 @@
       #busy { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none;
               background: rgba(0, 0, 0, 0.7); color: #fff; padding: 16px 24px; border-radius: 8px; text-align: center; }
       #busy[hidden], #score[hidden] { display: none; }
+      .package-result { font-size: 11px; color: #999; margin: 4px 0; }
       .ckpt-save { display: flex; gap: 4px; }
       .ckpt-save input { flex: 1; min-width: 0; }
       .ckpt-save button { margin: 0; }
@@ -67,10 +68,7 @@
         </div>
         <div id="ckpt-list"></div>
         <h4>Packages</h4>
-        <div>
-          <button id="load-torch">load pytorch</button>
-          <button id="load-jax">load jax</button>
-        </div>
+        <div id="packages"></div>
         <p id="status"></p>
       </div>
       <div id="stage"><canvas id="canvas"></canvas><div id="score" hidden></div><div id="busy" hidden></div></div>
