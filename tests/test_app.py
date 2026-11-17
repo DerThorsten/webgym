@@ -46,6 +46,39 @@ def test_pan_and_zoom():
     assert app.camera.zoom < zoom
 
 
+def test_human_controller_and_delayed_reset():
+    """human: the right arrow pushes the cart right; after the episode ends, the next
+    one starts only after a pause"""
+    app = make_app()
+    app.command("controller", "human")
+    app.event("keydown", key="right")
+    steps = 0
+    while app.end_timer is None:
+        app._watch_step()
+        steps += 1
+    assert app.env.cart.position[0] > 0.05
+    app.event("keyup", key="right")
+    assert app.keys == set()
+    app._watch_step()
+    assert app.ended and app.episodes == 1  # paused, no reset yet
+    for _ in range(int(60 * 1.1)):
+        app._watch_step()
+    assert app.episodes == 2 and not app.ended  # a new episode
+
+
+def test_without_auto_reset_the_env_goes_on():
+    """auto reset off: after the end the agent / human keeps control, no new episode"""
+    app = make_app()
+    app.command("auto_reset", False)
+    for _ in range(600):
+        app._watch_step()
+    assert app.ended and app.episodes == 1 and app.end_timer is None
+    app.command("auto_reset", True)  # switched back on: restarts after the pause
+    for _ in range(int(60 * 1.1)):
+        app._watch_step()
+    assert app.episodes == 2
+
+
 def test_train_then_watch():
     """train via commands: history grows, the watched policy is set; stop -> watch,
     no dragging while training"""

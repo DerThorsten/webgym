@@ -116,10 +116,10 @@ class WebHost:
             post({"type": "error", "error": traceback.format_exc()})
 
 
-    def event(self, kind, x, y, delta):
-        """pointer event from the page (drawing-buffer px), see App.event"""
+    def event(self, kind, x, y, delta, key):
+        """pointer / key event from the page (drawing-buffer px), see App.event"""
         try:
-            self.app.event(str(kind), float(x), float(y), float(delta))
+            self.app.event(str(kind), float(x), float(y), float(delta), str(key))
         except Exception:
             post({"type": "error", "error": traceback.format_exc()})
 

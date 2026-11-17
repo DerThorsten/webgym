@@ -1,7 +1,7 @@
 // The pyjs web worker: python, the simulation, training and WebGL2 rendering on the
 // OffscreenCanvas the page transferred. Talks to main.js with messages:
 //   page -> worker: {type: "init", canvas, base}, {type: "resize", width, height},
-//                   {type: "event", kind, x, y, delta} (pointer, drawing-buffer px),
+//                   {type: "event", kind, x, y, delta, key} (pointer: drawing-buffer px; keys),
 //                   {type: "command", name, value} (a widget changed),
 //                   {type: "install", name, packages}
 //   worker -> page: {type: "progress", id, phase, done, total}, {type: "ready"},
@@ -93,7 +93,7 @@ async function install(name, packages, check) {
 self.onmessage = async ({ data }) => {
   try {
     if (data.type === "init") await init(data.canvas, data.base);
-    else if (data.type === "event") self.webgymEvent?.(data.kind, data.x, data.y, data.delta);
+    else if (data.type === "event") self.webgymEvent?.(data.kind, data.x ?? 0, data.y ?? 0, data.delta ?? 0, data.key ?? "");
     else if (data.type === "command") self.webgymCommand?.(data.name, data.value ?? null);
     else if (data.type === "resize") {
       self.canvas.width = data.width;

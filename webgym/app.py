@@ -31,6 +31,7 @@ import webgym.envs  # noqa: F401 (registers the built-in envs)
 GHOST_COLOR = 0x4FA3FF
 GHOST_ALPHA = 70
 SPEEDS = [1, 2, 4, 8, 16, 64, 256]  # population steps per frame while training
+END_SECONDS = 1.0  # watch mode: the world goes on this long after an episode ended
 
 
 class App:
@@ -41,6 +42,11 @@ class App:
         self.population = population
         self.seed = seed
         self.speed = 4
+        self.controller = "agent"  # watch mode: "agent" (the policy) or "human" (keyboard)
+        self.keys = set()  # keys held down (human controller)
+        # watch mode: a new episode when one ends; off: the env goes on after the end
+        # (see the agent / yourself recover), "reset" starts a new one
+        self.auto_reset = True
         self.camera = Camera()
         self.debug_draw = None  # created on the first frame (needs the GL context)
         self.panning = None  # world point under the pointer while panning
@@ -55,6 +61,7 @@ class App:
         self.env = make(name)
         self.policy = MLP(self.env.observation_space.shape[0], self.env.action_space.shape[0])
         self.params = None  # the watched policy's parameters (None: zero actions)
+        self.policy_info = "none yet (zero actions)"
         self.history = []  # stats per training iteration (for the plots)
         self.camera.center = b2d.Vec2(*self.env.view_center)
         self.camera.zoom = self.env.view_zoom
@@ -67,6 +74,9 @@ class App:
         self.envs = None
         self.obs, _ = self.env.reset(seed=self.seed)
         self.episode_return = 0.0
+        self.end_timer = None  # seconds until the next episode (after one ended)
+        self.ended = False  # the episode is over (without auto reset: it goes on anyway)
+        self.episodes = 1
         self.mouse_drag = b2d.MouseDrag(self.env.world)
 
     def train(self):
@@ -87,11 +97,16 @@ class App:
         """the widgets the hosts show (generic: select / button / slider)"""
         return [
             {"type": "select", "name": "env", "label": "Environment", "options": sorted(ENVS), "value": self.env_name},
+            {"type": "info", "name": "description", "text": self.env.description()},
+            {"type": "select", "name": "controller", "label": "Controller (when not training)",
+             "options": ["agent", "human"], "value": self.controller},
             {"type": "select", "name": "algo", "label": "Algorithm", "options": sorted(ALGOS), "value": self.algo},
             {"type": "slider", "name": "population", "label": "Population", "min": 4, "max": 128, "step": 4,
              "value": self.population},
             {"type": "button", "name": "stop" if self.training else "train", "label": "Stop" if self.training else "Train"},
             {"type": "button", "name": "reset", "label": "Reset episode"},
+            {"type": "checkbox", "name": "auto_reset", "label": "Auto reset (when not training)",
+             "value": self.auto_reset},
             {"type": "slider", "name": "speed", "label": "Training speed (steps / frame)", "min": 0,
              "max": len(SPEEDS) - 1, "step": 1, "value": SPEEDS.index(self.speed), "display": self.speed},
         ]
@@ -100,6 +115,9 @@ class App:
         """a widget changed / a button was pressed"""
         if name == "env":
             self.set_env(value)
+        elif name == "controller":
+            self.controller = value
+            self.watch()
         elif name == "algo":
             self.algo = value
         elif name == "population":
@@ -112,6 +130,10 @@ class App:
             self.watch()
         elif name == "speed":
             self.speed = SPEEDS[int(value)]
+        elif name == "auto_reset":
+            self.auto_reset = bool(value)
+            if self.auto_reset and self.ended and self.end_timer is None:
+                self.end_timer = END_SECONDS
         else:
             raise ValueError(f"unknown command {name!r}")
 
@@ -121,6 +143,10 @@ class App:
         return {
             "mode": "train" if self.training else "watch",
             "env": self.env_name,
+            "policy": "you (keyboard)" if self.controller == "human" else self.policy_info,
+            "episode": self.episodes,
+            "episode_over": self.ended,
+            "auto_reset": self.auto_reset,
             "episode_return": self.episode_return,
             "iteration": last.get("iteration", 0),
             "frame_ms": round(self.frame_ms, 2),
@@ -136,9 +162,16 @@ class App:
         self._draw(width, height)
         self.frame_ms = 0.9 * self.frame_ms + 0.1 * 1e3 * (time.perf_counter() - t0)
 
-    def event(self, kind, x, y, delta=0.0):
-        """pointer input in drawing-buffer pixels (origin top left):
-        kind "down" / "move" / "up" / "leave" / "wheel" (delta: wheel px, + = zoom out)"""
+    def event(self, kind, x=0.0, y=0.0, delta=0.0, key=""):
+        """input: pointer in drawing-buffer pixels (origin top left), kind "down" /
+        "move" / "up" / "leave" / "wheel" (delta: wheel px, + = zoom out); keys:
+        "keydown" / "keyup" with `key` ("left", "right", "up", "down", "space", letters)"""
+        if kind == "keydown":
+            self.keys.add(key)
+            return
+        if kind == "keyup":
+            self.keys.discard(key)
+            return
         pos = self.camera.convert_screen_to_world(b2d.Vec2(x, y))
         if kind == "down":
             body = None if self.training else self.mouse_drag.begin(pos)
@@ -176,20 +209,36 @@ class App:
             if item is not None:
                 self.history.append({k: v for k, v in item.items() if not k.endswith("_params")})
                 self.params = item["mean_params"]
+                self.policy_info = f"{self.algo}, iteration {item['iteration']}"
 
     def _watch_step(self):
-        """one env step with the current policy; a new episode when it ends"""
-        if self.params is None:
+        """one env step with the current policy; when the episode ends, the world goes
+        on (no actions) for END_SECONDS before the next episode: you see what happened"""
+        if self.end_timer is not None:
+            self.mouse_drag.step(self.env.dt)
+            self.env.world.step(self.env.dt, self.env.substeps)
+            self.end_timer -= self.env.dt
+            if self.end_timer <= 0 and not self.mouse_drag.active:
+                self.end_timer = None
+                self.ended = False
+                self.episodes += 1
+                self.obs, _ = self.env.reset()
+                self.episode_return = 0.0
+            return
+        if self.controller == "human":
+            action = self.env.human_action(self.keys)
+        elif self.params is None:
             action = np.zeros(self.env.action_space.shape, dtype=np.float32)
         else:
             action = self.policy(self.params, self.obs[None])[0]
         self.mouse_drag.step(self.env.dt)
         self.obs, reward, terminated, truncated, _ = self.env.step(action)
-        self.episode_return += reward
-        # no new episode while the user holds a body (it would jump away)
-        if (terminated or truncated) and not self.mouse_drag.active:
-            self.obs, _ = self.env.reset()
-            self.episode_return = 0.0
+        if not self.ended:
+            self.episode_return += reward
+        if (terminated or truncated) and not self.ended:
+            self.ended = True
+            if self.auto_reset:
+                self.end_timer = END_SECONDS
 
     def _draw(self, width, height):
         """the env (watch) or the live population as ghosts (train)"""

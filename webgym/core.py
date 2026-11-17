@@ -1,5 +1,7 @@
 """Minimal gymnasium-style env API (no gymnasium dependency) + env registry."""
 
+import sys
+
 import numpy as np
 
 
@@ -31,6 +33,7 @@ class Env:
 
     Subclasses build `self.world` in `__init__` and implement `_reset(rng)`,
     `_apply(action)`, `_observe()` and `_outcome()` -> (reward, terminated).
+    The module docstring of an env is its description in the UI.
     """
 
     observation_space = None
@@ -42,11 +45,22 @@ class Env:
     view_center = (0.0, 0.0)
     view_zoom = 10.0
 
+    @classmethod
+    def description(cls):
+        """what the env is about (its module's docstring)"""
+        return (sys.modules[cls.__module__].__doc__ or "").strip()
+
+    def human_action(self, keys):
+        """the action for a human pressing `keys` (a set of names like "left", "up",
+        "space"): default zeros (no keyboard play)"""
+        return np.zeros(self.action_space.shape, dtype=np.float32)
+
     def reset(self, seed=None):
         """start a new episode -> (obs, info)"""
         if seed is not None or not hasattr(self, "rng"):
             self.rng = np.random.default_rng(seed)
         self.steps = 0
+        self.episode_return = 0.0
         self.done = False  # the episode ended (the view hides finished envs)
         self._reset(self.rng)
         return self._observe(), {}
@@ -59,6 +73,7 @@ class Env:
         reward, terminated = self._outcome()
         truncated = self.steps >= self.max_steps
         self.done = terminated or truncated
+        self.episode_return += reward
         return self._observe(), reward, terminated, truncated, {}
 
 

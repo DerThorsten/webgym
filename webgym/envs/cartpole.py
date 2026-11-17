@@ -4,6 +4,8 @@ A cart on a prismatic joint (slides along x) with a pole on a revolute joint.
 obs: cart x, cart velocity, pole angle, pole angular velocity.
 action: force in [-1, 1] (x max_force). reward: 1 per step while the pole is up.
 Episode ends when the pole tilts > 12 degrees or the cart leaves |x| < 2.4.
+
+Keys (human controller): left / right arrow push the cart.
 """
 
 import numpy as np
@@ -17,7 +19,7 @@ class CartPole(Env):
     observation_space = Box(-np.inf, np.inf, (4,))
     action_space = Box(-1.0, 1.0, (1,))
     max_steps = 500
-    max_force = 20.0
+    max_force = 10.0  # N; cart 1 kg, pole 0.1 kg (as the classic cart-pole)
     view_center = (0.0, 1.0)
     view_zoom = 3.0
 
@@ -33,14 +35,20 @@ class CartPole(Env):
         )
         no_contact = b2d.make_filter(category_bits=2, mask_bits=1)
         self.cart = world.create_dynamic_body(position=(0, 0.3))
-        self.cart.create_shape(b2d.shape_def(density=1.0, filter=no_contact), b2d.box(0.25, 0.12))
+        # densities for 1 kg (0.5 x 0.24 box) and 0.1 kg (0.05 x 1 box)
+        self.cart.create_shape(b2d.shape_def(density=1 / 0.12, filter=no_contact), b2d.box(0.25, 0.12))
         self.pole = world.create_dynamic_body(position=(0, 0.92))
-        self.pole.create_shape(b2d.shape_def(density=0.5, filter=no_contact), b2d.box(0.025, 0.5))
+        self.pole.create_shape(b2d.shape_def(density=2.0, filter=no_contact), b2d.box(0.025, 0.5))
+        # the rail: stops at its ends (episodes end before, at |x| = 2.4; without
+        # auto reset the cart stays on the rail)
         world.create_prismatic_joint(
             body_a=ground,
             body_b=self.cart,
             local_frame_a=b2d.transform(p=(0, 0.3)),
             local_frame_b=b2d.transform(p=(0, 0)),
+            enable_limit=True,
+            lower_translation=-2.75,
+            upper_translation=2.75,
         )
         world.create_revolute_joint(
             body_a=self.cart,
@@ -60,6 +68,10 @@ class CartPole(Env):
     def _apply(self, action):
         force = float(np.clip(np.asarray(action).reshape(-1)[0], -1, 1)) * self.max_force
         self.cart.apply_force_to_center((force, 0), True)
+
+    def human_action(self, keys):
+        """left / right arrow: full force"""
+        return np.array([("right" in keys) - ("left" in keys)], dtype=np.float32)
 
     def _observe(self):
         return np.array(

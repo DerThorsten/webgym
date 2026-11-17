@@ -63,25 +63,54 @@ function showControls(controls) {
       const b = document.createElement("button");
       b.textContent = c.label;
       b.className = c.name === "train" ? "primary" : "";
-      b.onclick = () => send(c.name);
+      b.onclick = () => {
+        send(c.name);
+        b.blur(); // space would press it again
+      };
       buttons.append(b);
       continue;
     }
     const el = document.createElement("div");
     el.className = "control";
+    if (c.type === "info") {
+      el.className = "info";
+      el.textContent = c.text;
+      root.append(el);
+      continue;
+    }
     const label = document.createElement("label");
     label.innerHTML = `<span>${c.label}</span><span></span>`;
     const value = label.lastChild;
     let input;
+    if (c.type === "checkbox") {
+      el.className = "control checkbox";
+      input = Object.assign(document.createElement("input"), { type: "checkbox", checked: c.value });
+      input.onchange = () => {
+        send(c.name, input.checked);
+        input.blur();
+      };
+      const text = Object.assign(document.createElement("span"), { textContent: c.label });
+      const wrap = document.createElement("label");
+      wrap.append(input, text);
+      el.append(wrap);
+      root.append(el);
+      continue;
+    }
     if (c.type === "select") {
       input = document.createElement("select");
       for (const o of c.options) input.add(new Option(o, o, false, o === c.value));
-      input.onchange = () => send(c.name, input.value);
+      input.onchange = () => {
+        send(c.name, input.value);
+        input.blur(); // the arrow keys go to the env again
+      };
     } else {
       input = Object.assign(document.createElement("input"), { type: "range", min: c.min, max: c.max, step: c.step, value: c.value });
       value.textContent = c.display ?? c.value;
       input.oninput = () => (value.textContent = c.display === undefined ? input.value : "");
-      input.onchange = () => send(c.name, Number(input.value));
+      input.onchange = () => {
+        send(c.name, Number(input.value));
+        input.blur();
+      };
     }
     el.append(label, input);
     root.append(el);
@@ -110,7 +139,12 @@ worker.onmessage = ({ data }) => {
     const last = history.at(-1);
     stateEl.textContent =
       `mode      ${s.mode}\n` +
-      (s.mode === "watch" ? `episode   ${s.episode_return.toFixed(0)}\n` : `iteration ${s.iteration}\n`) +
+      `policy    ${s.policy}\n` +
+      (s.mode === "watch"
+        ? `episode   #${s.episode}, return ${s.episode_return.toFixed(0)}` +
+          (s.episode_over ? (s.auto_reset ? " (over, restarting)" : " (over, keeps going)") : "") +
+          "\n"
+        : `iteration ${s.iteration}\n`) +
       (last ? `mean/best ${last.mean_return.toFixed(0)} / ${last.best_return.toFixed(0)}\n` : "") +
       `frame     ${s.frame_ms.toFixed(1)} ms`;
   } else if (data.type === "installed") {
@@ -138,6 +172,20 @@ canvas.addEventListener("pointermove", (e) => e.buttons & 1 && sendEvent("move",
 canvas.addEventListener("pointerup", (e) => sendEvent("up", e));
 canvas.addEventListener("pointercancel", (e) => sendEvent("up", e));
 canvas.addEventListener("pointerleave", (e) => sendEvent("leave", e));
+// keys -> worker (the human controller), unless the user types into a widget
+const KEY_NAMES = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", " ": "space" };
+const keyName = (e) => KEY_NAMES[e.key] ?? (e.key.length === 1 ? e.key.toLowerCase() : null);
+for (const kind of ["keydown", "keyup"]) {
+  window.addEventListener(kind, (e) => {
+    const key = keyName(e);
+    if (!key || e.repeat || e.target.closest?.("input, select, textarea")) return;
+    if (KEY_NAMES[e.key]) e.preventDefault(); // no scrolling with the arrows / space
+    worker.postMessage({ type: "event", kind, key });
+  });
+}
+window.addEventListener("blur", () => {
+  for (const key of Object.values(KEY_NAMES)) worker.postMessage({ type: "event", kind: "keyup", key });
+});
 canvas.addEventListener(
   "wheel",
   (e) => {
