@@ -12,6 +12,7 @@ const statusEl = document.getElementById("status");
 const stateEl = document.getElementById("state");
 const plotEl = document.getElementById("plot");
 let stats = []; // training stats per iteration (from the worker)
+const afterInstall = new Map(); // package -> the command to send once it is loaded
 const bars = new Map(); // progress id -> {label, value, bar}
 
 /** show a message (errors in red) */
@@ -37,6 +38,20 @@ function showProgress({ id, phase, done, total }) {
   else bar.removeAttribute("value"); // indeterminate
   if (phase === "done" || phase === "ready") bar.value = 1;
   el.hidden = phase === "done"; // startup / core bars go away; package bars stay ("ready")
+  // the "please wait" overlay on the canvas while anything is loading
+  if (phase === "done" || phase === "ready") loading.delete(id);
+  else loading.set(id, total ? `${phase} ${mb(done)} / ${mb(total)} MB` : phase);
+  showBusy();
+}
+
+const loading = new Map(); // id -> what it is doing (startup, core, pytorch, jax)
+/** the hourglass overlay over the canvas while something loads */
+function showBusy() {
+  const el = document.getElementById("busy");
+  el.hidden = loading.size === 0;
+  if (el.hidden) return;
+  const lines = [...loading].map(([id, what]) => `${id}: ${what}`).join("<br>");
+  el.innerHTML = `<div class="big">⏳ please wait</div><div class="small">${lines}</div>`;
 }
 
 // drawing-buffer px per CSS px: devicePixelRatio, but at most MAX_PIXELS in the
@@ -53,6 +68,8 @@ function resize() {
   send({ type: "resize", width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) });
 }
 
+const openGroups = new Set(); // control groups the user opened (stay open on a rebuild)
+
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
 function showControls(controls) {
@@ -60,7 +77,19 @@ function showControls(controls) {
   root.replaceChildren();
   const command = (name, value) => send({ type: "command", name, value });
   const buttons = document.createElement("div");
+  const groups = new Map(); // group name -> <details> (e.g. the algorithm's parameters)
   for (const c of controls) {
+    let parent = root;
+    if (c.group) {
+      if (!groups.has(c.group)) {
+        const details = Object.assign(document.createElement("details"), { className: "group", open: openGroups.has(c.group) });
+        details.append(Object.assign(document.createElement("summary"), { textContent: c.group }));
+        details.ontoggle = () => (details.open ? openGroups.add(c.group) : openGroups.delete(c.group));
+        root.append(details);
+        groups.set(c.group, details);
+      }
+      parent = groups.get(c.group);
+    }
     if (c.type === "button") {
       const b = document.createElement("button");
       b.textContent = c.label;
@@ -107,7 +136,11 @@ function showControls(controls) {
     }
     if (c.type === "select") {
       input = document.createElement("select");
-      for (const o of c.options) input.add(new Option(o, o, false, o === c.value));
+      // options: values, or [value, label] pairs
+      for (const o of c.options) {
+        const [v, text] = Array.isArray(o) ? o : [o, o];
+        input.add(new Option(text, v, false, v === c.value));
+      }
       input.onchange = () => {
         command(c.name, input.value);
         input.blur(); // the arrow keys go to the env again
@@ -124,7 +157,7 @@ function showControls(controls) {
       };
     }
     el.append(label, input);
-    root.append(el);
+    parent.append(el);
   }
   root.append(buttons);
   // the URL names the current env / algo: reload or share the link to get them
@@ -133,12 +166,20 @@ function showControls(controls) {
   history.replaceState(null, "", url);
 }
 
-/** the reward curves of the current run */
+const LOSS_COLORS = { policy_loss: "#e06c75", value_loss: "#98c379", entropy: "#c678dd" };
+const lossPlotEl = document.getElementById("loss-plot");
+
+/** the reward curves of the current run; the losses (if the algorithm has any, e.g.
+ * PPO) in a second plot */
 function showHistory() {
   plot(plotEl, [
     { label: "mean return", color: "#4fa3ff", values: stats.map((h) => h.mean_return) },
     { label: "best return", color: "#f5a742", values: stats.map((h) => h.best_return) },
   ]);
+  const keys = Object.keys(LOSS_COLORS).filter((k) => stats.some((h) => k in h));
+  lossPlotEl.hidden = keys.length === 0;
+  if (keys.length)
+    plot(lossPlotEl, keys.map((k) => ({ label: k.replace("_", " "), color: LOSS_COLORS[k], values: stats.map((h) => h[k] ?? 0) })));
 }
 new ResizeObserver(showHistory).observe(plotEl);
 
@@ -148,9 +189,8 @@ function showScore(s) {
   el.hidden = !(s.mode === "watch" && s.episode_over && s.scores.length);
   if (el.hidden) return;
   const score = s.scores.at(-1);
-  const isBest = score === s.best_score && s.scores.length > 1;
   el.innerHTML =
-    `<div class="big">Score ${Math.round(score)}${isBest ? " · best!" : ""}</div>` +
+    `<div class="big">Score ${Math.round(score)}${s.new_best ? " · new best!" : ""}</div>` +
     `<div class="small">best ${Math.round(s.best_score)} · last ${s.scores.map(Math.round).join(", ")}</div>`;
 }
 
@@ -166,6 +206,12 @@ function onMessage({ data }) {
     checkpoints.onControls(data.controls, freshWorker);
     freshWorker = false;
   } else if (data.type === "checkpoint" || data.type === "delete_checkpoint") checkpoints.onMessage(data);
+  else if (data.type === "need_package") {
+    // e.g. Train with PPO (pytorch) before pytorch is loaded: load it, then train
+    status(`loading ${data.package} for this algorithm…`);
+    afterInstall.set(data.package, data.command);
+    loadPackage(data.package);
+  }
   else if (data.type === "history") {
     stats = data.reset ? data.entries : stats.concat(data.entries);
     showHistory();
@@ -187,6 +233,10 @@ function onMessage({ data }) {
     console.info(`${data.name} installed:`, data.seconds, data.result);
     status(`${data.name}: ${data.result} (${data.seconds.total.toFixed(1)} s)`);
     rememberPackage(data.name);
+    if (afterInstall.has(data.name)) {
+      send({ type: "command", name: afterInstall.get(data.name) });
+      afterInstall.delete(data.name);
+    }
   } else if (data.type === "error") status(`error: ${data.error}`, true);
   else if (data.type === "fatal") restartAfterCrash(data.error);
 }

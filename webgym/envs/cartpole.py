@@ -73,9 +73,6 @@ class CartPole(Env):
         failed = (np.abs(self.poles.angle) > 0.21) | (np.abs(self.carts.position[:, 0]) > 2.4)
         return np.ones(self.n), failed
 
-    def focus(self, i=0):
-        return None
-
     def human_action(self, keys):
         """left / right arrow: full force"""
         return np.array([("right" in keys) - ("left" in keys)], dtype=np.float32)

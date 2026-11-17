@@ -68,6 +68,7 @@ def test_human_controller_and_delayed_reset():
     app._watch_step()
     assert app.ended and app.episodes == 1  # paused, no reset yet
     assert len(app.scores) == 1 and app.state()["scores"] == [round(app.scores[0], 1)]
+    assert not app.state()["new_best"]  # the first score is no "new best"
     for _ in range(int(60 * 1.1)):
         app._watch_step()
     assert app.episodes == 2 and not app.ended  # a new episode
@@ -158,6 +159,19 @@ def test_safetensors_roundtrip():
     back, meta = checkpoints.loads(data)
     assert meta == {"x": [1, 2]}
     assert all(np.array_equal(back[k], tensors[k]) and back[k].dtype == tensors[k].dtype for k in tensors)
+
+
+def test_population_change_keeps_training():
+    """changing the population while training goes on training (same run, new size)"""
+    app = make_app(population=16, speed=256)
+    app.command("train")
+    while len(app.history) < 2:
+        app._train_steps()
+    app.command("population", 32)
+    assert app.training and app.pop_env.n == 32
+    while len(app.history) < 4:
+        app._train_steps()
+    assert [h["iteration"] for h in app.history][:4] == [1, 2, 3, 4]
 
 
 def test_leader_is_sticky():

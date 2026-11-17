@@ -11,15 +11,19 @@ from webgym.policies import MLP
 def train(env_name, algo="cem", population=64, iterations=30, seed=0, log=print):
     """run a trainer to the end without drawing; returns the last stats"""
     env = make(env_name, n=population)
-    policy = MLP(env.observation_space.shape[0], env.action_space.shape[0])
+    spec = ALGOS[algo]
+    params = spec.defaults()
+    hidden = int(params.pop("hidden", 16))
+    policy = MLP(env.observation_space.shape[0], env.action_space.shape[0], hidden=(hidden,))
     stats, start = None, time.perf_counter()
-    for item in ALGOS[algo](env, policy, iterations=iterations, seed=seed):
+    for item in spec.train(env, policy, iterations=iterations, seed=seed, **params):
         if item is None:
             continue
         stats = item
+        losses = "  ".join(f"{k} {v:.3f}" for k, v in stats.get("losses", {}).items())
         log(
             f"iter {stats['iteration']:3d}  mean {stats['mean_return']:7.1f}  "
-            f"best {stats['best_return']:7.1f}  ({time.perf_counter() - start:.1f} s)"
+            f"best {stats['best_return']:7.1f}  {losses}  ({time.perf_counter() - start:.1f} s)"
         )
     env.close()
     return stats

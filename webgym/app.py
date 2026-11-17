@@ -38,11 +38,21 @@ END_SECONDS = 1.0  # watch mode: the world goes on this long after an episode en
 MAX_POPULATION = 256  # (one world per population: no box2d world limit)
 
 
+class NeedPackage(Exception):
+    """the algorithm needs a package that is not loaded (pytorch, jax): the browser
+    loads it and trains then"""
+
+    def __init__(self, package):
+        super().__init__(f"{package} is needed (load it first)")
+        self.package = package
+
+
 class App:
     """see the module docstring"""
 
     def __init__(self, env="CartPole", algo="cem", population=64, seed=0, speed=SPEEDS[-1]):
         self.algo = algo
+        self.hp = {name: a.defaults() for name, a in ALGOS.items()}  # parameters per algorithm
         self.population = min(population, MAX_POPULATION)
         self.seed = seed
         # env steps per frame (at most: the frame budget keeps the page smooth)
@@ -74,7 +84,6 @@ class App:
         self.env_name = name
         self.env = make(name)
         self.env.freeze_done = False  # watch: the env goes on after the end (no auto reset)
-        self.policy = MLP(self.env.observation_space.shape[0], self.env.action_space.shape[0])
         self.camera.center = b2d.Vec2(*self.env.view_center)
         self.camera.zoom = self.env.view_zoom
         self.camera._matrix = None
@@ -83,9 +92,12 @@ class App:
     def new_run(self):
         """forget the policy, the trainer's state and the history"""
         self.stop()
+        hidden = int(self.hp[self.algo].get("hidden", 16))
+        self.policy = MLP(self.env.observation_space.shape[0], self.env.action_space.shape[0], hidden=(hidden,))
         self.params = None  # the watched policy's parameters (None: zero actions)
         self.policy_info = "none yet (zero actions)"
         self.scores = []  # returns of the finished watch-mode episodes (newest last)
+        self.new_best = False  # the last finished episode beat all earlier ones
         self.train_state = None  # resumes the trainer (stats["state"])
         self.history = []  # stats per training iteration (for the plots)
         self.watch()
@@ -102,13 +114,20 @@ class App:
         self.mouse_drag = b2d.MouseDrag(self.env.world)
 
     def train(self):
-        """train mode: continue the trainer from its last state (or start)"""
+        """train mode: continue the trainer from its last state (or start); while
+        training: restart the trainer from its state (e.g. a new population size)"""
+        if self.trainer is not None:
+            self.trainer.close()
         self.mouse_drag.end()
         if self.pop_env is None or self.pop_env.n != self.population or not isinstance(self.pop_env, type(self.env)):
             self._close_population()
             self.pop_env = make(self.env_name, n=self.population)
+        algo = ALGOS[self.algo]
+        if not algo.available():
+            raise NeedPackage(algo.requires)
+        params = {k: v for k, v in self.hp[self.algo].items() if k not in algo.new_run}
         seed = self.seed + len(self.history)  # a continued run samples new candidates
-        self.trainer = ALGOS[self.algo](self.pop_env, self.policy, seed=seed, state=self.train_state)
+        self.trainer = algo.train(self.pop_env, self.policy, seed=seed, state=self.train_state, **params)
         self.leader = None
 
     def stop(self):
@@ -146,6 +165,7 @@ class App:
             "format": 1,
             "env": self.env_name,
             "algo": self.algo,
+            "params": self.hp[self.algo],
             "population": self.population,
             "policy_sizes": self.policy.sizes,
             "state": state if self.train_state is not None else None,
@@ -165,9 +185,9 @@ class App:
             self.set_env(meta["env"])
         self.stop()
         self.algo = meta["algo"]
+        self.hp[self.algo].update(meta.get("params", {}))
         self.population = int(meta["population"])
-        if meta["policy_sizes"] != self.policy.sizes:
-            raise ValueError(f"policy shape {meta['policy_sizes']} != {self.policy.sizes}")
+        self.policy = MLP(meta["policy_sizes"][0], meta["policy_sizes"][-1], hidden=tuple(meta["policy_sizes"][1:-1]))
         self.params = tensors.get("policy")
         state = meta["state"]
         if state is not None:
@@ -190,7 +210,9 @@ class App:
             {"type": "hint", "name": "keys", "active": self.controller == "human",
              "text": f"Keys: {self.env.keys} · R reset" if self.controller == "human"
              else f"Play yourself: Controller = human ({self.env.keys})"},
-            {"type": "select", "name": "algo", "label": "Algorithm", "options": sorted(ALGOS), "value": self.algo},
+            {"type": "select", "name": "algo", "label": "Algorithm",
+             "options": [[name, a.label] for name, a in ALGOS.items()], "value": self.algo},
+            *self._param_controls(),
             {"type": "slider", "name": "population", "label": "Population", "min": 8, "max": MAX_POPULATION,
              "step": 8, "value": self.population},
             {"type": "checkbox", "name": "auto_reset", "label": "Auto reset (when not training)",
@@ -204,20 +226,42 @@ class App:
             {"type": "button", "name": "reset", "label": "Reset episode (R)"},
         ]
 
+    def _param_controls(self):
+        """sliders for the current algorithm's parameters (collapsible group)"""
+        algo = ALGOS[self.algo]
+        return [
+            {"type": "slider", "name": f"hp.{key}", "group": "Algorithm parameters",
+             "label": key + (" (new run)" if key in algo.new_run else ""),
+             "min": lo, "max": hi, "step": step, "value": self.hp[self.algo][key]}
+            for key, (_, lo, hi, step) in algo.params.items()
+        ]
+
     def command(self, name, value=None):
         """a widget changed / a button was pressed"""
+        if name.startswith("hp."):
+            key = name[3:]
+            self.hp[self.algo][key] = type(ALGOS[self.algo].params[key][0])(value)
+            if key in ALGOS[self.algo].new_run:
+                self.new_run()  # (e.g. another network size)
+            elif self.training:
+                self.train()  # goes on from its state with the new value
+            return
         if name == "env":
             self.set_env(value)
         elif name == "controller":
             self.controller = value
             self.scores = []  # (scores of another player)
+            self.new_best = False
             self.watch()
         elif name == "algo":
             self.algo = value
             self.new_run()  # another algorithm: its own state
         elif name == "population":
+            # the trainer's state does not depend on the population size: training goes
+            # on with the new size (from the next iteration on)
             self.population = min(int(value), MAX_POPULATION)
-            self.new_run()  # the trainer's state has the old population size
+            if self.training:
+                self.train()
         elif name == "train":
             self.train()
         elif name == "stop":
@@ -250,6 +294,7 @@ class App:
             # the finished episodes' scores (watch mode): the last few and the best
             "scores": [round(s, 1) for s in self.scores[-5:]],
             "best_score": round(max(self.scores), 1) if self.scores else None,
+            "new_best": self.new_best,
             "iteration": last.get("iteration", 0),
             "frame_ms": round(self.frame_ms, 2),
         }
@@ -287,7 +332,7 @@ class App:
             if self.mouse_drag.active:
                 self.mouse_drag.update(pos)
             elif self.panning is not None:
-                # keep the grabbed world point under the pointer
+                # keep the grabbed world point under the pointer; the user's view wins
                 self.camera.center = self.camera.center + (self.panning - pos)
                 self.camera._matrix = None
         elif kind in ("up", "leave"):
@@ -315,7 +360,9 @@ class App:
                 self.stop()
                 return
             if item is not None:
-                self.history.append({k: item[k] for k in ("iteration", "mean_return", "best_return")})
+                entry = {k: item[k] for k in ("iteration", "mean_return", "best_return")}
+                entry.update(item.get("losses", {}))
+                self.history.append(entry)
                 self.params = item["mean_params"]
                 self.train_state = item["state"]
                 self.policy_info = f"{self.algo}, iteration {item['iteration']}"
@@ -345,6 +392,8 @@ class App:
         self.episode_return = float(self.env.episode_return[0])
         if (terminated[0] or truncated[0]) and not self.ended:
             self.ended = True
+            # a new best: better than every earlier score (not a tie, not the first)
+            self.new_best = bool(self.scores) and self.episode_return > max(self.scores)
             self.scores.append(self.episode_return)
             if self.auto_reset:
                 self.end_timer = END_SECONDS
@@ -366,7 +415,7 @@ class App:
         self.debug_draw.end_draw()
 
     def _update_view(self):
-        """the leader (training) and the camera following it / the watched env"""
+        """the leader while training (the camera stays where the user put it)"""
         if self.training:
             env = self.pop_env
             # the leader stays until its episode ends (no flicker), then the best alive
@@ -374,15 +423,3 @@ class App:
                 alive = np.flatnonzero(~env.done)
                 self.leader = int(alive[np.argmax(env.episode_return[alive])]) if len(alive) else None
             env.set_leader(self.leader)
-            self._follow(env, self.leader)
-        else:
-            self._follow(self.env, 0)
-
-    def _follow(self, env, i):
-        """the camera follows env.focus(i) horizontally (smoothly), unless panning"""
-        point = env.focus(i) if i is not None else None
-        if point is None or self.panning is not None:
-            return
-        x = self.camera.center[0] + 0.1 * (point[0] - self.camera.center[0])
-        self.camera.center = b2d.Vec2(x, self.camera.center[1])
-        self.camera._matrix = None

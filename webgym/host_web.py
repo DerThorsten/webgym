@@ -12,7 +12,7 @@ import traceback
 
 import pyjs
 
-from webgym.app import App
+from webgym.app import App, NeedPackage
 
 AUTOSAVE = "autosave"  # the name of the automatic checkpoint (one per env + algo)
 AUTOSAVE_SECONDS = 2.0  # while training: at most this often
@@ -162,7 +162,12 @@ class WebHost:
                 self.send_checkpoint(str(value))
                 return
             training = self.app.training
-            self.app.command(name, None if value is None else value)
+            try:
+                self.app.command(name, None if value is None else value)
+            except NeedPackage as e:
+                # the page loads it (progress bar), then sends the command again
+                post({"type": "need_package", "package": e.package, "command": name})
+                return
             if name == "stop" or (training and not self.app.training):
                 self.autosave()
             if name == "new_run":  # the run is gone: so is its autosave

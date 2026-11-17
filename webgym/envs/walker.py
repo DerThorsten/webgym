@@ -5,7 +5,7 @@ obs: hull angle, angular velocity and velocity, the 4 joint angles and speeds,
 foot contacts (14 values).
 action: 4 joint torques in [-1, 1] (hips, knees).
 reward: forward progress, minus a small effort cost; -100 when the hull hits
-the ground. Episodes last 10 s.
+the ground. Episodes last 10 s, or end when the walker makes no progress for 1.5 s.
 
 Keys (human controller): q / a = left hip, w / s = left knee,
 o / l = right hip, p / ; = right knee.
@@ -19,6 +19,9 @@ from webgym.core import Box, Env, register_env
 HIP_Y = 1.2  # standing height of the hips
 THIGH, SHIN = 0.32, 0.3  # half lengths
 MAX_TORQUE = 12.0  # N m at full action
+# no progress (the hull did not get STALL_DISTANCE further right than ever before)
+# for STALL_SECONDS: the episode ends (no penalty), the population does not wait for it
+STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
 # hips: (lower, upper) angle of the thigh against the hull; knees: shin against thigh
 HIP_LIMITS, KNEE_LIMITS = (-0.8, 1.1), (-1.5, 0.05)
 
@@ -74,16 +77,14 @@ class Walker(Env):
             max_motor_torque=0.5,
         )
 
-    def focus(self, i=0):
-        """the camera follows the hull"""
-        return self.hulls[i].position
-
     def _reset(self, rng):
         velocity = np.zeros((self.n, 2), dtype=np.float32)
         velocity[:, 0] = rng.uniform(-0.2, 0.2, self.n)
         self.hulls.linear_velocity = velocity
         self.prev_x = self.hulls.position[:, 0].copy()
         self.effort = np.zeros(self.n)
+        self.best_x = self.prev_x.copy()  # progress: the farthest x so far
+        self.progress_step = np.zeros(self.n, dtype=int)  # step of the last progress
 
     def _apply(self, actions):
         a = np.clip(actions, -1, 1)
@@ -110,7 +111,11 @@ class Walker(Env):
         reward = 10 * (pos[:, 0] - self.prev_x) - 0.005 * self.effort
         self.prev_x = pos[:, 0].copy()
         fallen = (pos[:, 1] < 0.55) | (np.abs(self.hulls.angle) > 1.0)
-        return reward - 100 * fallen, fallen
+        progressed = pos[:, 0] > self.best_x + STALL_DISTANCE
+        self.best_x = np.where(progressed, pos[:, 0], self.best_x)
+        self.progress_step = np.where(progressed, self.steps, self.progress_step)
+        stalled = self.steps - self.progress_step > STALL_SECONDS / self.dt
+        return reward - 100 * fallen, fallen | stalled
 
     def human_action(self, keys):
         """two keys per joint (see the module docstring)"""

@@ -155,10 +155,6 @@ class Env:
             self._shapes[i].custom_color = LEADER_COLOR
         self._leader = i
 
-    def focus(self, i=0):
-        """a world point of agent i the camera follows (None: fixed camera)"""
-        return None
-
     def human_action(self, keys):
         """the action (act_dim,) of a human pressing `keys` (a set of names like "left",
         "up", "space"): default zeros (no keyboard play)"""
