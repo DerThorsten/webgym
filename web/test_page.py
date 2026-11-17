@@ -35,6 +35,53 @@ def load(page, url, errors):
     return msg.value.text
 
 
+def state(page):
+    """the state panel as one line"""
+    return page.inner_text("#state").replace("\n", " | ")
+
+
+def iteration(page):
+    """the trained policy's iteration (0: none)"""
+    text = page.inner_text("#state")
+    return int(text.split("iteration ")[1].split()[0]) if "iteration " in text else 0
+
+
+def check_checkpoints(page, url, errors):
+    """autosave + named checkpoint survive a reload; Continue training goes on; New
+    run drops the autosave, the named one stays restorable"""
+    page.click("button:text('Stop')")  # (the training of the default checks)
+    page.wait_for_timeout(500)
+    trained = iteration(page)
+    assert trained > 0, state(page)
+    page.fill("#ckpt-name", "my run")
+    page.click("#ckpt-save")
+    page.wait_for_function("document.getElementById('ckpt-list').textContent.includes('my run')", timeout=10_000)
+    load(page, url, errors)  # reload: the autosave comes back
+    page.wait_for_function(
+        f"document.getElementById('state').textContent.includes('iteration {trained}')", timeout=20_000
+    )
+    print("restored after reload:", state(page))
+    assert "my run" in page.inner_text("#ckpt-list")
+    page.click("button:text('Continue training')")
+    page.wait_for_function(
+        f"(() => {{ const m = document.getElementById('state').textContent.match(/iteration (\\d+)/);"
+        f" return m && Number(m[1]) > {trained}; }})()",
+        timeout=30_000,
+    )
+    page.click("button:text('Stop')")
+    print("continued:", state(page))
+    page.click("button:text('New run')")
+    page.wait_for_timeout(500)
+    load(page, url, errors)  # no autosave any more: nothing restored
+    page.wait_for_timeout(1500)
+    assert "none yet" in page.inner_text("#state"), state(page)
+    page.locator(".ckpt", has_text="my run").locator("button:text('Restore')").click()
+    page.wait_for_function(
+        f"document.getElementById('state').textContent.includes('iteration {trained}')", timeout=20_000
+    )
+    print("restored by name:", state(page))
+
+
 def main():
     """command line"""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -44,6 +91,7 @@ def main():
     parser.add_argument("--stress", type=float, default=0, help="seconds per env at max population / speed")
     parser.add_argument("--crash", action="store_true", help="crash python (wasm trap), expect a restart")
     parser.add_argument("--converge", type=float, help="time training until the mean return reaches this")
+    parser.add_argument("--checkpoints", action="store_true", help="autosave / save / restore / reload")
     args = parser.parse_args()
     url = serve(DIST) + (f"?{args.query}" if args.query else "")
     with sync_playwright() as p:
@@ -79,6 +127,8 @@ def main():
             )
             print(f"converged (mean >= {args.converge}) after {time.perf_counter() - start:.1f} s:",
                   page.inner_text("#state").replace("\n", " | "))
+        if args.checkpoints:
+            check_checkpoints(page, url, errors)
         if args.crash:
             # a wasm trap in the worker: the page restarts it, python runs again
             errors.clear()  # the crash itself is logged as an error on purpose
@@ -114,7 +164,11 @@ def main():
             button = "#load-torch" if args.install == "pytorch" else "#load-jax"
             with page.expect_console_message(lambda m: "installed" in m.text, timeout=600_000) as msg:
                 page.click(button)
-            print(msg.value.text, page.inner_text("#status"))
+            print("first visit:", msg.value.text)
+            # a second visit: loads it again by itself, from the package cache
+            with page.expect_console_message(lambda m: "installed" in m.text, timeout=600_000) as msg:
+                page.reload()
+            print("second visit (automatic):", msg.value.text)
         if args.screenshot:
             page.screenshot(path=str(args.screenshot))
         if errors or page.inner_text("#status").startswith("error"):

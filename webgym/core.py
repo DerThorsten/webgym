@@ -61,6 +61,7 @@ class Env:
     # initial camera: world point at the view center, half height in world units
     view_center = (0.0, 0.0)
     view_zoom = 10.0
+    keys = ""  # the keys of the human controller (shown in the UI, see human_action)
 
     def __init__(self, n=1):
         self.n = n

@@ -22,6 +22,7 @@ class CartPole(Env):
     max_force = 10.0  # N; cart 1 kg, pole 0.1 kg (as the classic cart-pole)
     view_center = (0.0, 1.0)
     view_zoom = 3.0
+    keys = "← / → push the cart"
 
     def build(self):
         ground = self.world.create_static_body(position=(0, 0))

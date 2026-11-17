@@ -16,20 +16,25 @@ import math
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import Box, Env, new_world, register_env
+from webgym.core import Box, Env, register_env
 
-HULL = [(-0.5, -0.25), (0.5, -0.25), (0.35, 0.35), (-0.35, 0.35)]
+HULL = np.array([(-0.5, -0.25), (0.5, -0.25), (0.35, 0.35), (-0.35, 0.35)])
 LEG_ANGLE = 0.35  # the legs splay outwards
 LEG_CENTERS = [(-0.55, -0.45), (0.55, -0.45)]
 LEG_HALF_LENGTH = 0.3
+# the lower ends of the legs (local points)
+LEG_TIPS = np.array(
+    [(c[0] + LEG_HALF_LENGTH * math.sin(a), c[1] - LEG_HALF_LENGTH * math.cos(a))
+     for c, a in zip(LEG_CENTERS, (-LEG_ANGLE, LEG_ANGLE))]
+)
 
 
-def _leg_tip(center, angle):
-    """local point at the lower end of a leg (a box rotated by `angle`)"""
-    return (
-        center[0] + LEG_HALF_LENGTH * math.sin(angle),
-        center[1] - LEG_HALF_LENGTH * math.cos(angle),
-    )
+def world_points(position, angle, local):
+    """(n, k, 2) world points of `local` (k, 2) points on n bodies"""
+    c, s = np.cos(angle)[:, None], np.sin(angle)[:, None]
+    x = position[:, None, 0] + c * local[None, :, 0] - s * local[None, :, 1]
+    y = position[:, None, 1] + s * local[None, :, 0] + c * local[None, :, 1]
+    return np.stack([x, y], axis=-1)
 
 
 @register_env("LunarLander")
@@ -39,85 +44,78 @@ class LunarLander(Env):
     max_steps = 600
     view_center = (0.0, 5.0)
     view_zoom = 6.0
-    gravity = 5.0
+    gravity = (0, -5.0)
+    keys = "↑ main engine · ← / → rotate"
 
-    def __init__(self):
-        world = new_world(gravity=(0, -self.gravity))
-        ground = world.create_static_body(position=(0, -0.5))
-        ground.create_shape(b2d.shape_def(material=b2d.surface_material(friction=0.8)), b2d.box(14, 0.5))
-        # the flags of the pad: decoration, nothing collides with them
-        no_contact = b2d.make_filter(category_bits=8, mask_bits=0)
-        for x in (-1.6, 1.6):
-            flag = world.create_static_body(position=(x, 0))
-            flag.create_shape(b2d.shape_def(filter=no_contact), b2d.box(0.02, 0.6, center=(0, 0.6)))
-            flag.create_shape(b2d.shape_def(filter=no_contact), b2d.polygon([(0, 1.2), (0, 0.9), (0.35, 1.05)]))
-
-        self.lander = world.create_dynamic_body(position=(0, 9))
-        material = b2d.surface_material(friction=0.8)
-        self.lander.create_shape(b2d.shape_def(density=1.0, material=material), b2d.polygon(HULL))
-        self.leg_tips = []
-        for center, angle in zip(LEG_CENTERS, (-LEG_ANGLE, LEG_ANGLE)):
-            self.lander.create_shape(
-                b2d.shape_def(density=0.5, material=material),
-                b2d.box(0.05, LEG_HALF_LENGTH, center=center, rotation=angle),
-            )
-            self.leg_tips.append(_leg_tip(center, angle))
-        self.main_force = 2.2 * self.lander.mass * self.gravity
-        self.max_torque = 3.0 * self.lander.rotational_inertia
-        self.rest_height = -min(t[1] for t in self.leg_tips)  # center above ground when standing
-        self.world = world
-        self.start = world.get_snapshot()
+    def build(self):
+        ground = self.world.create_static_body(position=(0, -0.5))
+        self.scenery_shape(ground, b2d.box(14, 0.5), friction=0.8)
+        for x in (-1.6, 1.6):  # the flags of the pad (decoration)
+            flag = self.world.create_static_body(position=(x, 0))
+            self.scenery_shape(flag, b2d.box(0.02, 0.6, center=(0, 0.6)))
+            self.scenery_shape(flag, b2d.polygon([(0, 1.2), (0, 0.9), (0.35, 1.05)]))
+        shapes = [(b2d.polygon(HULL.tolist()), 1.0)] + [
+            (b2d.box(0.05, LEG_HALF_LENGTH, center=c, rotation=a), 0.5)
+            for c, a in zip(LEG_CENTERS, (-LEG_ANGLE, LEG_ANGLE))
+        ]
+        landers = [self.agent_body(i, (0, 9), shapes) for i in range(self.n)]
+        self.landers = b2d.Bodies(landers)
+        mass, inertia = landers[0].mass, landers[0].rotational_inertia
+        self.main_force = 2.2 * mass * -self.gravity[1]
+        self.max_torque = 3.0 * inertia
+        self.rest_height = -LEG_TIPS[:, 1].min()  # center above ground when standing
+        self.forces = np.zeros((self.n, 2), dtype=np.float32)
 
     def _reset(self, rng):
-        self.world.restore_from_snapshot(self.start)
-        self.lander.set_transform((rng.uniform(-3, 3), 9.0), b2d.make_rot(rng.uniform(-0.2, 0.2)))
-        self.lander.linear_velocity = (rng.uniform(-1.5, 1.5), rng.uniform(-1.0, 0.0))
-        self.lander.angular_velocity = rng.uniform(-0.5, 0.5)
-        self.main = self.side = 0.0
-        self.shaping = self._shaping()
+        n = self.n
+        self.landers.position = np.column_stack([rng.uniform(-3, 3, n), np.full(n, 9.0)]).astype(np.float32)
+        self.landers.angle = rng.uniform(-0.2, 0.2, n).astype(np.float32)
+        self.landers.linear_velocity = np.column_stack(
+            [rng.uniform(-1.5, 1.5, n), rng.uniform(-1.0, 0.0, n)]
+        ).astype(np.float32)
+        self.landers.angular_velocity = rng.uniform(-0.5, 0.5, n).astype(np.float32)
+        self.main = np.zeros(n)
+        self.side = np.zeros(n)
+        self.shaping = self._shaping(self._observe())
 
-    def _apply(self, action):
-        a = np.clip(np.asarray(action, dtype=np.float64).reshape(-1), -1, 1)
-        self.main, self.side = max(a[0], 0.0), a[1]
-        if self.main > 0:
-            up = self.lander.world_vector((0, 1))
-            self.lander.apply_force_to_center(
-                (up[0] * self.main * self.main_force, up[1] * self.main * self.main_force), True
-            )
-        self.lander.apply_torque(self.side * self.max_torque, True)
-
-    def _legs_down(self):
-        """1.0 per leg whose tip touches the ground (flat at y = 0)"""
-        return [float(self.lander.world_point(tip)[1] < 0.03) for tip in self.leg_tips]
+    def _apply(self, actions):
+        a = np.clip(actions, -1, 1)
+        self.main, self.side = np.maximum(a[:, 0], 0.0), a[:, 1]
+        angle = self.landers.angle
+        thrust = self.main * self.main_force
+        self.forces[:, 0] = -np.sin(angle) * thrust  # along the lander's up axis
+        self.forces[:, 1] = np.cos(angle) * thrust
+        self.landers.apply_force_to_center(self.forces, True)
+        self.landers.apply_torque((self.side * self.max_torque).astype(np.float32), True)
 
     def _observe(self):
-        (x, y), (vx, vy) = self.lander.position, self.lander.linear_velocity
-        return np.array(
-            [x / 5, (y - self.rest_height) / 5, vx / 5, vy / 5, self.lander.angle,
-             self.lander.angular_velocity / 2, *self._legs_down()],
-            dtype=np.float32,
-        )
+        pos, vel, angle = self.landers.position, self.landers.linear_velocity, self.landers.angle
+        legs = (world_points(pos, angle, LEG_TIPS)[:, :, 1] < 0.03).astype(np.float32)
+        return np.column_stack(
+            [pos[:, 0] / 5, (pos[:, 1] - self.rest_height) / 5, vel / 5, angle,
+             self.landers.angular_velocity / 2, legs]
+        ).astype(np.float32)
 
-    def _shaping(self):
+    @staticmethod
+    def _shaping(o):
         """potential: high near the pad, slow, upright, legs down"""
-        o = self._observe()
         return (
-            -100 * math.hypot(o[0], o[1]) - 100 * math.hypot(o[2], o[3]) - 100 * abs(o[4])
-            + 10 * (o[6] + o[7])
+            -100 * np.hypot(o[:, 0], o[:, 1]) - 100 * np.hypot(o[:, 2], o[:, 3])
+            - 100 * np.abs(o[:, 4]) + 10 * (o[:, 6] + o[:, 7])
         )
 
     def _outcome(self):
-        shaping = self._shaping()
-        reward = shaping - self.shaping - 0.3 * self.main - 0.03 * abs(self.side)
+        o = self._observe()
+        shaping = self._shaping(o)
+        reward = shaping - self.shaping - 0.3 * self.main - 0.03 * np.abs(self.side)
         self.shaping = shaping
-        (x, y), (vx, vy) = self.lander.position, self.lander.linear_velocity
-        hull_down = min(self.lander.world_point(p)[1] for p in HULL) < 0.02
-        if hull_down or abs(x) > 9 or y > 16:
-            return reward - 100, True
-        resting = all(self._legs_down()) and math.hypot(vx, vy) < 0.1 and abs(self.lander.angular_velocity) < 0.2
-        if resting:
-            return reward + 100, True
-        return reward, False
+        pos, angle = self.landers.position, self.landers.angle
+        hull_down = world_points(pos, angle, HULL)[:, :, 1].min(axis=1) < 0.02
+        crashed = hull_down | (np.abs(pos[:, 0]) > 9) | (pos[:, 1] > 16)
+        speed = np.hypot(*self.landers.linear_velocity.T)
+        resting = (o[:, 6] > 0) & (o[:, 7] > 0) & (speed < 0.1) & (np.abs(self.landers.angular_velocity) < 0.2)
+        reward = reward - 100 * crashed + 100 * (resting & ~crashed)
+        return reward, crashed | resting
 
     def human_action(self, keys):
         """up: main engine, left / right: rotate"""

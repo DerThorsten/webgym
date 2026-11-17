@@ -143,17 +143,20 @@ class Camera:
 ensure_hex = b2d.ensure_hex_color
 
 
-def _recolored(block, dtype, color, alpha):
+def _recolored(block, dtype, color, alpha, keep=()):
     """a float32 copy of a BatchDebugDraw block, its packed RGBA8 colors replaced by
-    `color` (0xRRGGBB, None: keep) with `alpha` (None: keep)"""
+    `color` (0xRRGGBB, None: keep) with `alpha` (None: keep); shapes drawn in one of
+    the `keep` colors (0xRRGGBB, e.g. custom colors) stay as they are"""
     out = np.array(block, dtype=np.float32, copy=True)
     if len(out) == 0 or (color is None and alpha is None):
         return out
     colors = out.view(dtype).reshape(-1)["color"]
+    rgb = colors & 0x00FFFFFF
+    change = ~np.isin(rgb, [make_rgba8(k, 0) & 0x00FFFFFF for k in keep])
     if color is not None:
-        colors[:] = (colors & 0xFF000000) | (make_rgba8(color, 0) & 0x00FFFFFF)
+        colors[change] = (colors[change] & 0xFF000000) | (make_rgba8(color, 0) & 0x00FFFFFF)
     if alpha is not None:
-        colors[:] = (colors & 0x00FFFFFF) | np.uint32(alpha << 24)
+        colors[change] = (colors[change] & 0x00FFFFFF) | np.uint32(alpha << 24)
     return out
 
 
@@ -188,11 +191,12 @@ class GLDebugDraw(b2d.DebugDraw):
 
         self.batch = b2d.BatchDebugDraw(on_string=on_string)
 
-    def draw_world(self, world, color=None, alpha=None):
+    def draw_world(self, world, color=None, alpha=None, keep=()):
         """draw `world` with this debug draw's options: collected in C++
         (BatchDebugDraw), handed to the GL batches as whole arrays. Several worlds
         can be drawn between begin_draw / end_draw (overlaid); `color` (0xRRGGBB)
-        and / or `alpha` (0..255) override the shapes' colors (webgym: ghosts)"""
+        and / or `alpha` (0..255) override the shapes' colors (webgym: ghosts),
+        except for shapes in the `keep` colors (0xRRGGBB)"""
         batch = self.batch
         batch.copy_options(self)
         batch.clear()
@@ -207,7 +211,7 @@ class GLDebugDraw(b2d.DebugDraw):
         )
         for target, block, dtype in targets:
             # a copy: the batch reuses its arrays for the next world
-            target.add_block(_recolored(block, dtype, color, alpha))
+            target.add_block(_recolored(block, dtype, color, alpha, keep))
 
     def begin_draw(self):
         self._draw_start_time = time.perf_counter()  # start timing

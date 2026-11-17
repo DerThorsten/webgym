@@ -1,6 +1,7 @@
 // The page (main thread): layout, progress bars, controls. Python, the simulation and
 // the WebGL2 rendering run in worker.js on an OffscreenCanvas.
 
+import { setupPanel } from "./checkpoints.js";
 import { plot } from "./plot.js";
 
 const stage = document.getElementById("stage");
@@ -73,6 +74,10 @@ function showControls(controls) {
     }
     const el = document.createElement("div");
     el.className = "control";
+    if (c.type === "hint") {
+      root.append(Object.assign(document.createElement("div"), { className: c.active ? "hint active" : "hint", textContent: c.text }));
+      continue;
+    }
     if (c.type === "info") {
       // first line always visible, the rest on click
       const [first, ...rest] = c.text.split("\n");
@@ -137,18 +142,36 @@ function showHistory() {
 }
 new ResizeObserver(showHistory).observe(plotEl);
 
+/** watch mode, the episode is over: its score over the canvas (+ best, the last few) */
+function showScore(s) {
+  const el = document.getElementById("score");
+  el.hidden = !(s.mode === "watch" && s.episode_over && s.scores.length);
+  if (el.hidden) return;
+  const score = s.scores.at(-1);
+  const isBest = score === s.best_score && s.scores.length > 1;
+  el.innerHTML =
+    `<div class="big">Score ${Math.round(score)}${isBest ? " · best!" : ""}</div>` +
+    `<div class="small">best ${Math.round(s.best_score)} · last ${s.scores.map(Math.round).join(", ")}</div>`;
+}
+
 /** a message from the worker */
 function onMessage({ data }) {
   if (data.type === "progress") showProgress(data);
   else if (data.type === "ready") {
     if (Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
+    for (const name of rememberedPackages()) loadPackage(name); // loaded on an earlier visit
   }
-  else if (data.type === "controls") showControls(data.controls);
+  else if (data.type === "controls") {
+    showControls(data.controls);
+    checkpoints.onControls(data.controls, freshWorker);
+    freshWorker = false;
+  } else if (data.type === "checkpoint" || data.type === "delete_checkpoint") checkpoints.onMessage(data);
   else if (data.type === "history") {
     stats = data.reset ? data.entries : stats.concat(data.entries);
     showHistory();
   } else if (data.type === "state") {
     const s = data.state;
+    showScore(s);
     const last = stats.at(-1);
     stateEl.textContent =
       `mode      ${s.mode}\n` +
@@ -163,6 +186,7 @@ function onMessage({ data }) {
   } else if (data.type === "installed") {
     console.info(`${data.name} installed:`, data.seconds, data.result);
     status(`${data.name}: ${data.result} (${data.seconds.total.toFixed(1)} s)`);
+    rememberPackage(data.name);
   } else if (data.type === "error") status(`error: ${data.error}`, true);
   else if (data.type === "fatal") restartAfterCrash(data.error);
 }
@@ -174,6 +198,9 @@ function onMessage({ data }) {
 // More than MAX_CRASHES within a minute: no more restarts (no crash loop).
 const MAX_CRASHES = 3;
 const crashes = [];
+// checkpoints (IndexedDB): a new worker restores the autosave of its env + algo
+const checkpoints = setupPanel(send);
+let freshWorker = true;
 let keepStatusUntil = 0; // the crash notice is not cleared by the restarted worker before
 
 /** start a new worker rendering into a new canvas */
@@ -183,6 +210,7 @@ function startWorker() {
   canvas = fresh;
   worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   worker.onmessage = onMessage;
+  freshWorker = true;
   worker.onerror = (e) => {
     e.preventDefault();
     if (/RuntimeError|Aborted|unreachable|out of memory|out of bounds/i.test(e.message)) restartAfterCrash(e.message);
@@ -209,7 +237,7 @@ function restartAfterCrash(error) {
     statusEl.append(document.createElement("br"), reload);
     return;
   }
-  status(`python crashed and was restarted (training progress is lost):\n${error.split("\n")[0]}`, true);
+  status(`python crashed and was restarted (training continues from the last autosave):\n${error.split("\n")[0]}`, true);
   keepStatusUntil = now + 10_000;
   setTimeout(() => statusEl.textContent.startsWith("python crashed and was") && status(""), 10_000);
   stats = [];
@@ -277,10 +305,29 @@ g(jnp.ones(8)).block_until_ready()
 f"jax {jax.__version__} on {jax.devices()}, jit+grad {1e3 * (time.perf_counter() - t):.1f} ms"
 `,
 };
-for (const name of ["pytorch", "jax"]) {
-  const button = document.getElementById(name === "pytorch" ? "load-torch" : "load-jax");
-  button.addEventListener("click", () => {
-    button.disabled = true;
-    send({ type: "install", name, packages: [name], check: CHECKS[name] });
-  });
+const BUTTONS = { pytorch: "load-torch", jax: "load-jax" };
+
+/** load a big package in the worker (from the package cache when it was loaded before) */
+function loadPackage(name) {
+  document.getElementById(BUTTONS[name]).disabled = true;
+  send({ type: "install", name, packages: [name], check: CHECKS[name] });
+}
+for (const name of Object.keys(BUTTONS)) document.getElementById(BUTTONS[name]).addEventListener("click", () => loadPackage(name));
+
+// the packages loaded on an earlier visit load again by themselves (no prompt): they
+// come from the worker's package cache. Remembered per browser (localStorage)
+const REMEMBERED = "webgym.packages";
+function rememberedPackages() {
+  try {
+    return JSON.parse(localStorage.getItem(REMEMBERED) ?? "[]").filter((name) => name in BUTTONS);
+  } catch {
+    return [];
+  }
+}
+function rememberPackage(name) {
+  try {
+    localStorage.setItem(REMEMBERED, JSON.stringify([...new Set([...rememberedPackages(), name])]));
+  } catch {
+    // (no storage, e.g. some private windows: then no auto load)
+  }
 }

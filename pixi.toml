@@ -57,7 +57,7 @@ PLAYWRIGHT_BROWSERS_PATH = "$PIXI_PROJECT_ROOT/.pixi/ms-playwright"
 
 [feature.web-test.tasks.web-test]
 description = "Build the page, load it in headless chromium (cold + cached), fail on errors"
-cmd = "playwright install chromium && python web/test_page.py --crash --screenshot build/page.png"
+cmd = "playwright install chromium && python web/test_page.py --checkpoints --crash --screenshot build/page.png"
 depends-on = ["web-build"]
 
 [environments]

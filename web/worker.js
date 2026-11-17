@@ -3,17 +3,42 @@
 //   page -> worker: {type: "init", canvas, base}, {type: "resize", width, height},
 //                   {type: "event", kind, x, y, delta, key} (pointer: drawing-buffer px; keys),
 //                   {type: "command", name, value} (a widget changed),
+//                   {type: "restore", data} (a checkpoint, base64 .safetensors),
 //                   {type: "exec", id, code} (python; -> {type: "result", id, value}),
 //                   {type: "install", name, packages}
 //   worker -> page: {type: "progress", id, phase, done, total}, {type: "ready"},
 //                   {type: "controls", controls}, {type: "history", entries, reset},
 //                   {type: "state", state}, {type: "installed", name, seconds}, {type: "error", error},
-//                   {type: "fatal", error} (wasm trap: the page restarts the worker)
+//                   {type: "fatal", error} (wasm trap: the page restarts the worker),
+//                   {type: "checkpoint", name, env, algo, iteration, mean_return, data},
+//                   {type: "delete_checkpoint", name, env, algo}
 // (archive download / unpack: from pyb2d3/examples/web/main.js)
 
 import { initializePyjsRuntime } from "@derthorsten/pyjs";
 
 const post = (message) => self.postMessage(message);
+
+// conda packages (pytorch, jax, ... from the channels) are immutable files: cache-first
+// in Cache Storage, so a second visit loads them without the network. Everything else
+// (repodata.json, ...) goes to the network as usual.
+const PACKAGE_CACHE = "webgym-packages-v1";
+const isPackage = (url) => /\.(tar\.bz2|conda)(\?|$)/.test(url);
+const networkFetch = self.fetch.bind(self);
+self.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input.url ?? String(input);
+  if (!isPackage(url) || typeof caches === "undefined") return networkFetch(input, init);
+  try {
+    const cache = await caches.open(PACKAGE_CACHE);
+    const hit = await cache.match(url);
+    if (hit) return hit;
+    const response = await networkFetch(input, init);
+    if (response.ok) await cache.put(url, response.clone());
+    return response;
+  } catch (e) {
+    console.warn("package cache:", e);
+    return networkFetch(input, init);
+  }
+};
 const progress = (id, phase, done = 0, total = 0) => post({ type: "progress", id, phase, done, total });
 
 /** the bytes at `url` as a Blob, reporting bytes received */
@@ -119,6 +144,7 @@ self.onmessage = async ({ data }) => {
     if (data.type === "init") await init(data.canvas, data.base);
     else if (data.type === "event") self.webgymEvent?.(data.kind, data.x ?? 0, data.y ?? 0, data.delta ?? 0, data.key ?? "");
     else if (data.type === "command") self.webgymCommand?.(data.name, data.value ?? null);
+    else if (data.type === "restore") self.webgymRestore?.(data.data);
     else if (data.type === "resize") {
       self.canvas.width = data.width;
       self.canvas.height = data.height;

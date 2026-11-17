@@ -4,13 +4,18 @@ transferred to the worker, frames from requestAnimationFrame, messages to the pa
 worker.js sets `self.canvas` (the OffscreenCanvas) before starting this.
 """
 
+import base64
 import ctypes
 import json
+import time
 import traceback
 
 import pyjs
 
 from webgym.app import App
+
+AUTOSAVE = "autosave"  # the name of the automatic checkpoint (one per env + algo)
+AUTOSAVE_SECONDS = 2.0  # while training: at most this often
 
 
 class _WebGLContextAttributes(ctypes.Structure):
@@ -76,9 +81,11 @@ class WebHost:
         self.app = App(**kwargs)
         self.frames = 0
         self.history_sent = 0  # entries of app.history already sent to the page
-        # worker.js forwards the page's pointer events / widget changes to these
-        self._callables = [pyjs.create_callable(f) for f in (self.event, self.command)]
-        pyjs.js.Function("e", "c", "self.webgymEvent = e; self.webgymCommand = c")(
+        self.autosaved_at = 0.0  # time.monotonic() of the last autosave
+        # worker.js forwards the page's pointer events / widget changes / checkpoints
+        # to restore to these
+        self._callables = [pyjs.create_callable(f) for f in (self.event, self.command, self.restore)]
+        pyjs.js.Function("e", "c", "r", "self.webgymEvent = e; self.webgymCommand = c; self.webgymRestore = r")(
             *(js for js, _ in self._callables)
         )
         self.send_controls()
@@ -90,6 +97,36 @@ class WebHost:
         post({"type": "history", "reset": True, "entries": self.app.history})
         self.history_sent = len(self.app.history)
 
+    # -- checkpoints (stored by the page in IndexedDB, per env + algo) --------------
+
+    def send_checkpoint(self, name):
+        """the current run as a checkpoint named `name` to the page (base64 .safetensors)"""
+        app = self.app
+        last = app.history[-1] if app.history else {}
+        post({
+            "type": "checkpoint",
+            "name": name,
+            "env": app.env_name,
+            "algo": app.algo,
+            "iteration": last.get("iteration", 0),
+            "mean_return": last.get("mean_return"),
+            "data": base64.b64encode(app.checkpoint()).decode(),
+        })
+        self.autosaved_at = time.monotonic()
+
+    def autosave(self):
+        """the run's autosave slot (one per env + algo), when there is something to save"""
+        if self.app.train_state is not None:
+            self.send_checkpoint(AUTOSAVE)
+
+    def restore(self, data):
+        """a checkpoint from the page (base64); the run continues from it"""
+        try:
+            self.app.restore(base64.b64decode(str(data)))
+            self.send_controls()
+        except Exception:
+            post({"type": "error", "error": traceback.format_exc()})
+
     def frame(self, time_ms):
         """one animation frame; errors are reported, the loop goes on in watch mode"""
         try:
@@ -97,11 +134,14 @@ class WebHost:
             self.app.frame(int(self.canvas.width), int(self.canvas.height))
             if self.app.training != training:  # training finished
                 self.send_controls()
+                self.autosave()
             if len(self.app.history) < self.history_sent:
                 self.send_controls()
             elif len(self.app.history) > self.history_sent:
                 post({"type": "history", "entries": self.app.history[self.history_sent :]})
                 self.history_sent = len(self.app.history)
+                if time.monotonic() - self.autosaved_at > AUTOSAVE_SECONDS:
+                    self.autosave()
             self.frames += 1
             if self.frames % 15 == 0:
                 post({"type": "state", "state": self.app.state()})
@@ -117,7 +157,17 @@ class WebHost:
             # of bounds: read beyond the 4 GB of wasm32)
             ctypes.string_at(2**32 - 16, 64)
         try:
-            self.app.command(str(name), None if value is None else value)
+            name = str(name)
+            if name == "save":  # a named checkpoint (the page stores it)
+                self.send_checkpoint(str(value))
+                return
+            training = self.app.training
+            self.app.command(name, None if value is None else value)
+            if name == "stop" or (training and not self.app.training):
+                self.autosave()
+            if name == "new_run":  # the run is gone: so is its autosave
+                post({"type": "delete_checkpoint", "name": AUTOSAVE, "env": self.app.env_name,
+                      "algo": self.app.algo})
             self.send_controls()
         except Exception:
             post({"type": "error", "error": traceback.format_exc()})
