@@ -5,7 +5,7 @@ import time
 
 from webgym.algos import ALGOS
 from webgym.core import make
-from webgym.policies import MLP
+from webgym.policies import policy_for
 
 
 def train(env_name, algo="cem", population=64, iterations=30, seed=0, log=print):
@@ -13,8 +13,7 @@ def train(env_name, algo="cem", population=64, iterations=30, seed=0, log=print)
     env = make(env_name, n=population)
     spec = ALGOS[algo]
     params = spec.defaults()
-    hidden = int(params.pop("hidden", 16))
-    policy = MLP(env.observation_space.shape[0], env.action_space.shape[0], hidden=(hidden,))
+    policy = policy_for(env, spec.discrete, params.pop("hidden", 16))
     stats, start = None, time.perf_counter()
     for item in spec.train(env, policy, iterations=iterations, seed=seed, **params):
         if item is None:

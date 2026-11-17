@@ -144,6 +144,25 @@ def test_checkpoint_restore_continue():
     assert fresh.history[-1]["iteration"] == 3
 
 
+def test_display_takes_snapshots():
+    """two workers: the display app takes the trainer's policy (a checkpoint) without
+    restarting its episode; a snapshot of another env switches the env"""
+    trainer = make_app(population=16, speed=256)
+    trainer.command("train")
+    while len(trainer.history) < 2:
+        trainer._train_steps()
+    display = make_app()
+    for _ in range(10):
+        display._watch_step()
+    steps = display.env.steps
+    display.load_policy(trainer.checkpoint())
+    assert np.array_equal(display.params, trainer.params) and display.env.steps == steps
+    assert "iteration" in display.state()["policy"]
+    lander = make_app(env="LunarLander", population=8)
+    display.load_policy(lander.checkpoint())  # (no policy yet: zero actions)
+    assert display.env_name == "LunarLander" and display.params is None
+
+
 def test_safetensors_roundtrip():
     """the checkpoint format: arrays + metadata survive, the header is standard"""
     import json

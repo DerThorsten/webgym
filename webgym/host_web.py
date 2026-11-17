@@ -1,9 +1,17 @@
-"""Browser host (runs in the pyjs web worker): WebGL2 on the OffscreenCanvas the page
-transferred to the worker, frames from requestAnimationFrame, messages to the page.
+"""Browser host (runs in a pyjs web worker), in one of three roles:
 
-worker.js sets `self.canvas` (the OffscreenCanvas) before starting this.
+* "single": everything in one worker (phones / tablets): WebGL2 on the OffscreenCanvas
+  the page transferred, frames from requestAnimationFrame, training sliced into frames
+* "display": the same, but it never trains: the trainer's latest policy (snapshots)
+  drives the watched env (replay in real time, play, drag)
+* "trainer": no canvas: trains in chunks as fast as it can (between them it takes
+  commands), sends snapshots of the policy, the history, checkpoints
+
+worker.js sets `self.canvas` (the OffscreenCanvas, display / single) and
+`self.webgymOptions` (the page's URL options + the role) before starting this.
 """
 
+import asyncio
 import base64
 import ctypes
 import json
@@ -16,6 +24,8 @@ from webgym.app import App, NeedPackage
 
 AUTOSAVE = "autosave"  # the name of the automatic checkpoint (one per env + algo)
 AUTOSAVE_SECONDS = 2.0  # while training: at most this often
+TRAIN_CHUNK_S = 0.25  # trainer: training time between looking at commands
+SNAPSHOT_SECONDS = 0.25  # trainer: the policy to the display at most this often
 
 
 class _WebGLContextAttributes(ctypes.Structure):
@@ -70,26 +80,87 @@ def post(message):
 
 
 class WebHost:
-    """drives the shared App from requestAnimationFrame in the worker"""
+    """drives the shared App in the worker (see the module docstring for the roles)"""
 
     def __init__(self, options):
-        """`options`: the page's URL query parameters (env, algo, population, seed, speed)"""
-        self.canvas = pyjs.js.canvas
-        self.ctx = create_webgl2_context(self.canvas)
+        """`options`: the page's URL query parameters (env, algo, population, seed,
+        speed) and "role" ("single" / "display" / "trainer")"""
+        self.role = options.get("role", "single")
         kwargs = {k: options[k] for k in ("env", "algo") if k in options}
         kwargs.update({k: int(options[k]) for k in ("population", "seed", "speed") if k in options})
         self.app = App(**kwargs)
         self.frames = 0
         self.history_sent = 0  # entries of app.history already sent to the page
         self.autosaved_at = 0.0  # time.monotonic() of the last autosave
+        self.snapshot_at = 0.0  # trainer: time.monotonic() of the last snapshot
+        self.state_at = 0.0  # trainer: ... of the last state message
         # worker.js forwards the page's pointer events / widget changes / checkpoints
-        # to restore to these
-        self._callables = [pyjs.create_callable(f) for f in (self.event, self.command, self.restore)]
-        pyjs.js.Function("e", "c", "r", "self.webgymEvent = e; self.webgymCommand = c; self.webgymRestore = r")(
-            *(js for js, _ in self._callables)
-        )
+        # to restore / snapshots of the trainer's policy to these
+        functions = (self.event, self.command, self.restore, self.snapshot)
+        self._callables = [pyjs.create_callable(f) for f in functions]
+        pyjs.js.Function(
+            "e", "c", "r", "s",
+            "self.webgymEvent = e; self.webgymCommand = c; self.webgymRestore = r; self.webgymSnapshot = s",
+        )(*(js for js, _ in self._callables))
         self.send_controls()
-        self.loop = pyjs.request_animation_frame_loop(self.frame)
+        if self.role == "trainer":
+            self.send_snapshot()
+            self.task = asyncio.ensure_future(self.train_loop())
+        else:
+            self.canvas = pyjs.js.canvas
+            self.ctx = create_webgl2_context(self.canvas)
+            self.loop = pyjs.request_animation_frame_loop(self.frame)
+
+    # -- trainer ---------------------------------------------------------------------
+
+    async def train_loop(self):
+        """train in chunks of TRAIN_CHUNK_S as long as training is on; between the
+        chunks the worker handles messages (commands, stop)"""
+        while True:
+            try:
+                training = self.app.training
+                if training:
+                    self.app._train_steps(TRAIN_CHUNK_S)
+                self.after_update(training)
+                now = time.monotonic()
+                if now - self.state_at > 0.25:
+                    post({"type": "state", "state": self.app.state()})
+                    self.state_at = now
+            except Exception:
+                post({"type": "error", "error": traceback.format_exc()})
+                self.app.stop()
+                self.send_controls()
+            await asyncio.sleep(0 if self.app.training else 0.05)
+
+    def send_snapshot(self):
+        """the current policy (a checkpoint) for the display worker"""
+        post({"type": "snapshot", "data": base64.b64encode(self.app.checkpoint()).decode()})
+        self.snapshot_at = time.monotonic()
+
+    # -- display -----------------------------------------------------------------------
+
+    def snapshot(self, data):
+        """display: the trainer's latest policy drives the watched env"""
+        try:
+            self.app.load_policy(base64.b64decode(str(data)))
+        except Exception:
+            post({"type": "error", "error": traceback.format_exc()})
+
+    def after_update(self, training_before):
+        """after training steps: controls when training ended, new history entries (+
+        autosave, snapshot for the display)"""
+        if self.app.training != training_before:  # training finished / stopped
+            self.send_controls()
+            self.autosave()
+        if len(self.app.history) < self.history_sent:
+            self.send_controls()
+        elif len(self.app.history) > self.history_sent:
+            post({"type": "history", "entries": self.app.history[self.history_sent :]})
+            self.history_sent = len(self.app.history)
+            if time.monotonic() - self.autosaved_at > AUTOSAVE_SECONDS:
+                self.autosave()
+            if self.role == "trainer" and time.monotonic() - self.snapshot_at > SNAPSHOT_SECONDS:
+                self.send_snapshot()
 
     def send_controls(self):
         """the widgets (app.controls()) and the whole history (after a reset / new run)"""
@@ -124,6 +195,8 @@ class WebHost:
         try:
             self.app.restore(base64.b64decode(str(data)))
             self.send_controls()
+            if self.role == "trainer":
+                self.send_snapshot()
         except Exception:
             post({"type": "error", "error": traceback.format_exc()})
 
@@ -132,16 +205,7 @@ class WebHost:
         try:
             training = self.app.training
             self.app.frame(int(self.canvas.width), int(self.canvas.height))
-            if self.app.training != training:  # training finished
-                self.send_controls()
-                self.autosave()
-            if len(self.app.history) < self.history_sent:
-                self.send_controls()
-            elif len(self.app.history) > self.history_sent:
-                post({"type": "history", "entries": self.app.history[self.history_sent :]})
-                self.history_sent = len(self.app.history)
-                if time.monotonic() - self.autosaved_at > AUTOSAVE_SECONDS:
-                    self.autosave()
+            self.after_update(training)
             self.frames += 1
             if self.frames % 15 == 0:
                 post({"type": "state", "state": self.app.state()})
@@ -174,6 +238,8 @@ class WebHost:
                 post({"type": "delete_checkpoint", "name": AUTOSAVE, "env": self.app.env_name,
                       "algo": self.app.algo})
             self.send_controls()
+            if self.role == "trainer" and name in ("env", "algo", "new_run", "stop", "train"):
+                self.send_snapshot()  # (the display shows the current policy / env)
         except Exception:
             post({"type": "error", "error": traceback.format_exc()})
 

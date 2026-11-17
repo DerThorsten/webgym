@@ -3,11 +3,22 @@
 import numpy as np
 
 
+def policy_for(env, discrete=False, hidden=16):
+    """the MLP an algorithm trains for `env`: actions (tanh output) or, `discrete`, one
+    Q-value per discrete action (linear output)"""
+    obs_dim = env.observation_space.shape[0]
+    if discrete:
+        return MLP(obs_dim, len(env.discrete_actions), hidden=(int(hidden),), tanh_out=False)
+    return MLP(obs_dim, env.action_space.shape[0], hidden=(int(hidden),))
+
+
 class MLP:
-    """obs -> tanh hidden layers -> tanh output in [-1, 1]; all weights in one flat
+    """obs -> tanh hidden layers -> tanh output in [-1, 1] (actions), or a linear
+    output (`tanh_out=False`: Q-values of discrete actions); all weights in one flat
     vector (what evolution strategies optimize)"""
 
-    def __init__(self, obs_dim, act_dim, hidden=(16,)):
+    def __init__(self, obs_dim, act_dim, hidden=(16,), tanh_out=True):
+        self.tanh_out = tanh_out
         self.sizes = [obs_dim, *hidden, act_dim]
         self.shapes = [(a, b) for a, b in zip(self.sizes[:-1], self.sizes[1:])]
         self.num_params = sum(a * b + b for a, b in self.shapes)
@@ -25,6 +36,9 @@ class MLP:
     def __call__(self, params, obs):
         """actions (P, act_dim) for P parameter vectors (P, num_params) and obs (P, obs_dim)"""
         x = obs
-        for w, b in self.unflatten(np.atleast_2d(params)):
-            x = np.tanh(np.einsum("pa,pab->pb", x, w) + b)
+        layers = self.unflatten(np.atleast_2d(params))
+        for i, (w, b) in enumerate(layers):
+            x = np.einsum("pa,pab->pb", x, w) + b
+            if self.tanh_out or i < len(layers) - 1:
+                x = np.tanh(x)
         return x

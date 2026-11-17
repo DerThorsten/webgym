@@ -1,13 +1,35 @@
-// The page (main thread): layout, progress bars, controls. Python, the simulation and
-// the WebGL2 rendering run in worker.js on an OffscreenCanvas.
+// The page (main thread): layout, progress bars, controls. Python runs in workers
+// (worker.js):
+// * the display worker: the simulation you watch / play, WebGL2 on an OffscreenCanvas
+// * the training worker (desktop): trains as fast as it can, no drawing; snapshots of
+//   its policy go to the display worker (replay in real time)
+// On phones / tablets (or ?workers=1) one worker does both (role "single").
 
 import { setupPanel } from "./checkpoints.js";
 import { plot } from "./plot.js";
 
 const stage = document.getElementById("stage");
 let canvas = document.getElementById("canvas"); // replaced on a worker restart
-let worker = null; // the pyjs worker (replaced on a restart after a fatal error)
-const send = (message, transfer) => worker?.postMessage(message, transfer);
+const params = new URLSearchParams(location.search);
+const SMALL_DEVICE = matchMedia("(pointer: coarse)").matches || (navigator.hardwareConcurrency || 2) <= 4;
+const TWO_WORKERS = (params.get("workers") ?? (SMALL_DEVICE ? "1" : "2")) === "2";
+let display = null; // the display worker (role "display" / "single")
+let trainer = null; // the training worker (role "trainer"; null with one worker)
+const toDisplay = (message, transfer) => display?.postMessage(message, transfer);
+const toTraining = (message) => (TWO_WORKERS ? trainer : display)?.postMessage(message);
+let lastSnapshot = null; // the trainer's latest policy (for a display that (re)starts)
+let trainerState = null; // the trainer's state message (two workers)
+// commands of the watched env only: to the display (and to the trainer too: its
+// controls show these values as well)
+const DISPLAY_COMMANDS = new Set(["controller", "auto_reset", "reset"]);
+
+/** a widget changed: route the command to the worker(s) concerned */
+function command(name, value) {
+  const message = { type: "command", name, value };
+  if (!TWO_WORKERS) return toDisplay(message);
+  if (DISPLAY_COMMANDS.has(name) || name === "env") toDisplay(message);
+  toTraining(message);
+}
 const statusEl = document.getElementById("status");
 const stateEl = document.getElementById("state");
 const plotEl = document.getElementById("plot");
@@ -69,7 +91,7 @@ function resize() {
   const w = Math.max(1, canvas.clientWidth);
   const h = Math.max(1, canvas.clientHeight);
   scale = DPR_PARAM > 0 ? DPR_PARAM : Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / (w * h)));
-  send({ type: "resize", width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) });
+  toDisplay({ type: "resize", width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) });
 }
 
 const openGroups = new Set(); // control groups the user opened (stay open on a rebuild)
@@ -79,7 +101,6 @@ const openGroups = new Set(); // control groups the user opened (stay open on a 
 function showControls(controls) {
   const root = document.getElementById("controls");
   root.replaceChildren();
-  const command = (name, value) => send({ type: "command", name, value });
   const buttons = document.createElement("div");
   const groups = new Map(); // group name -> <details> (e.g. the algorithm's parameters)
   for (const c of controls) {
@@ -123,6 +144,11 @@ function showControls(controls) {
     const label = document.createElement("label");
     label.innerHTML = `<span>${c.label}</span><span></span>`;
     const value = label.lastChild;
+    if (c.help) {
+      // the explanation: a tooltip on the name (with a small marker)
+      label.firstChild.title = c.help;
+      label.firstChild.append(Object.assign(document.createElement("span"), { className: "help", textContent: " ⓘ" }));
+    }
     let input;
     if (c.type === "checkbox") {
       el.className = "control checkbox";
@@ -131,7 +157,8 @@ function showControls(controls) {
         command(c.name, input.checked);
         input.blur();
       };
-      const text = Object.assign(document.createElement("span"), { textContent: c.label });
+      const text = Object.assign(document.createElement("span"), { textContent: c.label, title: c.help ?? "" });
+      if (c.help) text.append(Object.assign(document.createElement("span"), { className: "help", textContent: " ⓘ" }));
       const wrap = document.createElement("label");
       wrap.append(input, text);
       el.append(wrap);
@@ -198,16 +225,56 @@ function showScore(s) {
     `<div class="small">best ${Math.round(s.best_score)} · last ${s.scores.map(Math.round).join(", ")}</div>`;
 }
 
-/** a message from the worker */
-function onMessage({ data }) {
-  if (data.type === "progress") showProgress(data);
-  else if (data.type === "ready") {
-    if (Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
-    // in the background, a bit later: the restore of the autosave goes first (the
-    // installs keep python busy)
-    setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
-  }
-  else if (data.type === "controls") {
+/** the state panel: the watched env (display) + the training (trainer, two workers) */
+function showState() {
+  const s = displayState;
+  if (!s) return;
+  const last = stats.at(-1);
+  const t = TWO_WORKERS ? trainerState : s;
+  const training = t?.mode === "train";
+  stateEl.textContent =
+    `training  ${training ? `running, iteration ${t.iteration}` : "stopped"}` +
+    (TWO_WORKERS ? " (training worker)" : "") +
+    "\n" +
+    `policy    ${s.policy}\n` +
+    (!training || TWO_WORKERS
+      ? `episode   #${s.episode}, return ${s.episode_return.toFixed(0)}` +
+        (s.episode_over ? (s.auto_reset ? " (over, restarting)" : " (over, keeps going)") : "") +
+        "\n"
+      : "") +
+    (last ? `mean/best ${last.mean_return.toFixed(0)} / ${last.best_return.toFixed(0)}\n` : "") +
+    `frame     ${s.frame_ms.toFixed(1)} ms`;
+}
+let displayState = null;
+
+/** a message from a worker: `role` "display" (also "single") or "trainer" */
+function onMessage(role, { data }) {
+  const training = role === "trainer" || !TWO_WORKERS; // (the worker that trains)
+  if (data.type === "progress") {
+    // the trainer's own start: its own bars (no hourglass: the page is usable)
+    const id = role === "trainer" && (data.id === "startup" || data.id === "core") ? `training worker ${data.id}` : data.id;
+    showProgress({ ...data, id });
+  } else if (data.type === "ready") {
+    if (role !== "trainer" && Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
+    if (role === "display" && lastSnapshot) toDisplay({ type: "snapshot", data: lastSnapshot });
+    // the big packages in the training worker, in the background, a bit later: the
+    // restore of the autosave goes first (the installs keep python busy)
+    if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
+  } else if (data.type === "snapshot") {
+    lastSnapshot = data.data;
+    toDisplay({ type: "snapshot", data: data.data });
+  } else if (data.type === "state") {
+    if (role === "trainer") trainerState = data.state;
+    else {
+      displayState = data.state;
+      showScore(data.state);
+    }
+    showState();
+  } else if (!training) {
+    // the display worker of two: only its errors matter beyond this point
+    if (data.type === "error") status(`error: ${data.error}`, true);
+    else if (data.type === "fatal") restartAfterCrash(role, data.error);
+  } else if (data.type === "controls") {
     showControls(data.controls);
     checkpoints.onControls(data.controls, freshWorker);
     freshWorker = false;
@@ -223,29 +290,16 @@ function onMessage({ data }) {
   else if (data.type === "history") {
     stats = data.reset ? data.entries : stats.concat(data.entries);
     showHistory();
-  } else if (data.type === "state") {
-    const s = data.state;
-    showScore(s);
-    const last = stats.at(-1);
-    stateEl.textContent =
-      `mode      ${s.mode}\n` +
-      `policy    ${s.policy}\n` +
-      (s.mode === "watch"
-        ? `episode   #${s.episode}, return ${s.episode_return.toFixed(0)}` +
-          (s.episode_over ? (s.auto_reset ? " (over, restarting)" : " (over, keeps going)") : "") +
-          "\n"
-        : `iteration ${s.iteration}\n`) +
-      (last ? `mean/best ${last.mean_return.toFixed(0)} / ${last.best_return.toFixed(0)}\n` : "") +
-      `frame     ${s.frame_ms.toFixed(1)} ms`;
+    showState();
   } else if (data.type === "installed") {
     console.info(`${data.name} installed:`, data.seconds, data.result);
     showPackageResult(data.name, `${data.result} (loaded in ${data.seconds.total.toFixed(1)} s)`);
     if (afterInstall.has(data.name)) {
-      send({ type: "command", name: afterInstall.get(data.name) });
+      command(afterInstall.get(data.name));
       afterInstall.delete(data.name);
     }
   } else if (data.type === "error") status(`error: ${data.error}`, true);
-  else if (data.type === "fatal") restartAfterCrash(data.error);
+  else if (data.type === "fatal") restartAfterCrash(role, data.error);
 }
 
 // ---- the worker, restarted after fatal errors -------------------------------------
@@ -255,36 +309,46 @@ function onMessage({ data }) {
 // More than MAX_CRASHES within a minute: no more restarts (no crash loop).
 const MAX_CRASHES = 3;
 const crashes = [];
-// checkpoints (IndexedDB): a new worker restores the autosave of its env + algo
-const checkpoints = setupPanel(send);
-let freshWorker = true;
+// checkpoints (IndexedDB): a new training worker restores the autosave of its env + algo
+const checkpoints = setupPanel(toTraining);
+let freshWorker = true; // the training (or single) worker just started
 let keepStatusUntil = 0; // the crash notice is not cleared by the restarted worker before
+const TRAP = /RuntimeError: (unreachable|memory access out of bounds|null function|indirect call)|Aborted\(|out of memory/i;
 
-/** start a new worker rendering into a new canvas */
-function startWorker() {
+/** a new worker with `role`: "display" / "single" (rendering into a new canvas) or
+ * "trainer" (no canvas) */
+function startWorker(role) {
+  const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  w.onmessage = (event) => onMessage(role, event);
+  w.onerror = (e) => {
+    e.preventDefault();
+    if (TRAP.test(e.message)) restartAfterCrash(role, e.message);
+    else status(`worker error: ${e.message}`, true);
+  };
+  if (role === "trainer" || !TWO_WORKERS) {
+    freshWorker = true;
+    requested.clear(); // (a new worker loads the packages again, from the package cache)
+  }
+  if (role === "trainer") {
+    trainer = w;
+    w.postMessage({ type: "init", canvas: null, base: location.href, role });
+    return;
+  }
   const fresh = Object.assign(document.createElement("canvas"), { id: "canvas" });
   canvas.replaceWith(fresh);
   canvas = fresh;
-  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-  worker.onmessage = onMessage;
-  freshWorker = true;
-  requested.clear(); // (a new worker loads them again, from the package cache)
-  worker.onerror = (e) => {
-    e.preventDefault();
-    if (/RuntimeError: (unreachable|memory access out of bounds|null function|indirect call)|Aborted\(|out of memory/i.test(e.message))
-      restartAfterCrash(e.message);
-    else status(`worker error: ${e.message}`, true);
-  };
+  display = w;
   const offscreen = canvas.transferControlToOffscreen();
-  send({ type: "init", canvas: offscreen, base: location.href }, [offscreen]);
+  w.postMessage({ type: "init", canvas: offscreen, base: location.href, role }, [offscreen]);
   resize();
 }
 
-/** the worker crashed (`error`): restart it, unless it crashes too often */
-function restartAfterCrash(error) {
-  console.error("python crashed:", error);
+/** a worker crashed (`error`): restart it, unless it crashes too often */
+function restartAfterCrash(role, error) {
+  console.error(`python crashed (${role}):`, error);
+  const training = role === "trainer" || !TWO_WORKERS;
   // a package that was loading / being checked: probably the cause, skipped from now on
-  for (const id of loading.keys()) {
+  for (const id of training ? loading.keys() : []) {
     if (id in PACKAGES) {
       brokenPackages.add(id);
       showPackageResult(id, `crashed python while loading / checking (${error.split("\n")[0]}), skipped`);
@@ -293,8 +357,9 @@ function restartAfterCrash(error) {
   }
   loading.clear();
   showBusy();
-  worker.terminate();
-  worker = null;
+  (role === "trainer" ? trainer : display).terminate();
+  if (role === "trainer") trainer = null;
+  else display = null;
   const now = Date.now();
   crashes.push(now);
   while (crashes.length && now - crashes[0] > 60_000) crashes.shift();
@@ -308,19 +373,22 @@ function restartAfterCrash(error) {
   status(`python crashed and was restarted (training continues from the last autosave):\n${error.split("\n")[0]}`, true);
   keepStatusUntil = now + 10_000;
   setTimeout(() => statusEl.textContent.startsWith("python crashed and was") && status(""), 10_000);
-  stats = [];
-  showHistory();
-  startWorker();
+  if (training) {
+    stats = [];
+    showHistory();
+  }
+  startWorker(role);
 }
 
 new ResizeObserver(resize).observe(stage);
-startWorker();
+startWorker(TWO_WORKERS ? "display" : "single");
+if (TWO_WORKERS) startWorker("trainer");
 // for test_page.py: a real wasm trap in the worker (checks the restart)
-window.webgymCrashTest = () => send({ type: "command", name: "__crash__" });
+window.webgymCrashTest = () => toDisplay({ type: "command", name: "__crash__" });
 
-// pointer input -> worker (drawing-buffer px): drag bodies, pan, wheel zoom. The
-// listeners are on the stage: they survive the canvas being replaced on a restart
-const sendEvent = (kind, e, delta = 0) => send({ type: "event", kind, x: e.offsetX * scale, y: e.offsetY * scale, delta });
+// pointer input -> display worker (drawing-buffer px): drag bodies, pan, wheel zoom.
+// The listeners are on the stage: they survive the canvas being replaced on a restart
+const sendEvent = (kind, e, delta = 0) => toDisplay({ type: "event", kind, x: e.offsetX * scale, y: e.offsetY * scale, delta });
 stage.style.touchAction = "none";
 stage.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || e.target !== canvas) return;
@@ -339,11 +407,11 @@ for (const kind of ["keydown", "keyup"]) {
     const key = keyName(e);
     if (!key || e.repeat || e.target.closest?.("input, select, textarea")) return;
     if (KEY_NAMES[e.key]) e.preventDefault(); // no scrolling with the arrows / space
-    send({ type: "event", kind, key });
+    toDisplay({ type: "event", kind, key });
   });
 }
 window.addEventListener("blur", () => {
-  for (const key of Object.values(KEY_NAMES)) send({ type: "event", kind: "keyup", key });
+  for (const key of Object.values(KEY_NAMES)) toDisplay({ type: "event", kind: "keyup", key });
 });
 stage.addEventListener(
   "wheel",
@@ -430,9 +498,9 @@ async function compileRequest({ id, mlir }) {
   try {
     const { exec } = await compileWorker();
     const data = await exec(`from webgym import gpu\ngpu.compile_b64(${JSON.stringify(mlir)})`);
-    send({ type: "compile_result", id, data });
+    toTraining({ type: "compile_result", id, data });
   } catch (e) {
-    send({ type: "compile_result", id, error: String(e?.message ?? e) });
+    toTraining({ type: "compile_result", id, error: String(e?.message ?? e) });
   }
 }
 
@@ -441,7 +509,7 @@ async function compileRequest({ id, mlir }) {
 function loadPackage(name) {
   if (requested.has(name) || brokenPackages.has(name)) return;
   requested.add(name);
-  send({ type: "install", name, packages: PACKAGES[name].packages, check: PACKAGES[name].check });
+  toTraining({ type: "install", name, packages: PACKAGES[name].packages, check: PACKAGES[name].check });
 }
 
 /** the result of a package's check, in the packages panel */

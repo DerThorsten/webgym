@@ -23,10 +23,10 @@ import numpy as np
 import pyb2d3 as b2d
 
 from webgym import checkpoints
-from webgym.algos import ALGOS
+from webgym.algos import ALGOS, HELP
 from webgym.core import ENVS, LEADER_COLOR, SCENERY_COLOR, make
 from webgym.gl.debug_draw_gl import Camera, GLDebugDraw
-from webgym.policies import MLP
+from webgym.policies import MLP, policy_for
 
 import webgym.envs  # noqa: F401 (registers the built-in envs)
 
@@ -84,6 +84,8 @@ class App:
         self.env_name = name
         self.env = make(name)
         self.env.freeze_done = False  # watch: the env goes on after the end (no auto reset)
+        if not ALGOS[self.algo].supports(self.env):
+            self.algo = "cem"  # (e.g. DQN, but this env has no discrete actions)
         self.camera.center = b2d.Vec2(*self.env.view_center)
         self.camera.zoom = self.env.view_zoom
         self.camera._matrix = None
@@ -92,8 +94,8 @@ class App:
     def new_run(self):
         """forget the policy, the trainer's state and the history"""
         self.stop()
-        hidden = int(self.hp[self.algo].get("hidden", 16))
-        self.policy = MLP(self.env.observation_space.shape[0], self.env.action_space.shape[0], hidden=(hidden,))
+        # (discrete: Q-values of the env's discrete actions, acting with argmax)
+        self.policy = policy_for(self.env, ALGOS[self.algo].discrete, self.hp[self.algo].get("hidden", 16))
         self.params = None  # the watched policy's parameters (None: zero actions)
         self.policy_info = "none yet (zero actions)"
         self.scores = []  # returns of the finished watch-mode episodes (newest last)
@@ -176,6 +178,20 @@ class App:
         }
         return checkpoints.dumps(tensors, metadata)
 
+    def load_policy(self, data):
+        """the display side of two workers: the trainer's latest policy (a checkpoint)
+        drives the watched env from now on; the episode goes on (no reset), unless the
+        env changed"""
+        tensors, meta = checkpoints.loads(data)
+        if meta["env"] != self.env_name:
+            self.set_env(meta["env"])
+        self.algo = meta["algo"]
+        sizes = meta["policy_sizes"]
+        if sizes != self.policy.sizes or self.policy.tanh_out == ALGOS[self.algo].discrete:
+            self.policy = MLP(sizes[0], sizes[-1], hidden=tuple(sizes[1:-1]), tanh_out=not ALGOS[self.algo].discrete)
+        self.params = tensors.get("policy")
+        self.policy_info = meta["policy_info"]
+
     def restore(self, data):
         """continue a run saved with checkpoint() (watch mode; Train continues it)"""
         tensors, meta = checkpoints.loads(data)
@@ -187,7 +203,8 @@ class App:
         self.algo = meta["algo"]
         self.hp[self.algo].update(meta.get("params", {}))
         self.population = int(meta["population"])
-        self.policy = MLP(meta["policy_sizes"][0], meta["policy_sizes"][-1], hidden=tuple(meta["policy_sizes"][1:-1]))
+        sizes = meta["policy_sizes"]
+        self.policy = MLP(sizes[0], sizes[-1], hidden=tuple(sizes[1:-1]), tanh_out=not ALGOS[self.algo].discrete)
         self.params = tensors.get("policy")
         state = meta["state"]
         if state is not None:
@@ -206,20 +223,30 @@ class App:
             {"type": "select", "name": "env", "label": "Environment", "options": sorted(ENVS), "value": self.env_name},
             {"type": "info", "name": "description", "text": self.env.description()},
             {"type": "select", "name": "controller", "label": "Controller (when not training)",
-             "options": ["agent", "human"], "value": self.controller},
+             "options": ["agent", "human"], "value": self.controller,
+             "help": "Who acts when not training: the trained policy (agent) or you with the keyboard."},
             {"type": "hint", "name": "keys", "active": self.controller == "human",
              "text": f"Keys: {self.env.keys} · R reset" if self.controller == "human"
              else f"Play yourself: Controller = human ({self.env.keys})"},
             {"type": "select", "name": "algo", "label": "Algorithm",
-             "options": [[name, a.label] for name, a in ALGOS.items()], "value": self.algo},
+             "options": [[name, a.label] for name, a in ALGOS.items() if a.supports(self.env)],
+             "value": self.algo,
+             "help": "How the agent learns. Discrete-action algorithms (DQN) are offered for "
+                     "envs that also have a few discrete actions."},
             *self._param_controls(),
             {"type": "slider", "name": "population", "label": "Population", "min": 8, "max": MAX_POPULATION,
-             "step": 8, "value": self.population},
+             "step": 8, "value": self.population,
+             "help": "How many agents learn at once (one world, drawn as ghosts): candidates "
+                     "for CEM / ES, parallel episodes for PPO / DQN."},
             {"type": "checkbox", "name": "auto_reset", "label": "Auto reset (when not training)",
-             "value": self.auto_reset},
+             "value": self.auto_reset,
+             "help": "Start a new episode when one ends. Off: the episode goes on, see the "
+                     "agent (or yourself) recover; R starts a new one."},
             {"type": "slider", "name": "speed", "label": "Training speed (max, x real time)", "min": 0,
              "max": len(SPEEDS) - 1, "step": 1, "value": SPEEDS.index(self.speed),
-             "labels": [f"{s}x" for s in SPEEDS]},
+             "labels": [f"{s}x" for s in SPEEDS],
+             "help": "Simulation steps per frame while training (at most: the page stays "
+                     "smooth). 1x: watch in real time."},
             {"type": "button", "name": "stop" if self.training else "train",
              "label": "Stop" if self.training else ("Continue training" if resume else "Train")},
             {"type": "button", "name": "new_run", "label": "New run"},
@@ -233,7 +260,7 @@ class App:
         for key, spec in algo.params.items():
             label = key + (" (new run)" if key in algo.new_run else "")
             common = {"name": f"hp.{key}", "group": "Algorithm parameters", "label": label,
-                      "value": self.hp[self.algo][key]}
+                      "value": self.hp[self.algo][key], "help": HELP.get(key, "")}
             if isinstance(spec[1], list):  # (default, [choices])
                 controls.append({"type": "select", "options": spec[1], **common})
             else:  # (default, min, max, step)
@@ -259,6 +286,8 @@ class App:
             self.new_best = False
             self.watch()
         elif name == "algo":
+            if not ALGOS[value].supports(self.env):
+                raise ValueError(f"{value} does not support {self.env_name}")
             self.algo = value
             self.new_run()  # another algorithm: its own state
         elif name == "population":
@@ -390,6 +419,8 @@ class App:
             action = self.env.human_action(self.keys)[None]
         elif self.params is None:
             action = np.zeros((1, *self.env.action_space.shape), dtype=np.float32)
+        elif not self.policy.tanh_out:  # Q-values: the best discrete action
+            action = self.env.discrete_actions[np.argmax(self.policy(self.params, self.obs), axis=1)]
         else:
             action = self.policy(self.params, self.obs)
         self.mouse_drag.step(self.env.dt)

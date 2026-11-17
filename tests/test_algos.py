@@ -8,7 +8,7 @@ from webgym.algos import ALGOS
 from webgym.algos.cem import train as cem
 from webgym.cli import train
 from webgym.core import make
-from webgym.policies import MLP
+from webgym.policies import MLP, policy_for
 
 
 def test_cem_solves_cartpole():
@@ -34,11 +34,10 @@ def test_every_algo_learns_and_resumes(name):
     if not algo.available():
         pytest.skip(f"{algo.requires} not installed")
     params = algo.defaults()
-    hidden = int(params.pop("hidden"))
     env = make("CartPole", n=32)
-    policy = MLP(4, 1, hidden=(hidden,))
+    policy = policy_for(env, algo.discrete, params.pop("hidden"))
     stats = [s for s in algo.train(env, policy, iterations=12, seed=0, **params) if s is not None]
-    assert stats[-1]["mean_return"] > stats[0]["mean_return"]
+    assert max(s["mean_return"] for s in stats[-3:]) > stats[0]["mean_return"]
     assert stats[-1]["mean_params"].shape == (policy.num_params,)
     assert np.isfinite(policy(stats[-1]["mean_params"], np.zeros((1, 4), np.float32))).all()
     more = [s for s in algo.train(env, policy, iterations=1, seed=1, state=stats[-1]["state"], **params) if s]

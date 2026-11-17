@@ -23,6 +23,7 @@ class CartPole(Env):
     view_center = (0.0, 1.0)
     view_zoom = 3.0
     keys = "← / → push the cart"
+    discrete_actions = np.array([[-1.0], [1.0]], dtype=np.float32)  # push left / right
 
     def build(self):
         ground = self.world.create_static_body(position=(0, 0))

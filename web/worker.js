@@ -1,6 +1,7 @@
 // The pyjs web worker: python, the simulation, training and WebGL2 rendering on the
 // OffscreenCanvas the page transferred. Talks to main.js with messages:
-//   page -> worker: {type: "init", canvas, base}, {type: "resize", width, height},
+//   page -> worker: {type: "init", canvas, base, role}, {type: "resize", width, height},
+//                   {type: "snapshot", data} (display: the trainer's policy, base64),
 //                   {type: "event", kind, x, y, delta, key} (pointer: drawing-buffer px; keys),
 //                   {type: "command", name, value} (a widget changed),
 //                   {type: "restore", data} (a checkpoint, base64 .safetensors),
@@ -13,7 +14,8 @@
 //                   {type: "fatal", error} (wasm trap: the page restarts the worker),
 //                   {type: "checkpoint", name, env, algo, iteration, mean_return, data},
 //                   {type: "delete_checkpoint", name, env, algo},
-//                   {type: "compile_request", id, mlir} (StableHLO for the compile worker)
+//                   {type: "compile_request", id, mlir} (StableHLO for the compile worker),
+//                   {type: "snapshot", data} (trainer: its current policy, for the display)
 // (archive download / unpack: from pyb2d3/examples/web/main.js)
 
 import { initializePyjsRuntime } from "@derthorsten/pyjs";
@@ -96,11 +98,12 @@ const t0 = performance.now();
 const lap = (name) => (times[name] = +((performance.now() - t0) / 1000).toFixed(2));
 
 /** start python, unpack the core, start the host (rendering into `canvas`) */
-async function init(canvas, pageUrl) {
-  self.canvas = canvas; // host_web.py reads it via pyjs.js.canvas (null: compute only)
+async function init(canvas, pageUrl, role) {
+  self.canvas = canvas; // host_web.py reads it via pyjs.js.canvas (null: no drawing)
   base = pageUrl;
-  // the URL query parameters (?env=LunarLander&algo=cem...) for host_web.start
-  self.webgymOptions = JSON.stringify(Object.fromEntries(new URL(pageUrl).searchParams));
+  // the URL query parameters (?env=LunarLander&algo=cem...) + the role ("single",
+  // "display", "trainer"; none: compute only) for host_web.start
+  self.webgymOptions = JSON.stringify({ ...Object.fromEntries(new URL(pageUrl).searchParams), role });
   progress("startup", "starting python");
   const config = await (await fetch(new URL("config.json", base), { cache: "no-cache" })).json();
   pyjs = await initializePyjsRuntime({
@@ -117,8 +120,8 @@ sys.path.insert(0, "/app")
 sys.dont_write_bytecode = True  # code edited in the page is re-imported
 importlib.invalidate_caches()
 `);
-  // without a canvas: a compute-only worker (benchmarks, later a training pool)
-  if (canvas) await pyjs.async_exec_eval("from webgym import host_web\n_host = host_web.start()");
+  // no role: a compute-only worker (benchmarks, the IREE compiler)
+  if (role) await pyjs.async_exec_eval("from webgym import host_web\n_host = host_web.start()");
   lap("running");
   progress("startup", "done");
   console.info("webgym loading times (s since start):", times);
@@ -162,7 +165,8 @@ self.addEventListener("unhandledrejection", (e) => {
 
 self.onmessage = async ({ data }) => {
   try {
-    if (data.type === "init") await init(data.canvas, data.base);
+    if (data.type === "init") await init(data.canvas, data.base, data.role);
+    else if (data.type === "snapshot") self.webgymSnapshot?.(data.data);
     else if (data.type === "event") self.webgymEvent?.(data.kind, data.x ?? 0, data.y ?? 0, data.delta ?? 0, data.key ?? "");
     else if (data.type === "command") self.webgymCommand?.(data.name, data.value ?? null);
     else if (data.type === "restore") self.webgymRestore?.(data.data);

@@ -62,6 +62,9 @@ class Env:
     view_center = (0.0, 0.0)
     view_zoom = 10.0
     keys = ""  # the keys of the human controller (shown in the UI, see human_action)
+    # optional: the env also works with a few discrete actions (for DQN & co): their
+    # action vectors, shape (k, act_dim); None: continuous only
+    discrete_actions = None
 
     def __init__(self, n=1):
         self.n = n

@@ -46,6 +46,8 @@ class LunarLander(Env):
     view_zoom = 6.0
     gravity = (0, -5.0)
     keys = "↑ main engine · ← / → rotate"
+    # nothing / main engine / rotate left / rotate right (as the classic discrete lander)
+    discrete_actions = np.array([[0, 0], [1, 0], [0, 1], [0, -1]], dtype=np.float32)
 
     def build(self):
         ground = self.world.create_static_body(position=(0, -0.5))
