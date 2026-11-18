@@ -26,6 +26,38 @@ def test_cem_resumes():
     assert [s["iteration"] for s in more] == [4, 5]
 
 
+def test_ppo_jax_update_through_iree():
+    """the PPO update that goes to the GPU: compiled by IREE (here for the CPU, the
+    browser compiles the same StableHLO for WebGPU) it computes what jax computes"""
+    pytest.importorskip("jax")
+    pytest.importorskip("iree.compiler")
+    import iree.runtime as rt
+
+    from webgym import gpu
+    from webgym.algos import ppo_jax
+
+    actor, critic = [4, 8, 1], [4, 8, 1]
+    n = ppo_jax.count(actor) + ppo_jax.count(critic) + 1
+    rng = np.random.default_rng(0)
+    theta = (0.3 * rng.standard_normal(n)).astype(np.float32)
+    zeros = np.zeros(n, np.float32)
+    obs, act, lp, adv, ret, _ = (rng.standard_normal(x.shape).astype(np.float32) for x in ppo_jax.batch_arrays(64, 4, 1))
+    mask = np.ones(64, np.float32)
+    args = (theta, zeros, zeros, np.float32(0), obs, act, lp, adv, ret, mask, np.float32(3e-3), np.float32(0.2))
+    update = ppo_jax.make_update(actor, critic)
+    import jax
+
+    expected = jax.jit(update)(*args)
+    binary = gpu.compile_module(gpu.stablehlo(update, *args), "cpu")
+    config = rt.Config("local-task")
+    context = rt.SystemContext(config=config)
+    module = rt.VmModule.copy_buffer(config.vm_instance, binary)
+    context.add_vm_module(module)
+    got = getattr(context.modules, module.name).main(*args)
+    for e, g in zip(expected, got):
+        np.testing.assert_allclose(np.asarray(g.to_host()), np.asarray(e), rtol=1e-4, atol=1e-5)
+
+
 @pytest.mark.parametrize("name", sorted(ALGOS))
 def test_every_algo_learns_and_resumes(name):
     """each algorithm improves CartPole within a few iterations, its numpy weights fit

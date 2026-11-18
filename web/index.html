@@ -7,11 +7,20 @@
     <style>
       html, body { margin: 0; height: 100%; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
       #app { display: flex; height: 100dvh; }
-      #side { width: 300px; padding: 12px; box-sizing: border-box; overflow: auto; background: #1b1b1b; }
+      #side { width: var(--side-width, 380px); flex: none; padding: 12px; box-sizing: border-box; overflow: auto; background: #1b1b1b; }
+      /* drag to resize the side panel */
+      #resizer { width: 6px; flex: none; cursor: col-resize; background: #222; touch-action: none; }
+      #resizer:hover, #resizer.dragging { background: #2f6fd6; }
       #stage { flex: 1; position: relative; min-width: 0; }
       #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
       h3 { margin: 0 0 8px; }
       h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; color: #888; }
+      /* accordion sections */
+      details.section { border-top: 1px solid #2a2a2a; padding: 6px 0; }
+      details.section > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; color: #999;
+                                  padding: 4px 0; user-select: none; }
+      details.section > summary:hover { color: #ddd; }
+      details.section[hidden] { display: none; }
       .bar { margin: 8px 0; }
       .bar label { display: flex; justify-content: space-between; font-size: 12px; color: #aaa; }
       .bar progress { width: 100%; }
@@ -28,6 +37,8 @@
       button.primary { background: #2f6fd6; color: #fff; border: 0; border-radius: 3px; }
       #plot, #loss-plot { width: 100%; height: 160px; display: block; --grid: #444; color: #aaa; }
       #loss-plot { height: 110px; margin-top: 6px; }
+      #network { width: 100%; aspect-ratio: 4 / 3; display: block; color: #aaa; }  /* grows with the panel */
+      #network-section[hidden] { display: none; }
       #loss-plot[hidden] { display: none; }
       details.group { margin: 8px 0; padding: 4px 8px; background: #222; border-radius: 3px; }
       details.group summary { cursor: pointer; font-size: 12px; color: #bbb; }
@@ -40,7 +51,21 @@
               background: rgba(0, 0, 0, 0.7); color: #fff; padding: 16px 24px; border-radius: 8px; text-align: center; }
       #busy[hidden], #score[hidden] { display: none; }
       .package-result { font-size: 11px; color: #999; margin: 4px 0; }
+      .code-bar { display: flex; gap: 4px; }
+      .code-bar select { flex: 1; }
+      .code-bar button { margin: 0; }
+      #code-path { font: 11px monospace; color: #888; margin: 4px 0; }
+      #code { height: 450px; resize: vertical; overflow: hidden; border: 1px solid #333; font-size: 12px; }
+      #code .cm-editor { height: 100%; }
+      #log { margin-top: 6px; max-height: 200px; overflow: auto; }
+      .log { font: 11px monospace; color: #888; padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .log.error { color: #f66; }
       .help { color: #6a9fd8; cursor: help; }
+      [data-help] { cursor: pointer; }
+      #help-popup { position: fixed; z-index: 10; max-width: 300px; background: #2a2f38; color: #eee;
+                    border: 1px solid #4a6fa5; border-radius: 4px; padding: 8px 10px; font-size: 12px;
+                    line-height: 1.4; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+      #help-popup[hidden] { display: none; }
       [title] { cursor: help; }
       .ckpt-save { display: flex; gap: 4px; }
       .ckpt-save input { flex: 1; min-width: 0; }
@@ -58,21 +83,53 @@
       <div id="side">
         <h3>webgym</h3>
         <div id="bars"></div>
-        <div id="controls"></div>
-        <h4>Training</h4>
-        <canvas id="plot"></canvas>
-        <canvas id="loss-plot" hidden></canvas>
-        <div id="state"></div>
-        <h4>Checkpoints</h4>
-        <div class="ckpt-save">
-          <input id="ckpt-name" placeholder="name for a checkpoint" />
-          <button id="ckpt-save">Save</button>
-        </div>
-        <div id="ckpt-list"></div>
-        <h4>Packages</h4>
-        <div id="packages"></div>
         <p id="status"></p>
+        <!-- the sections: click a title to close / open it (remembered) -->
+        <details class="section" id="sec-environment" open>
+          <summary>Environment</summary>
+          <div class="controls" id="controls-environment"></div>
+        </details>
+        <details class="section" id="sec-training-settings" open>
+          <summary>Training settings</summary>
+          <div class="controls" id="controls-training"></div>
+        </details>
+        <details class="section" id="sec-code">
+          <summary>Code (python editor) <span class="help" data-help="The python source of the environment and of the algorithm, running in your browser. Edit it and press Apply: the file is reloaded (an edited environment starts a new run, an edited algorithm takes over a running training). Reload the page to get the original back." title="Edit the python source of the environment / algorithm, then Apply">ⓘ</span></summary>
+          <div class="code-bar">
+            <select id="code-kind"><option value="env">environment</option><option value="algo">algorithm</option></select>
+            <button id="code-open" title="Open a .py file of this machine (then Apply it)">Open…</button>
+            <button id="code-save" title="Save the code to a file of this machine">Save…</button>
+            <button id="code-apply" class="primary" title="Run the edited code (Ctrl/Cmd+Enter)">Apply</button>
+          </div>
+          <div id="code-path"></div>
+          <div id="code"></div>
+        </details>
+        <details class="section" id="sec-training" open>
+          <summary>Training progress</summary>
+          <canvas id="plot"></canvas>
+          <canvas id="loss-plot" hidden></canvas>
+          <div id="state"></div>
+        </details>
+        <details class="section" id="network-section" open hidden>
+          <summary>Network <span class="help" data-help="The watched policy's neural network: neurons colored by their current activation (orange positive, blue negative), connections by their weight. Inputs left (with what the network sees), actions right." title="The watched policy's neural network: neurons colored by their current activation (orange positive, blue negative), connections by their weight. Inputs left (with what the network sees), actions right.">ⓘ</span></summary>
+          <canvas id="network"></canvas>
+        </details>
+        <details class="section" id="sec-checkpoints" open>
+          <summary>Checkpoints</summary>
+          <div class="ckpt-save">
+            <input id="ckpt-name" placeholder="name for a checkpoint" />
+            <button id="ckpt-save">Save</button>
+          </div>
+          <div id="ckpt-list"></div>
+        </details>
+        <details class="section" id="sec-packages">
+          <summary>Packages &amp; log</summary>
+          <div id="package-bars"></div>
+          <div id="packages"></div>
+          <div id="log"></div>
+        </details>
       </div>
+      <div id="resizer" title="drag to resize the panel"></div>
       <div id="stage"><canvas id="canvas"></canvas><div id="score" hidden></div><div id="busy" hidden></div></div>
     </div>
     <script type="module" src="./main.js"></script>

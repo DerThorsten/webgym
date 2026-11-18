@@ -62,9 +62,18 @@ class Env:
     view_center = (0.0, 0.0)
     view_zoom = 10.0
     keys = ""  # the keys of the human controller (shown in the UI, see human_action)
+    # True: n agents share one world without affecting each other (only static scenery);
+    # False: the agents change the world (e.g. a dynamic parcours): one agent at a time
+    # (the population / show-policies sliders are disabled)
+    batchable = True
     # optional: the env also works with a few discrete actions (for DQN & co): their
     # action vectors, shape (k, act_dim); None: continuous only
     discrete_actions = None
+    # names of the observation / action values (and of the discrete actions): the
+    # network view labels its inputs and outputs with them
+    obs_names = ()
+    action_names = ()
+    discrete_names = ()
 
     def __init__(self, n=1):
         self.n = n
@@ -162,6 +171,20 @@ class Env:
         """the action (act_dim,) of a human pressing `keys` (a set of names like "left",
         "up", "space"): default zeros (no keyboard play)"""
         return np.zeros(self.action_space.shape, dtype=np.float32)
+
+    def agent_position(self, i):
+        """the mean position (x, y) of agent i's bodies (e.g. to throw things at it)"""
+        return self._bodies.position[self._owner == i].mean(axis=0)
+
+    def camera_target(self, i):
+        """the world point (x, y) the camera may follow for agent i ("Camera follows");
+        default None: a fixed scene, nothing to follow"""
+        return None
+
+    @property
+    def follows(self):
+        """does this env suggest a camera target (overrides camera_target)?"""
+        return type(self).camera_target is not Env.camera_target
 
     def close(self):
         """free the box2d world now (box2d has at most b2d.MAX_WORLDS = 128 worlds at a

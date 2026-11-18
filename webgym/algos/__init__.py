@@ -2,7 +2,8 @@
 a batched env (env.n agents): it yields None after every env step (so a frame loop
 can stop it any time) and a stats dict at the end of every iteration
 ({"iteration", "mean_return", "best_return", "mean_params", "state", optional
-"losses": {name: value}}); stats["state"] passed back as `state` resumes training.
+"losses": {name: value}, optional "top_params": the best candidates, best first, for
+the display}); stats["state"] passed back as `state` resumes training.
 "mean_params" are the flat weights of a webgym.policies.MLP (numpy), whatever
 framework trained them: watching a policy never needs torch / jax.
 
@@ -28,6 +29,8 @@ class Algo:
     # True: acts with the env's discrete actions (env.discrete_actions), the policy MLP
     # outputs one value per action (argmax); only for envs that advertise them
     discrete: bool = False
+    # True: can train on the GPU (WebGPU): train(..., device="webgpu" | "cpu")
+    gpu: bool = False
 
     def supports(self, env):
         """can it train this env (class or instance)?"""
@@ -72,6 +75,8 @@ HELP = {
                  "every iteration (starts at 1: all random).",
     "eps_min": "Exploration never drops below this chance of a random action.",
     "batch": "Experiences per gradient step (sampled from the replay buffer).",
+    "updates": "Gradient steps per environment step. The agents add many experiences "
+               "per step: more updates learn faster from them, but cost time.",
 }
 HIDDEN = (16, 4, 128, 4)  # hidden layer size of the policy MLP
 ES_PARAMS = {"sigma": (0.1, 0.01, 0.5, 0.01), "lr": (0.03, 0.001, 0.2, 0.001), "hidden": HIDDEN}
@@ -90,11 +95,18 @@ ALGOS = {
          "clip": (0.2, 0.05, 0.5, 0.05), "epochs": (4, 1, 10, 1), "hidden": (32, 4, 128, 4)},
         requires="pytorch",
     ),
+    "ppo_jax": Algo(
+        "ppo_jax", "PPO (jax, CPU or GPU)",
+        {"lr": (0.003, 0.0001, 0.01, 0.0001), "gamma": (0.99, 0.9, 0.999, 0.001),
+         "clip": (0.2, 0.05, 0.5, 0.05), "epochs": (4, 1, 10, 1), "hidden": (32, 4, 256, 4)},
+        requires="jax",
+        gpu=True,
+    ),
     "dqn_torch": Algo(
         "dqn_torch", "DQN (pytorch, discrete actions)",
         {"lr": (0.001, 0.0001, 0.01, 0.0001), "gamma": (0.99, 0.9, 0.999, 0.001),
          "eps_decay": (0.9, 0.5, 0.99, 0.01), "eps_min": (0.05, 0.0, 0.5, 0.01),
-         "batch": (256, 32, 1024, 32), "hidden": (64, 8, 256, 8)},
+         "batch": (256, 32, 1024, 32), "updates": (4, 1, 16, 1), "hidden": (64, 8, 256, 8)},
         requires="pytorch",
         discrete=True,
     ),

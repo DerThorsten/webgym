@@ -83,17 +83,18 @@ class WebHost:
     """drives the shared App in the worker (see the module docstring for the roles)"""
 
     def __init__(self, options):
-        """`options`: the page's URL query parameters (env, algo, population, seed,
-        speed) and "role" ("single" / "display" / "trainer")"""
+        """`options`: the page's URL query parameters (env, algo, population, seed) and
+        "role" ("single" / "display" / "trainer")"""
         self.role = options.get("role", "single")
         kwargs = {k: options[k] for k in ("env", "algo") if k in options}
-        kwargs.update({k: int(options[k]) for k in ("population", "seed", "speed") if k in options})
+        kwargs.update({k: int(options[k]) for k in ("population", "seed") if k in options})
         self.app = App(**kwargs)
         self.frames = 0
         self.history_sent = 0  # entries of app.history already sent to the page
         self.autosaved_at = 0.0  # time.monotonic() of the last autosave
         self.snapshot_at = 0.0  # trainer: time.monotonic() of the last snapshot
         self.state_at = 0.0  # trainer: ... of the last state message
+        self.code_sent = None  # (env, algo) whose source the page has (Code section)
         # worker.js forwards the page's pointer events / widget changes / checkpoints
         # to restore / snapshots of the trainer's policy to these
         functions = (self.event, self.command, self.restore, self.snapshot)
@@ -167,6 +168,10 @@ class WebHost:
         post({"type": "controls", "controls": self.app.controls()})
         post({"type": "history", "reset": True, "entries": self.app.history})
         self.history_sent = len(self.app.history)
+        key = (self.app.env_name, self.app.algo)
+        if self.role != "display" and key != self.code_sent:  # the source of another env / algo
+            post({"type": "code", "code": self.app.code()})
+            self.code_sent = key
 
     # -- checkpoints (stored by the page in IndexedDB, per env + algo) --------------
 
@@ -225,6 +230,8 @@ class WebHost:
             if name == "save":  # a named checkpoint (the page stores it)
                 self.send_checkpoint(str(value))
                 return
+            if name == "code":  # edited source (Code section): {kind, text} as JSON
+                self.code_sent = None  # (the page gets the file back as it is now)
             training = self.app.training
             try:
                 self.app.command(name, None if value is None else value)

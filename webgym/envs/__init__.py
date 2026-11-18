@@ -1,3 +1,3 @@
 """The built-in envs (importing registers them)."""
 
-from webgym.envs import cartpole, lunar_lander, walker  # noqa: F401
+from webgym.envs import cartpole, crawler, hopper, lunar_lander, walker  # noqa: F401

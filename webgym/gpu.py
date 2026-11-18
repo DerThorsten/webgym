@@ -31,13 +31,25 @@ def stablehlo(fn, *examples):
     return jax.jit(fn).lower(*examples).as_text()
 
 
+_global_flags_set = False
+
+
 def compile_module(mlir, target):
     """IREE bytecode of a StableHLO module; target "webgpu" (browser) or "cpu".
     WebGPU functions use the coarse-fences ABI (async submission, see AsyncSession)"""
-    from iree.compiler.api import Output, Session, Source
+    from iree.compiler.api import Output, Session, Source, ctypes_dl
 
     flags = ["--iree-input-type=stablehlo", "--iree-opt-const-eval=false"]
     if target == "webgpu":
+        # WebGPU rules IREE does not apply by itself (REPORT_BUGS.md): one binding per
+        # buffer (no buffer bound read-only and read-write in the same dispatch) and
+        # binding offsets aligned to 256 bytes (minStorageBufferOffsetAlignment).
+        # Global options (not session flags): set once per process
+        global _global_flags_set
+        if not _global_flags_set:
+            ctypes_dl._initializeGlobalCL("iree", "--iree-stream-resource-alias-mutable-bindings=true",
+                                          "--iree-stream-resource-min-offset-alignment=256")
+            _global_flags_set = True
         flags += ["--iree-hal-target-device=webgpu", "--iree-execution-model=async-external"]
     else:
         flags += ["--iree-hal-target-device=local", "--iree-hal-local-target-device-backends=llvm-cpu"]
@@ -97,17 +109,20 @@ class GpuFunction:
         config = rt.Config(device=self.device)
         self.context = rt.SystemContext(config=config)
         module = rt.VmModule.copy_buffer(config.vm_instance, binary)
+        log("adding the module (creates the GPU pipelines)")
         self.context.add_vm_module(module)
         main = getattr(self.context.modules, module.name).main
         self.session = AsyncSession(self.device)
         self.function = self.session.bind(main)
+        log(f"loaded ({time.perf_counter() - t0:.1f} s since lowering)")
         return self
 
     def upload(self, array):
         """queue a copy of a numpy array to the GPU -> AsyncResult (.value: the GPU
         array, .fence: when it is there). Arrays must be uploaded like this: the
         browser allows no blocking (synchronous) copies"""
-        return self.session.enqueue_upload(np.ascontiguousarray(array))
+        # (np.asarray, not np.ascontiguousarray: that makes 0-d scalars 1-d)
+        return self.session.enqueue_upload(np.asarray(array, order="C"))
 
     def submit(self, *args, wait_fences=()):
         """queue a call with GPU arrays (after `wait_fences`) -> AsyncResult"""
@@ -130,6 +145,21 @@ async def webgpu_available():
     return pyjs.js.Boolean(adapter) is not False
 
 
+async def adapter_name():
+    """which GPU the browser gives WebGPU, e.g. "apple metal-3"; "software" marks a
+    fallback adapter (a CPU emulating a GPU, e.g. swiftshader)"""
+    import pyjs
+
+    adapter = await pyjs.js.navigator.gpu.requestAdapter()
+    info = adapter.info
+    parts = [str(getattr(info, k, "")) for k in ("vendor", "architecture")]
+    name = " ".join(p for p in parts if p and p != "undefined") or str(getattr(info, "description", "")) or "unknown"
+    fallback = getattr(info, "isFallbackAdapter", None)
+    if fallback is None or str(fallback) == "undefined":
+        fallback = getattr(adapter, "isFallbackAdapter", False)
+    return f"{name} (software fallback!)" if str(fallback) == "true" else name
+
+
 async def probe(n=4096, d=256, repeat=20):
     """compile a small dense network step for WebGPU, run it `repeat` times chained on
     the GPU, compare with numpy; returns a one-line report (timings GPU vs CPU)"""
@@ -138,7 +168,7 @@ async def probe(n=4096, d=256, repeat=20):
     log("checking for a WebGPU adapter")
     if not await webgpu_available():
         return "WebGPU: not available in this browser (training uses the CPU)"
-    log("WebGPU adapter found")
+    log(f"WebGPU adapter found: {await adapter_name()}")
 
     def layer(x, w):
         return jnp.tanh(x @ w)
@@ -166,5 +196,5 @@ async def probe(n=4096, d=256, repeat=20):
         expected = np.tanh(expected @ w)
     cpu_ms = 1e3 * (time.perf_counter() - t0) / repeat
     error = float(np.abs(out - expected).max())
-    return (f"WebGPU ok: compiled in {fn.compile_seconds:.1f} s, {n}x{d} @ {d}x{d} layer: "
+    return (f"WebGPU ok ({await adapter_name()}): compiled in {fn.compile_seconds:.1f} s, {n}x{d} @ {d}x{d} layer: "
             f"GPU {gpu_ms:.2f} ms, numpy CPU {cpu_ms:.2f} ms, max diff {error:.1e}")

@@ -1,6 +1,8 @@
 """The shared app without GL: pointer / key events, commands, training via the frame
 logic, resume, the leader."""
 
+import json
+
 import numpy as np
 import pyb2d3 as b2d
 import pytest
@@ -28,6 +30,7 @@ def cart_x(app):
 def test_drag_the_cart_in_watch_mode():
     """grab the cart, move the pointer right: the cart follows"""
     app = make_app()
+    app.command("show_n", 1)  # (one cart: the grabbed one is agent 0)
     start = tuple(app.env.carts.position[0])
     app.event("down", *screen_of(app, start))
     assert app.mouse_drag.active
@@ -99,7 +102,7 @@ def test_without_auto_reset_the_env_goes_on():
 def test_train_stop_continue_new_run():
     """train; Stop keeps the state: Train continues the iterations and the history;
     New run starts over; no dragging while training"""
-    app = make_app(speed=256)
+    app = make_app()
     app.command("train")
     assert app.training and app.state()["mode"] == "train"
     app.event("down", *screen_of(app, tuple(app.pop_env.carts.position[0])))
@@ -147,7 +150,7 @@ def test_checkpoint_restore_continue():
 def test_display_takes_snapshots():
     """two workers: the display app takes the trainer's policy (a checkpoint) without
     restarting its episode; a snapshot of another env switches the env"""
-    trainer = make_app(population=16, speed=256)
+    trainer = make_app(population=16)
     trainer.command("train")
     while len(trainer.history) < 2:
         trainer._train_steps()
@@ -163,6 +166,132 @@ def test_display_takes_snapshots():
     assert display.env_name == "LunarLander" and display.params is None
 
 
+def test_show_n_best_policies():
+    """watching shows the current policy + the trainer's best candidates (in the
+    snapshot); the score is the current policy's; a human plays alone"""
+    trainer = make_app(population=16)
+    trainer.command("train")
+    while len(trainer.history) < 2:
+        trainer._train_steps()
+    assert trainer.top_params is not None and len(trainer.top_params) >= 8
+    display = make_app()
+    display.load_policy(trainer.checkpoint())
+    assert display.env.n == 8
+    params = display._watch_params()
+    assert np.array_equal(params[0], trainer.params) and np.array_equal(params[1], trainer.top_params[0])
+    while not display.ended:
+        display._watch_step()
+    assert len(display.scores) == 1 and display.scores[0] == display.env.episode_return[0]
+    display.command("controller", "human")
+    assert display.env.n == 1
+    display.command("controller", "agent")
+    display.command("show_n", 3)
+    assert display.env.n == 3
+
+
+def test_network_view():
+    """the network view: sizes, weights, activations of agent 0 (the output = what the
+    policy computes), names; None without a policy"""
+    app = make_app()
+    assert app.network() is None
+    trainer = make_app(population=16)
+    trainer.command("train")
+    while not trainer.history:
+        trainer._train_steps()
+    app.load_policy(trainer.checkpoint())
+    net = app.network()
+    assert net["sizes"] == app.policy.sizes and len(net["weights"]) == len(net["sizes"]) - 1
+    assert [len(a) for a in net["activations"]] == net["sizes"]
+    expected = app.policy(app.params, app.obs[:1])[0]
+    assert np.allclose(net["activations"][-1], expected, atol=1e-3)
+    assert net["inputs"][2] == "pole angle" and net["outputs"] == ["force"]
+
+
+def test_code_view_and_apply():
+    """the Code section: the env's / algo's source; applying it reloads the module (the
+    env registers again, is rebuilt); a syntax error leaves the file alone"""
+    app = make_app()
+    code = app.code()
+    assert code["env"]["path"].endswith("cartpole.py") and "register_env" in code["env"]["text"]
+    assert code["algo"]["path"].endswith("cem.py")
+    old_class = type(app.env)
+    app.command("code", json.dumps({"kind": "env", "text": code["env"]["text"]}))  # (unchanged)
+    assert type(app.env) is not old_class and type(app.env).__name__ == old_class.__name__
+    with pytest.raises(SyntaxError):
+        app.command("code", json.dumps({"kind": "algo", "text": "def train(:"}))
+    assert app.code() == code
+
+
+def test_non_batchable_env_disables_population(monkeypatch):
+    """an env whose agents change the world (batchable = False): no population /
+    show-policies slider to move"""
+    app = make_app()
+    disabled = lambda: {c["name"] for c in app.controls() if c.get("disabled")}  # noqa: E731
+    assert not {"population", "show_n"} & disabled()
+    monkeypatch.setattr(type(app.env), "batchable", False)
+    assert {"population", "show_n"} <= disabled()
+
+
+def test_gpu_checkbox_only_for_gpu_algorithms():
+    """'Use GPU' can only be ticked for an algorithm that trains on the GPU (PPO jax)"""
+    app = make_app()
+    use_gpu = lambda: next(c for c in app.controls() if c["name"] == "use_gpu")  # noqa: E731
+    assert use_gpu()["disabled"]  # (CEM)
+    app.command("algo", "ppo_jax")
+    assert not use_gpu()["disabled"]
+
+
+def test_camera_follows_the_walker():
+    """'Camera follows': the camera glides to the walker the env suggests; off: back to
+    the fixed view; CartPole suggests nothing (the option is disabled)"""
+    app = make_app()
+    assert next(c for c in app.controls() if c["name"] == "follow")["disabled"]
+    app.command("env", "Walker")
+    app.command("follow", True)
+    app.env.hulls.position = app.env.hulls.position + np.array([5.0, 0.0])  # (walked away)
+    for _ in range(100):
+        app._update_view()
+    assert abs(app.camera.center[0] - app.env.camera_target(0)[0]) < 0.01
+    app.command("follow", False)
+    assert tuple(app.camera.center) == app.env.view_center
+
+
+def test_throw_things_at_the_agent():
+    """torture: a thrown ball / box flies at the watched agent and hits it (its hull is
+    pushed); the next episode has none of them; automatic throwing every few seconds"""
+    app = make_app(env="Walker")
+    app.command("show_n", 1)
+    for _ in range(30):  # (let it stand)
+        app._watch_step()
+    body = app.throw()
+    before = np.array(app.env.hulls.linear_velocity[0])
+    hit = False
+    for _ in range(60):
+        app._watch_step()
+        hit |= np.abs(np.array(app.env.hulls.linear_velocity[0]) - before).max() > 0.3
+    assert hit, "the thrown thing did not hit the walker"
+    assert body.is_valid
+    app.command("reset")
+    assert not body.is_valid  # (gone with the snapshot reset)
+    app.command("throw_every", 3)  # every 0.3 s
+    for _ in range(60):
+        app._watch_step()
+    assert app._throw_timer < 0.3
+
+
+def test_replay_speed():
+    """replay speed: 0.25x steps every 4th frame, 4x four times per frame"""
+    app = make_app()
+    app.debug_draw = None
+    for speed, frames, steps in ((0.25, 8, 2), (4, 2, 8)):
+        app.command("reset")
+        app.command("replay_speed", [0.25, 0.5, 1, 2, 4, 8].index(speed))
+        app._draw = lambda w, h: None  # (no GL in the tests)
+        for _ in range(frames):
+            app.frame(800, 600)
+        assert app.env.steps == steps
+
+
 def test_safetensors_roundtrip():
     """the checkpoint format: arrays + metadata survive, the header is standard"""
     import json
@@ -170,7 +299,8 @@ def test_safetensors_roundtrip():
 
     from webgym import checkpoints
 
-    tensors = {"a": np.arange(6, dtype=np.float32).reshape(2, 3), "b": np.array([1.5, -2.0])}
+    tensors = {"a": np.arange(6, dtype=np.float32).reshape(2, 3), "b": np.array([1.5, -2.0]),
+               "scalar": np.array(0.25)}  # (0-d: e.g. DQN's epsilon)
     data = checkpoints.dumps(tensors, {"x": [1, 2]})
     (length,) = struct.unpack("<Q", data[:8])
     header = json.loads(data[8 : 8 + length])
@@ -178,11 +308,12 @@ def test_safetensors_roundtrip():
     back, meta = checkpoints.loads(data)
     assert meta == {"x": [1, 2]}
     assert all(np.array_equal(back[k], tensors[k]) and back[k].dtype == tensors[k].dtype for k in tensors)
+    assert back["scalar"].shape == () and float(back["scalar"]) == 0.25
 
 
 def test_population_change_keeps_training():
     """changing the population while training goes on training (same run, new size)"""
-    app = make_app(population=16, speed=256)
+    app = make_app(population=16)
     app.command("train")
     while len(app.history) < 2:
         app._train_steps()
@@ -196,12 +327,12 @@ def test_population_change_keeps_training():
 def test_leader_is_sticky():
     """within an iteration the leader keeps its highlight until its episode ends (no
     flicker); a new iteration (all agents reset) picks a new one"""
-    app = make_app(env="LunarLander", population=16, speed=1)
+    app = make_app(env="LunarLander", population=16)
     app.command("train")
     changes = 0
     previous, iteration = None, 0
     for _ in range(300):
-        app._train_steps()
+        app._train_steps(max_steps=1)
         app._update_view()
         if len(app.history) == iteration and previous is not None and app.leader != previous:
             changes += 1

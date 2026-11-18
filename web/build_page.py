@@ -1,6 +1,7 @@
-"""Pack the python side of the page into web/public: one `core-<hash>.tar.gz` (numpy,
-openblas, pyopengl, pyb2d3 from emscripten-forge + the webgym sources at /app) and
-config.json naming it. No package install (mamba) in the browser for the core.
+"""Pack the python side of the page into web/public: per architecture (wasm32, wasm64)
+one `core-<arch>-<hash>.tar.gz` (numpy, openblas, pyopengl, pyb2d3 from emscripten-forge
++ the webgym sources at /app) and config.json naming them ({arch: {"archives": [...]}}).
+No package install (mamba) in the browser for the core.
 
 pytorch / jax are NOT packed (too big for the deployment): the worker fetches them
 from the channel at runtime.
@@ -22,7 +23,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 PUBLIC = HERE / "public"
-CHANNEL = "https://repo.prefix.dev/emscripten-forge/6x/emscripten-wasm32"
+CHANNEL = "https://repo.prefix.dev/emscripten-forge/6x/emscripten-{arch}"
+ARCHS = ("wasm32", "wasm64")
 PACKAGES = ["numpy", "openblas", "pyopengl", "pyb2d3"]
 PACKAGE_CACHE = REPO / "build" / "conda-packages"
 # must match the python of the pyjs npm package (web/package.json)
@@ -60,24 +62,26 @@ def _version_key(info):
     return version, info.get("build_number", 0), info.get("timestamp", 0)
 
 
-def fetch_packages(names):
-    """the newest emscripten-wasm32 builds of `names` (for PYTHON_VERSION), downloaded
-    into PACKAGE_CACHE once. Returns their paths."""
-    packages = json.loads(_download(f"{CHANNEL}/repodata.json"))["packages"]
+def fetch_packages(names, arch):
+    """the newest emscripten-<arch> builds of `names` (for PYTHON_VERSION), downloaded
+    into PACKAGE_CACHE/<arch> once. Returns their paths."""
+    channel = CHANNEL.format(arch=arch)
+    packages = json.loads(_download(f"{channel}/repodata.json"))["packages"]
     python_build = f"py{PYTHON_VERSION.replace('.', '')}"
-    PACKAGE_CACHE.mkdir(parents=True, exist_ok=True)
+    cache = PACKAGE_CACHE / arch
+    cache.mkdir(parents=True, exist_ok=True)
     paths = []
     for name in names:
         builds = {f: i for f, i in packages.items() if i["name"] == name}
         if any(python_build in i["build"] for i in builds.values()):
             builds = {f: i for f, i in builds.items() if python_build in i["build"]}
         if not builds:
-            raise SystemExit(f"no {name} for python {PYTHON_VERSION} in {CHANNEL}")
+            raise SystemExit(f"no {name} for python {PYTHON_VERSION} in {channel}")
         filename = max(builds, key=lambda f: _version_key(builds[f]))
-        path = PACKAGE_CACHE / filename
+        path = cache / filename
         if not path.exists():
-            print(f"downloading {filename}")
-            path.write_bytes(_download(f"{CHANNEL}/{filename}"))
+            print(f"downloading {arch}/{filename}")
+            path.write_bytes(_download(f"{channel}/{filename}"))
         paths.append(path)
     return paths
 
@@ -105,23 +109,26 @@ def pack_core(path, conda_pkgs):
 
 
 def build():
-    """write public/core-<hash>.tar.gz and public/config.json. A page loading meanwhile
-    (dev server) always finds the archive its config.json names: new archive first,
-    then config.json (atomic rename), old archives removed last"""
+    """write public/core-<arch>-<hash>.tar.gz and public/config.json. A page loading
+    meanwhile (dev server) always finds the archives its config.json names: new
+    archives first, then config.json (atomic rename), old archives removed last"""
     PUBLIC.mkdir(exist_ok=True)
-    tmp = PUBLIC / "core.tar.gz.tmp"
-    pack_core(tmp, fetch_packages(PACKAGES))
-    data = tmp.read_bytes()
-    digest = hashlib.sha256(data).hexdigest()[:16]
-    url = f"core-{digest}.tar.gz"
-    tmp.replace(PUBLIC / url)
-    config = {"archives": [{"name": "core", "url": url, "path": "/", "hash": digest, "size": len(data)}]}
+    config, urls = {}, set()
+    for arch in ARCHS:
+        tmp = PUBLIC / f"core-{arch}.tar.gz.tmp"
+        pack_core(tmp, fetch_packages(PACKAGES, arch))
+        data = tmp.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()[:16]
+        url = f"core-{arch}-{digest}.tar.gz"
+        tmp.replace(PUBLIC / url)
+        urls.add(url)
+        config[arch] = {"archives": [{"name": "core", "url": url, "path": "/", "hash": digest, "size": len(data)}]}
+        print(f"{url}: {len(data) / 1e6:.1f} MB")
     (PUBLIC / "config.json.tmp").write_text(json.dumps(config, indent=2))
     (PUBLIC / "config.json.tmp").replace(PUBLIC / "config.json")
     for old in PUBLIC.glob("core-*.tar.gz"):
-        if old.name != url:
+        if old.name not in urls:
             old.unlink()
-    print(f"{url}: {len(data) / 1e6:.1f} MB")
 
 
 if __name__ == "__main__":

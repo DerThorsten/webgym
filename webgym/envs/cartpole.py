@@ -24,6 +24,9 @@ class CartPole(Env):
     view_zoom = 3.0
     keys = "← / → push the cart"
     discrete_actions = np.array([[-1.0], [1.0]], dtype=np.float32)  # push left / right
+    obs_names = ("cart x", "cart velocity", "pole angle", "pole ang. vel.")
+    action_names = ("force",)
+    discrete_names = ("push left", "push right")
 
     def build(self):
         ground = self.world.create_static_body(position=(0, 0))

@@ -6,6 +6,8 @@
 // On phones / tablets (or ?workers=1) one worker does both (role "single").
 
 import { setupPanel } from "./checkpoints.js";
+import { createEditor, forgetFile, openFile, saveFile } from "./editor.js";
+import { drawNetwork } from "./network.js";
 import { plot } from "./plot.js";
 
 const stage = document.getElementById("stage");
@@ -18,16 +20,17 @@ let trainer = null; // the training worker (role "trainer"; null with one worker
 const toDisplay = (message, transfer) => display?.postMessage(message, transfer);
 const toTraining = (message) => (TWO_WORKERS ? trainer : display)?.postMessage(message);
 let lastSnapshot = null; // the trainer's latest policy (for a display that (re)starts)
+let autoTrain = params.get("train") !== "0"; // start training once the page is up
 let trainerState = null; // the trainer's state message (two workers)
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
-const DISPLAY_COMMANDS = new Set(["controller", "auto_reset", "reset"]);
+const DISPLAY_COMMANDS = new Set(["controller", "auto_reset", "reset", "show_n", "replay_speed", "follow", "throw", "throw_every"]);
 
 /** a widget changed: route the command to the worker(s) concerned */
 function command(name, value) {
   const message = { type: "command", name, value };
   if (!TWO_WORKERS) return toDisplay(message);
-  if (DISPLAY_COMMANDS.has(name) || name === "env") toDisplay(message);
+  if (DISPLAY_COMMANDS.has(name) || name === "env" || name === "code") toDisplay(message);
   toTraining(message);
 }
 const statusEl = document.getElementById("status");
@@ -39,10 +42,23 @@ const requested = new Set(); // package groups asked for in this worker (see loa
 const brokenPackages = new Set(); // package groups that crashed python (this page visit)
 const bars = new Map(); // progress id -> {label, value, bar}
 
-/** show a message (errors in red) */
+/** a message: errors in red at the top of the panel, everything else only in the log
+ * ("Packages & log" section); "" clears the top */
 function status(text, isError = false) {
+  if (text) log(text, isError);
+  if (!isError && text) return;
   statusEl.textContent = text;
   statusEl.classList.toggle("error", isError);
+}
+
+/** a line in the log (newest first, the last 100) */
+function log(text, isError = false) {
+  const list = document.getElementById("log");
+  const line = Object.assign(document.createElement("div"), { className: isError ? "log error" : "log" });
+  line.textContent = `${new Date().toLocaleTimeString()} ${text.split("\n")[0]}`;
+  line.title = text;
+  list.prepend(line);
+  while (list.children.length > 100) list.lastChild.remove();
 }
 
 /** one progress bar per id (startup, core, pytorch, jax, ...): phase + bytes */
@@ -51,7 +67,10 @@ function showProgress({ id, phase, done, total }) {
     const el = document.createElement("div");
     el.className = "bar";
     el.innerHTML = `<label><span></span><span></span></label><progress></progress>`;
-    document.getElementById("bars").append(el);
+    // the page's own start at the top; everything in the background (packages, the
+    // training / compile worker) in the "Packages & log" section
+    const top = id === "startup" || id === "core";
+    document.getElementById(top ? "bars" : "package-bars").append(el);
     bars.set(id, { el, label: el.querySelectorAll("span"), bar: el.querySelector("progress") });
   }
   const { el, label, bar } = bars.get(id);
@@ -61,7 +80,7 @@ function showProgress({ id, phase, done, total }) {
   if (total) bar.value = done / total;
   else bar.removeAttribute("value"); // indeterminate
   if (phase === "done" || phase === "ready") bar.value = 1;
-  el.hidden = phase === "done"; // startup / core bars go away; package bars stay ("ready")
+  el.hidden = phase === "done" || phase === "ready"; // (finished: its result line stays)
   // the "please wait" overlay on the canvas while anything is loading
   if (phase === "done" || phase === "ready") loading.delete(id);
   else loading.set(id, total ? `${phase} ${mb(done)} / ${mb(total)} MB` : phase);
@@ -94,16 +113,69 @@ function resize() {
   toDisplay({ type: "resize", width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) });
 }
 
+// the Code section: the env's / algorithm's python source, editable; Apply sends it
+// to the worker(s), which write and reload it
+let code = {}; // {env: {path, text}, algo: {path, text}} (as edited)
+const codeKind = document.getElementById("code-kind");
+const editor = createEditor(
+  document.getElementById("code"),
+  (text) => code[codeKind.value] && (code[codeKind.value].text = text),
+  () => applyCode(),
+);
+function showCode(next) {
+  for (const kind of ["env", "algo"]) if (code[kind]?.path !== next[kind]?.path) forgetFile(kind);
+  code = next;
+  showCodeKind();
+}
+function showCodeKind() {
+  const { path = "", text = "" } = code[codeKind.value] ?? {};
+  document.getElementById("code-path").textContent = path;
+  if (editor.get() !== text) editor.set(text);
+}
+codeKind.onchange = showCodeKind;
+const fileName = () => (code[codeKind.value]?.path ?? "code.py").split("/").pop();
+function applyCode() {
+  log(`applying the edited ${codeKind.selectedOptions[0].text} code`);
+  command("code", JSON.stringify({ kind: codeKind.value, text: editor.get() }));
+}
+document.getElementById("code-apply").onclick = applyCode;
+document.getElementById("code-open").onclick = async () => {
+  try {
+    const file = await openFile(codeKind.value);
+    if (!file) return;
+    editor.set(file.text);
+    log(`opened ${file.name}: press Apply to run it`);
+  } catch (e) {
+    status(`could not open the file: ${e.message}`, true);
+  }
+};
+document.getElementById("code-save").onclick = async () => {
+  try {
+    const name = await saveFile(codeKind.value, fileName(), editor.get());
+    if (name) log(`saved ${name}`);
+  } catch (e) {
+    status(`could not save the file: ${e.message}`, true);
+  }
+};
+
 const openGroups = new Set(); // control groups the user opened (stay open on a rebuild)
 
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
 function showControls(controls) {
-  const root = document.getElementById("controls");
-  root.replaceChildren();
-  const buttons = document.createElement("div");
+  // each control in its section ("environment", "training"), buttons at its end
+  const sections = new Map();
+  for (const name of ["environment", "training"]) {
+    const el = document.getElementById(`controls-${name}`);
+    const buttons = document.createElement("div");
+    el.replaceChildren(buttons);
+    sections.set(name, { el, buttons });
+  }
   const groups = new Map(); // group name -> <details> (e.g. the algorithm's parameters)
   for (const c of controls) {
+    const { buttons } = sections.get(c.section ?? "environment");
+    // (appended before the section's buttons)
+    const root = { append: (...nodes) => buttons.before(...nodes) };
     let parent = root;
     if (c.group) {
       if (!groups.has(c.group)) {
@@ -117,6 +189,7 @@ function showControls(controls) {
     }
     if (c.type === "button") {
       const b = document.createElement("button");
+      b.className = c.name === "train" ? "primary" : "";
       b.textContent = c.label;
       b.className = c.name === "train" ? "primary" : "";
       b.onclick = () => {
@@ -145,19 +218,21 @@ function showControls(controls) {
     label.innerHTML = `<span>${c.label}</span><span></span>`;
     const value = label.lastChild;
     if (c.help) {
-      // the explanation: a tooltip on the name (with a small marker)
+      // the explanation: a tooltip on the name, a popup on click (with a small marker)
       label.firstChild.title = c.help;
+      label.firstChild.dataset.help = c.help;
       label.firstChild.append(Object.assign(document.createElement("span"), { className: "help", textContent: " ⓘ" }));
     }
     let input;
     if (c.type === "checkbox") {
       el.className = "control checkbox";
-      input = Object.assign(document.createElement("input"), { type: "checkbox", checked: c.value });
+      input = Object.assign(document.createElement("input"), { type: "checkbox", checked: c.value, disabled: Boolean(c.disabled) });
       input.onchange = () => {
         command(c.name, input.checked);
         input.blur();
       };
       const text = Object.assign(document.createElement("span"), { textContent: c.label, title: c.help ?? "" });
+      if (c.help) text.dataset.help = c.help;
       if (c.help) text.append(Object.assign(document.createElement("span"), { className: "help", textContent: " ⓘ" }));
       const wrap = document.createElement("label");
       wrap.append(input, text);
@@ -178,6 +253,9 @@ function showControls(controls) {
       };
     } else {
       input = Object.assign(document.createElement("input"), { type: "range", min: c.min, max: c.max, step: c.step, value: c.value });
+      // (e.g. the population of an env that runs one agent at a time)
+      input.disabled = Boolean(c.disabled);
+      if (c.disabled) el.title = "this environment runs one agent at a time";
       // optional labels per slider position (e.g. "4x")
       const show = () => (value.textContent = c.labels ? c.labels[input.value] : input.value);
       show();
@@ -190,7 +268,6 @@ function showControls(controls) {
     el.append(label, input);
     parent.append(el);
   }
-  root.append(buttons);
   // the URL names the current env / algo: reload or share the link to get them
   const url = new URL(location.href);
   for (const c of controls) if (c.name === "env" || c.name === "algo") url.searchParams.set(c.name, c.value);
@@ -268,6 +345,10 @@ function onMessage(role, { data }) {
     else {
       displayState = data.state;
       showScore(data.state);
+      // the watched policy's network (weights + live activations), if there is one
+      const net = data.state.network;
+      document.getElementById("network-section").hidden = !net;
+      if (net) drawNetwork(document.getElementById("network"), net);
     }
     showState();
   } else if (!training) {
@@ -276,9 +357,20 @@ function onMessage(role, { data }) {
     else if (data.type === "fatal") restartAfterCrash(role, data.error);
   } else if (data.type === "controls") {
     showControls(data.controls);
-    checkpoints.onControls(data.controls, freshWorker);
+    const restored = checkpoints.onControls(data.controls, freshWorker);
     freshWorker = false;
+    // the page starts training (after restoring the autosave: it continues the run);
+    // ?train=0 starts watching
+    if (autoTrain) {
+      autoTrain = false;
+      restored.then(() => setTimeout(() => command("train"), 300));
+    }
   } else if (data.type === "checkpoint" || data.type === "delete_checkpoint") checkpoints.onMessage(data);
+  else if (data.type === "code") showCode(data.code);
+  else if (data.type === "result" && execs.has(data.id)) {
+    execs.get(data.id)(data.value);
+    execs.delete(data.id);
+  }
   else if (data.type === "compile_request") compileRequest(data);
   else if (data.type === "need_package") {
     // e.g. Train with PPO (pytorch) before pytorch is loaded: load it, then train
@@ -381,10 +473,108 @@ function restartAfterCrash(role, error) {
 }
 
 new ResizeObserver(resize).observe(stage);
+
+// explanations: a click on a name with an explanation (data-help) shows it in a popup
+// below; another click (anywhere) closes it
+const helpPopup = Object.assign(document.createElement("div"), { id: "help-popup", hidden: true });
+document.body.append(helpPopup);
+document.addEventListener("click", (e) => {
+  const target = e.target.closest?.("[data-help]");
+  if (!target || helpPopup.dataset.for === target.dataset.help) {
+    helpPopup.hidden = true;
+    helpPopup.dataset.for = "";
+    return;
+  }
+  e.preventDefault(); // (a click on a label would toggle its checkbox)
+  const r = target.getBoundingClientRect();
+  helpPopup.textContent = target.dataset.help;
+  helpPopup.dataset.for = target.dataset.help;
+  helpPopup.style.left = `${Math.max(8, r.left)}px`;
+  helpPopup.style.top = `${r.bottom + 4}px`;
+  helpPopup.hidden = false;
+});
+
+// the panel's sections (accordion): which are open is remembered in this browser
+const SECTIONS = "webgym.sections";
+try {
+  const saved = JSON.parse(localStorage.getItem(SECTIONS) ?? "{}");
+  for (const [id, open] of Object.entries(saved)) {
+    const el = document.getElementById(id);
+    if (el) el.open = open;
+  }
+} catch {
+  // (no storage: the defaults)
+}
+for (const section of document.querySelectorAll("details.section")) {
+  section.addEventListener("toggle", () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SECTIONS) ?? "{}");
+      localStorage.setItem(SECTIONS, JSON.stringify({ ...saved, [section.id]: section.open }));
+    } catch {
+      // (not remembered)
+    }
+    if (section.open) showHistory(); // (the plots get their size back)
+  });
+}
+
+// the side panel's width: drag the resizer (remembered in this browser)
+const SIDE_WIDTH = "webgym.sideWidth";
+const setSideWidth = (px) => document.documentElement.style.setProperty("--side-width", `${px}px`);
+try {
+  const saved = Number(localStorage.getItem(SIDE_WIDTH));
+  if (saved) setSideWidth(saved);
+} catch {
+  // (no storage: the default width)
+}
+const resizer = document.getElementById("resizer");
+resizer.addEventListener("pointerdown", (e) => {
+  resizer.setPointerCapture(e.pointerId);
+  resizer.classList.add("dragging");
+});
+resizer.addEventListener("pointermove", (e) => {
+  if (!resizer.hasPointerCapture(e.pointerId)) return;
+  const width = Math.round(Math.min(Math.max(e.clientX, 260), window.innerWidth * 0.7));
+  setSideWidth(width);
+  try {
+    localStorage.setItem(SIDE_WIDTH, String(width));
+  } catch {
+    // (not remembered)
+  }
+});
+resizer.addEventListener("pointerup", () => resizer.classList.remove("dragging"));
 startWorker(TWO_WORKERS ? "display" : "single");
 if (TWO_WORKERS) startWorker("trainer");
 // for test_page.py: a real wasm trap in the worker (checks the restart)
 window.webgymCrashTest = () => toDisplay({ type: "command", name: "__crash__" });
+// for experiments (web/compile_test.py): python in the training worker (with jax, once
+// loaded) -> the value of the last expression (a string)
+const execs = new Map();
+window.webgymExec = (code) =>
+  new Promise((resolve) => {
+    const id = execs.size + Math.random();
+    execs.set(id, resolve);
+    toTraining({ type: "exec", id, code });
+  });
+// for the reproducers (web/repro_test.py): python in / an install into the compile worker
+window.webgymCompilerExec = async (code) => (await compileWorker()).exec(code);
+window.webgymCompilerInstall = async (packages, check) => (await compileWorker()).install(packages, check);
+// a fresh compile worker (compiler options are global: per process)
+window.webgymCompilerReset = async () => {
+  if (compiler) (await compiler).terminate();
+  compiler = null;
+  return "compile worker reset";
+};
+// for compile experiments (web/compile_test.py): StableHLO -> WebGPU in the compile
+// worker -> "ok <bytes>" or the error
+window.webgymCompileTest = async (mlir) => {
+  try {
+    const { exec } = await compileWorker();
+    const data = await exec(`from webgym import gpu\ngpu.compile_b64(${JSON.stringify(mlir)})`);
+    return `ok ${Math.round((data.length * 3) / 4)} bytes`;
+  } catch (e) {
+    return `error ${String(e?.message ?? e).split("\n")[0]}`;
+  }
+};
 
 // pointer input -> display worker (drawing-buffer px): drag bodies, pan, wheel zoom.
 // The listeners are on the stage: they survive the canvas being replaced on a restart
@@ -405,7 +595,7 @@ const keyName = (e) => KEY_NAMES[e.key] ?? (e.key.length === 1 ? e.key.toLowerCa
 for (const kind of ["keydown", "keyup"]) {
   window.addEventListener(kind, (e) => {
     const key = keyName(e);
-    if (!key || e.repeat || e.target.closest?.("input, select, textarea")) return;
+    if (!key || e.repeat || e.target.closest?.("input, select, textarea, [contenteditable]")) return;
     if (KEY_NAMES[e.key]) e.preventDefault(); // no scrolling with the arrows / space
     toDisplay({ type: "event", kind, key });
   });
@@ -465,6 +655,12 @@ function compileWorker() {
   compiler ??= new Promise((resolve, reject) => {
     const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
     const pending = new Map();
+    const installs = []; // (web/repro_test.py) waiting for an extra install
+    const install = (packages, check) =>
+      new Promise((res) => {
+        installs.push(res);
+        w.postMessage({ type: "install", name: "extra", packages, check });
+      });
     let nextId = 0;
     const exec = (code) =>
       new Promise((res, rej) => {
@@ -480,12 +676,19 @@ function compileWorker() {
           w.postMessage({ type: "install", name: "compiler", packages: ["iree-base-compiler"], check: "'ok'" });
       } else if (data.type === "installed") {
         showProgress({ id: "compiler", phase: "done" });
-        resolve({ exec });
+        if (installs.length) installs.shift()(data.result);
+        else resolve({ exec, install, terminate: () => w.terminate() });
       } else if (data.type === "result") pending.get(data.id).res(data.value);
       else if (data.type === "error" || data.type === "fatal") {
         for (const p of pending.values()) p.rej(new Error(data.error));
         pending.clear();
+        for (const res of installs.splice(0)) res(`${data.type}: ${data.error}`);
         reject(new Error(data.error));
+        // a crashed compiler (wasm trap) is unusable: the next request starts a new one
+        if (data.type === "fatal") {
+          w.terminate();
+          compiler = null;
+        }
       }
     };
     w.postMessage({ type: "init", canvas: null, base: location.href });

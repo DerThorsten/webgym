@@ -20,7 +20,7 @@ def dumps(tensors, metadata):
     (JSON-able dict)"""
     header, chunks, offset = {}, [], 0
     for name, array in tensors.items():
-        array = np.ascontiguousarray(array)
+        array = np.asarray(array, order="C")  # (not ascontiguousarray: keeps 0-d arrays 0-d)
         if array.dtype not in NAMES:
             array = array.astype(np.float64)
         data = array.astype(array.dtype.newbyteorder("<"), copy=False).tobytes()

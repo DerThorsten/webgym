@@ -20,7 +20,7 @@ if sys.platform == "emscripten":
 
 
 def train(env, policy, iterations=1000, lr=1e-3, gamma=0.99, eps_decay=0.9, eps_min=0.05, batch=256,
-          buffer=50_000, target_every=200, seed=0, state=None):
+          updates=4, buffer=50_000, target_every=200, seed=0, state=None):
     """DQN on the batched env (one episode per agent per iteration); epsilon starts at
     1 and is multiplied by eps_decay after every iteration. Yields None per env step,
     stats per iteration (losses: td_loss, epsilon); `state` resumes (network,
@@ -33,14 +33,14 @@ def train(env, policy, iterations=1000, lr=1e-3, gamma=0.99, eps_decay=0.9, eps_
     start, epsilon = 0, 1.0
     if state is not None:
         from_flat(q, state["q"])
-        start, epsilon = state["iteration"], float(state["epsilon"])
+        start, epsilon = state["iteration"], float(np.ravel(state["epsilon"])[0])
     target.load_state_dict(q.state_dict())
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     obs_dim = policy.sizes[0]
     B = {"o": np.zeros((buffer, obs_dim), np.float32), "a": np.zeros(buffer, np.int64),
          "r": np.zeros(buffer, np.float32), "o2": np.zeros((buffer, obs_dim), np.float32),
          "d": np.zeros(buffer, np.float32)}
-    size, pos, updates = 0, 0, 0
+    size, pos, gradient_steps = 0, 0, 0
 
     for iteration in range(start, start + iterations):
         obs = env.reset(seed=int(rng.integers(1 << 30)))
@@ -60,8 +60,9 @@ def train(env, policy, iterations=1000, lr=1e-3, gamma=0.99, eps_decay=0.9, eps_
                 B[name][at] = value
             pos, size = (pos + len(idx)) % buffer, min(size + len(idx), buffer)
             obs = next_obs
-            # one gradient step on a replayed minibatch
-            if size >= batch:
+            # `updates` gradient steps on replayed minibatches (the agents add env.n
+            # experiences per step)
+            for _ in range(int(updates) if size >= batch else 0):
                 j = rng.integers(size, size=batch)
                 o, a_b, r = (torch.as_tensor(B[k][j]) for k in ("o", "a", "r"))
                 o2, d = torch.as_tensor(B["o2"][j]), torch.as_tensor(B["d"][j])
@@ -75,8 +76,8 @@ def train(env, policy, iterations=1000, lr=1e-3, gamma=0.99, eps_decay=0.9, eps_
                 optimizer.step()
                 td_sum += float(loss.detach())
                 td_count += 1
-                updates += 1
-                if updates % target_every == 0:
+                gradient_steps += 1
+                if gradient_steps % target_every == 0:
                     target.load_state_dict(q.state_dict())
             yield None
         epsilon = max(eps_min, epsilon * eps_decay)

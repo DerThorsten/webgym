@@ -4,7 +4,7 @@ weights along the return-weighted noise (rank-shaped returns, Adam)."""
 
 import numpy as np
 
-from webgym.algos.cem import rollout
+from webgym.algos.cem import TOP, rollout
 
 
 def ranks(returns):
@@ -42,5 +42,6 @@ def train(env, policy, iterations=1000, sigma=0.1, lr=0.03, seed=0, state=None, 
             "mean_return": float(returns.mean()),
             "best_return": float(returns.max()),
             "mean_params": theta,
+            "top_params": params[np.argsort(returns)[::-1][:TOP]],  # (the display shows them)
             "state": {"iteration": t, "theta": theta, "m": m, "v": v},
         }

@@ -48,6 +48,9 @@ class LunarLander(Env):
     keys = "↑ main engine · ← / → rotate"
     # nothing / main engine / rotate left / rotate right (as the classic discrete lander)
     discrete_actions = np.array([[0, 0], [1, 0], [0, 1], [0, -1]], dtype=np.float32)
+    obs_names = ("x", "height", "vel. x", "vel. y", "angle", "ang. vel.", "left leg", "right leg")
+    action_names = ("main engine", "rotate")
+    discrete_names = ("nothing", "main engine", "rotate left", "rotate right")
 
     def build(self):
         ground = self.world.create_static_body(position=(0, -0.5))

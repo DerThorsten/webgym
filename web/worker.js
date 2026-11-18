@@ -18,9 +18,14 @@
 //                   {type: "snapshot", data} (trainer: its current policy, for the display)
 // (archive download / unpack: from pyb2d3/examples/web/main.js)
 
-import { initializePyjsRuntime } from "@derthorsten/pyjs";
+import { initializePyjsRuntime as initWasm32 } from "@derthorsten/pyjs/wasm32";
+import { initializePyjsRuntime as initWasm64 } from "@derthorsten/pyjs/wasm64";
 
 const post = (message) => self.postMessage(message);
+
+// does this browser run wasm64 (memory64)? a module with just a 64-bit memory validates
+// (header, memory section: 1 memory, flags 0x04 = 64-bit, minimum 0)
+const MEMORY64 = WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 5, 3, 1, 4, 0]));
 
 // conda packages (pytorch, jax, ... from the channels) are immutable files: cache-first
 // in Cache Storage, so a second visit loads them without the network. Everything else
@@ -105,13 +110,18 @@ async function init(canvas, pageUrl, role) {
   // "display", "trainer"; none: compute only) for host_web.start
   self.webgymOptions = JSON.stringify({ ...Object.fromEntries(new URL(pageUrl).searchParams), role });
   progress("startup", "starting python");
+  // the architecture: ?arch=wasm32 / wasm64, else wasm64 where the browser has 64-bit
+  // memory (memory64: Chrome, Firefox), wasm32 elsewhere (Safari)
+  const asked = new URL(pageUrl).searchParams.get("arch");
+  const arch = asked === "wasm32" || asked === "wasm64" ? asked : MEMORY64 ? "wasm64" : "wasm32";
+  times.arch = arch;
   const config = await (await fetch(new URL("config.json", base), { cache: "no-cache" })).json();
-  pyjs = await initializePyjsRuntime({
+  pyjs = await (arch === "wasm64" ? initWasm64 : initWasm32)({
     assetsUrl: new URL("pyjs/", base).href,
     cdnFallback: false,
   });
   lap("python");
-  for (const archive of config.archives) await unpackArchive(pyjs, archive);
+  for (const archive of config[arch].archives) await unpackArchive(pyjs, archive);
   lap("archives");
   progress("startup", "importing");
   await pyjs.async_exec_eval(`
