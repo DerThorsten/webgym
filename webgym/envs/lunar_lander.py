@@ -1,9 +1,10 @@
 """LunarLander: land softly between the flags.
 
-The lander starts high up with a random push. Main engine (thrust along the
-lander's up axis) and attitude thrusters (torque).
+The lander starts high up with a random push, above a jagged moon surface with a flat
+landing pad between the flags (landing elsewhere counts too, but the pad is better). Main engine (thrust along the
+lander's up axis) and attitude thrusters (turning).
 obs: position, velocity, angle, angular velocity, leg contacts (8 values).
-action: [main engine (<= 0: off, 1: full), attitude (-1 .. 1)].
+action: [main engine (<= 0: off, 1: full), turn (-1 .. 1, + = left)].
 reward: getting closer to the pad, slower and upright, legs down; fuel costs;
 +100 for coming to rest on the legs, -100 for touching the ground with the hull
 or flying away.
@@ -15,113 +16,127 @@ import math
 
 import numpy as np
 import pyb2d3 as b2d
+from pyb2d3 import extensions as ext
 
-from webgym.core import Box, Env, register_env
+from webgym.core import PARTICLE_COLOR, PARTICLE_FILTER, Env, register_env
 
-HULL = np.array([(-0.5, -0.25), (0.5, -0.25), (0.35, 0.35), (-0.35, 0.35)])
-LEG_ANGLE = 0.35  # the legs splay outwards
-LEG_CENTERS = [(-0.55, -0.45), (0.55, -0.45)]
-LEG_HALF_LENGTH = 0.3
-# the lower ends of the legs (local points)
-LEG_TIPS = np.array(
-    [(c[0] + LEG_HALF_LENGTH * math.sin(a), c[1] - LEG_HALF_LENGTH * math.cos(a))
-     for c, a in zip(LEG_CENTERS, (-LEG_ANGLE, LEG_ANGLE))]
-)
-
-
-def world_points(position, angle, local):
-    """(n, k, 2) world points of `local` (k, 2) points on n bodies"""
-    c, s = np.cos(angle)[:, None], np.sin(angle)[:, None]
-    x = position[:, None, 0] + c * local[None, :, 0] - s * local[None, :, 1]
-    y = position[:, None, 1] + s * local[None, :, 0] + c * local[None, :, 1]
-    return np.stack([x, y], axis=-1)
+HULL = [(-0.5, -0.25), (0.5, -0.25), (0.35, 0.35), (-0.35, 0.35)]
+LEGS = [((-0.55, -0.45), -0.35), ((0.55, -0.45), 0.35)]  # center, tilt (splayed outwards)
+LEG_LENGTH = 0.6
+FEET = [(-0.653, -0.732), (0.653, -0.732)]  # the lower ends of the legs (local points)
+PAD = 1.6  # the landing pad: flat, from -PAD to PAD, between the flags
+# the moon's surface (as in the classic lander): heights at x = -12, -10.8, ... 12,
+# jagged, flat at the pad (the same for every episode)
+SURFACE_X = np.linspace(-12, 12, 21)
+SURFACE_Y = np.where(np.abs(SURFACE_X) <= PAD + 1.0, 0.0, np.random.default_rng(3).uniform(0.0, 2.2, 21))
 
 
 @register_env("LunarLander")
 class LunarLander(Env):
-    observation_space = Box(-np.inf, np.inf, (8,))
-    action_space = Box(-1.0, 1.0, (2,))
-    max_steps = 600
-    view_center = (0.0, 5.0)
-    view_zoom = 6.0
-    gravity = (0, -5.0)
-    keys = "↑ main engine · ← / → rotate"
-    # nothing / main engine / rotate left / rotate right (as the classic discrete lander)
-    discrete_actions = np.array([[0, 0], [1, 0], [0, 1], [0, -1]], dtype=np.float32)
     obs_names = ("x", "height", "vel. x", "vel. y", "angle", "ang. vel.", "left leg", "right leg")
     action_names = ("main engine", "rotate")
+    # (for DQN: nothing / main engine / rotate left / rotate right, as the classic lander)
+    discrete_actions = np.array([[0, 0], [1, 0], [0, 1], [0, -1]])
     discrete_names = ("nothing", "main engine", "rotate left", "rotate right")
+    max_steps = 600
+    gravity = (0, -5.0)
+    view_center, view_zoom = (0.0, 5.0), 6.0
+    keys = "↑ main engine · ← / → rotate"
 
-    def build(self):
-        ground = self.world.create_static_body(position=(0, -0.5))
-        self.scenery_shape(ground, b2d.box(14, 0.5), friction=0.8)
-        for x in (-1.6, 1.6):  # the flags of the pad (decoration)
-            flag = self.world.create_static_body(position=(x, 0))
-            self.scenery_shape(flag, b2d.box(0.02, 0.6, center=(0, 0.6)))
-            self.scenery_shape(flag, b2d.polygon([(0, 1.2), (0, 0.9), (0.35, 1.05)]))
-        shapes = [(b2d.polygon(HULL.tolist()), 1.0)] + [
-            (b2d.box(0.05, LEG_HALF_LENGTH, center=c, rotation=a), 0.5)
-            for c, a in zip(LEG_CENTERS, (-LEG_ANGLE, LEG_ANGLE))
-        ]
-        landers = [self.agent_body(i, (0, 9), shapes) for i in range(self.n)]
-        self.landers = b2d.Bodies(landers)
-        mass, inertia = landers[0].mass, landers[0].rotational_inertia
-        self.main_force = 2.2 * mass * -self.gravity[1]
-        self.max_torque = 3.0 * inertia
-        self.rest_height = -LEG_TIPS[:, 1].min()  # center above ground when standing
-        self.forces = np.zeros((self.n, 2), dtype=np.float32)
+    def build_scenery(self):
+        # the surface: one 4-sided piece per stretch between two heights
+        for x0, x1, y0, y1 in zip(SURFACE_X, SURFACE_X[1:], SURFACE_Y, SURFACE_Y[1:]):
+            self.scenery(b2d.polygon([(x0, -1), (x1, -1), (x1, y1), (x0, y0)]), friction=0.8)
+        if self.decorated:  # the pad's flags: looks only, nothing hits them
+            for x in (-PAD, PAD):
+                self.scenery(b2d.box(0.02, 0.6, center=(0, 0.6)), position=(x, 0), solid=False)
+                self.scenery(b2d.polygon([(0, 1.2), (0, 0.9), (0.35, 1.05)]), position=(x, 0), solid=False)
 
-    def _reset(self, rng):
+    def build_agent(self, i):
+        lander = self.body((0, 9), b2d.polygon(HULL))
+        for center, tilt in LEGS:
+            self.shape(lander, b2d.box(0.05, LEG_LENGTH / 2, center=center, rotation=tilt), density=0.5)
+        # sensors: the feet touch the ground (legs down), the hull touches it (a crash)
+        feet = [self.sensor(lander, b2d.circle(center=foot, radius=0.06)) for foot in FEET]
+        hull = self.sensor(lander, b2d.polygon([(1.05 * x, 1.05 * y) for x, y in HULL]))
+        parts = {"lander": lander, "feet": feet, "hull": hull}
+        if self.decorated:  # exhaust (looks only): the watched policy's orange, the ghosts' blue
+            color = PARTICLE_COLOR if i == 0 else 0  # (0: drawn in the ghost color)
+            parts["main_exhaust"] = exhaust(self.world, lander, (0, -0.3), -math.pi / 2, color)
+            parts["left_exhaust"] = exhaust(self.world, lander, (-0.375, 0.25), math.pi, color)
+            parts["right_exhaust"] = exhaust(self.world, lander, (0.375, 0.25), 0.0, color)
+        return parts
+
+    def randomize(self, rng):
         n = self.n
-        self.landers.position = np.column_stack([rng.uniform(-3, 3, n), np.full(n, 9.0)]).astype(np.float32)
-        self.landers.angle = rng.uniform(-0.2, 0.2, n).astype(np.float32)
-        self.landers.linear_velocity = np.column_stack(
-            [rng.uniform(-1.5, 1.5, n), rng.uniform(-1.0, 0.0, n)]
-        ).astype(np.float32)
-        self.landers.angular_velocity = rng.uniform(-0.5, 0.5, n).astype(np.float32)
-        self.main = np.zeros(n)
-        self.side = np.zeros(n)
-        self.shaping = self._shaping(self._observe())
+        self.lander.position = np.column_stack([rng.uniform(-3, 3, n), np.full(n, 9.0)])
+        self.lander.angle = rng.uniform(-0.2, 0.2, n)
+        self.lander.linear_velocity = np.column_stack([rng.uniform(-1.5, 1.5, n), rng.uniform(-1.0, 0.0, n)])
+        self.lander.angular_velocity = rng.uniform(-0.5, 0.5, n)
+        self.main, self.turn = np.zeros(n), np.zeros(n)
+        self.shaping = self._shaping(self._observation())
 
-    def _apply(self, actions):
-        a = np.clip(actions, -1, 1)
-        self.main, self.side = np.maximum(a[:, 0], 0.0), a[:, 1]
-        angle = self.landers.angle
-        thrust = self.main * self.main_force
-        self.forces[:, 0] = -np.sin(angle) * thrust  # along the lander's up axis
-        self.forces[:, 1] = np.cos(angle) * thrust
-        self.landers.apply_force_to_center(self.forces, True)
-        self.landers.apply_torque((self.side * self.max_torque).astype(np.float32), True)
+    def act(self, actions):
+        self.main, self.turn = np.maximum(actions[:, 0], 0.0), actions[:, 1]
+        mass, inertia = self.lander[0].mass, self.lander[0].rotational_inertia
+        thrust = self.main * 2.2 * mass * -self.gravity[1]  # along the lander's up axis
+        angle = self.lander.angle
+        self.lander.apply_force_to_center(np.column_stack([-np.sin(angle) * thrust, np.cos(angle) * thrust]), True)
+        self.lander.apply_torque(self.turn * 3.0 * inertia, True)
 
-    def _observe(self):
-        pos, vel, angle = self.landers.position, self.landers.linear_velocity, self.landers.angle
-        legs = (world_points(pos, angle, LEG_TIPS)[:, :, 1] < 0.03).astype(np.float32)
-        return np.column_stack(
-            [pos[:, 0] / 5, (pos[:, 1] - self.rest_height) / 5, vel / 5, angle,
-             self.landers.angular_velocity / 2, legs]
-        ).astype(np.float32)
+    def observe(self):
+        return [self.lander.position[:, 0] / 5, (self.lander.position[:, 1] - 0.732) / 5,
+                self.lander.linear_velocity / 5, self.lander.angle, self.lander.angular_velocity / 2,
+                self._legs_down()]
+
+    def reward(self):
+        obs = self._observation()
+        shaping = self._shaping(obs)
+        reward = shaping - self.shaping - 0.3 * self.main - 0.03 * np.abs(self.turn)
+        self.shaping = shaping
+        x = self.lander.position[:, 0]
+        hull_down = self.hull.sensor_capacity > 0
+        crashed = hull_down |(np.abs(x) > 9) | (self.lander.position[:, 1] > 16)
+        speed = np.linalg.norm(self.lander.linear_velocity, axis=1)
+        resting = (obs[:, 6] > 0) & (obs[:, 7] > 0) & (speed < 0.1) & (np.abs(self.lander.angular_velocity) < 0.2)
+        return reward - 100 * crashed + 100 * (resting & ~crashed), crashed | resting
 
     @staticmethod
-    def _shaping(o):
+    def _shaping(obs):
         """potential: high near the pad, slow, upright, legs down"""
-        return (
-            -100 * np.hypot(o[:, 0], o[:, 1]) - 100 * np.hypot(o[:, 2], o[:, 3])
-            - 100 * np.abs(o[:, 4]) + 10 * (o[:, 6] + o[:, 7])
-        )
+        return (-100 * np.hypot(obs[:, 0], obs[:, 1]) - 100 * np.hypot(obs[:, 2], obs[:, 3])
+                - 100 * np.abs(obs[:, 4]) + 10 * (obs[:, 6] + obs[:, 7]))
 
-    def _outcome(self):
-        o = self._observe()
-        shaping = self._shaping(o)
-        reward = shaping - self.shaping - 0.3 * self.main - 0.03 * np.abs(self.side)
-        self.shaping = shaping
-        pos, angle = self.landers.position, self.landers.angle
-        hull_down = world_points(pos, angle, HULL)[:, :, 1].min(axis=1) < 0.02
-        crashed = hull_down | (np.abs(pos[:, 0]) > 9) | (pos[:, 1] > 16)
-        speed = np.hypot(*self.landers.linear_velocity.T)
-        resting = (o[:, 6] > 0) & (o[:, 7] > 0) & (speed < 0.1) & (np.abs(self.landers.angular_velocity) < 0.2)
-        reward = reward - 100 * crashed + 100 * (resting & ~crashed)
-        return reward, crashed | resting
+    def _legs_down(self):
+        """(n, 2): each foot on the ground (its sensor)"""
+        return self.feet.sensor_capacity.reshape(self.n, 2) > 0
+
+    def decorate(self):
+        """the exhaust of the engines that fire (watch mode): the side thruster on the
+        right blows right to turn the lander left, the left one the other way"""
+        on = ~self.done
+        rates = {"main_exhaust": 120 * self.main * on, "right_exhaust": 60 * np.maximum(self.turn, 0) * on,
+                 "left_exhaust": 60 * np.maximum(-self.turn, 0) * on}
+        for name, rate in rates.items():
+            for emitter, r in zip(getattr(self, name), rate):
+                emitter.rate = float(r)
+                emitter.step(self.dt)
 
     def human_action(self, keys):
-        """up: main engine, left / right: rotate"""
         return np.array([float("up" in keys), ("left" in keys) - ("right" in keys)], dtype=np.float32)
+
+
+def exhaust(world, body, position, angle, color):
+    """a nozzle on `body` at `position`, blowing towards `angle`: an emitter of small
+    particles (rate set each step) that live 0.5 s, slowed by drag (as smoke)"""
+    return ext.RadialEmitter(
+        world,
+        b2d.shape_def(density=0.2, filter=PARTICLE_FILTER, material=b2d.surface_material(restitution=0.3)),
+        b2d.circle(radius=0.025),
+        body=body,
+        local_frame=b2d.transform(position, b2d.make_rot(angle)),
+        body_def=b2d.body_def(linear_damping=3.0),
+        rate=0.0, capacity=80, angle_min=-0.12, angle_max=0.12,
+        speed=ext.uniform(5.0, 8.0), lifetime=ext.constant(0.5), max_lifetime=0.5,
+        colors=[(0.0, color), (1.0, color)],
+    )

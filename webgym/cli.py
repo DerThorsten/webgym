@@ -1,4 +1,7 @@
-"""Headless training: python -m webgym.cli CartPole --algo cem"""
+"""Headless training: python -m webgym.cli CartPole --algo cem
+(env settings: python -m webgym.cli WaterCannon --set balls=2;
+ a pretrained run for the page: python -m webgym.cli Walker --iterations 300
+ --save web/public/pretrained/Walker-cem.safetensors)"""
 
 import argparse
 import time
@@ -8,12 +11,12 @@ from webgym.core import make
 from webgym.policies import policy_for
 
 
-def train(env_name, algo="cem", population=64, iterations=30, seed=0, log=print):
+def train(env_name, algo="cem", population=64, iterations=30, seed=0, log=print, settings=None):
     """run a trainer to the end without drawing; returns the last stats"""
-    env = make(env_name, n=population)
+    env = make(env_name, n=population, **(settings or {}))
     spec = ALGOS[algo]
     params = spec.defaults()
-    policy = policy_for(env, spec.discrete, params.pop("hidden", 16))
+    policy = policy_for(env, spec.discrete, params.pop("hidden", 16), params.pop("layers", 1))
     stats, start = None, time.perf_counter()
     for item in spec.train(env, policy, iterations=iterations, seed=seed, **params):
         if item is None:
@@ -28,6 +31,30 @@ def train(env_name, algo="cem", population=64, iterations=30, seed=0, log=print)
     return stats
 
 
+def train_and_save(path, env_name, algo="cem", population=64, iterations=30, seed=0, settings=None, log=print):
+    """train with the page's App (headless) and write its checkpoint to `path`: the
+    page restores it like its own (e.g. web/public/pretrained/, see build_page.py)"""
+    from pathlib import Path
+
+    from webgym.app import App
+
+    app = App(env=env_name, algo=algo, population=population, seed=seed, draws=False)
+    if settings:
+        app.set_env(env_name, settings)
+    app.command("train")
+    start, shown = time.perf_counter(), 0
+    while len(app.history) < iterations:
+        app._train_steps()
+        for entry in app.history[shown:]:
+            log(f"iter {entry['iteration']:3d}  mean {entry['mean_return']:7.1f}  "
+                f"best {entry['best_return']:7.1f}  ({time.perf_counter() - start:.1f} s)")
+        shown = len(app.history)
+    app.command("stop")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_bytes(app.checkpoint())
+    log(f"written: {path} ({app.env_key}, {algo}, iteration {app.history[-1]['iteration']})")
+
+
 def main():
     """command line"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -36,8 +63,21 @@ def main():
     parser.add_argument("--population", type=int, default=64)
     parser.add_argument("--iterations", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="an env setting")
+    parser.add_argument("--save", metavar="FILE", help="write the run as a page checkpoint (.safetensors)")
     args = parser.parse_args()
-    train(args.env, args.algo, args.population, args.iterations, args.seed)
+    # (the values as the env's choices: "2" -> 2)
+    from webgym.core import ENVS
+    import webgym.envs  # noqa: F401
+
+    settings = {}
+    for item in args.set:
+        name, value = item.split("=", 1)
+        settings[name] = next(c for c in ENVS[args.env].settings[name][1] if str(c) == value)
+    if args.save:
+        train_and_save(args.save, args.env, args.algo, args.population, args.iterations, args.seed, settings)
+    else:
+        train(args.env, args.algo, args.population, args.iterations, args.seed, settings=settings)
 
 
 if __name__ == "__main__":

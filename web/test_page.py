@@ -48,18 +48,33 @@ def iteration(page):
 
 def check_checkpoints(page, url, errors):
     """autosave + named checkpoint survive a reload; Continue training goes on; New
-    run drops the autosave, the named one stays restorable"""
+    run starts training from scratch, the named one stays restorable"""
     page.click("button:text('Stop')")  # (the training of the default checks)
-    page.wait_for_timeout(500)
+    # settled: training stopped, the last autosave (in the list) and the watched policy are
+    # the same iteration
+    page.wait_for_function(
+        """() => {
+        const state = document.getElementById('state').textContent;
+        const saved = document.getElementById('ckpt-list').textContent.match(/autosaveiteration (\\d+)/);
+        const shown = state.match(/policy\\s+\\w+, iteration (\\d+)/);
+        return state.includes('stopped') && saved && shown && saved[1] === shown[1];
+        }""",
+        timeout=30_000,
+    )
     trained = iteration(page)
     assert trained > 0, state(page)
+    page.click("#tabs button:text('Policy')")  # (the checkpoints' tab; remembered over the reload)
     page.fill("#ckpt-name", "my run")
     page.click("#ckpt-save")
     page.wait_for_function("document.getElementById('ckpt-list').textContent.includes('my run')", timeout=10_000)
     load(page, url, errors)  # reload: the autosave comes back
-    page.wait_for_function(
-        f"document.getElementById('state').textContent.includes('iteration {trained}')", timeout=60_000
-    )
+    try:
+        page.wait_for_function(
+            f"document.getElementById('state').textContent.includes('iteration {trained}')", timeout=60_000
+        )
+    except Exception:
+        raise SystemExit(f"not restored (iteration {trained} expected): {state(page)}\n"
+                         f"checkpoints: {page.text_content('#ckpt-list')}\nstatus: {page.inner_text('#status')}")
     print("restored after reload:", state(page))
     assert "my run" in page.inner_text("#ckpt-list")
     page.click("button:text('Continue training')")
@@ -70,29 +85,34 @@ def check_checkpoints(page, url, errors):
     )
     page.click("button:text('Stop')")
     print("continued:", state(page))
+    # New run: a fresh network, trained right away (the iterations start over)
     page.click("button:text('New run')")
-    page.wait_for_timeout(500)
-    load(page, url, errors)  # no autosave any more: nothing restored
-    page.wait_for_timeout(1500)
-    assert "none yet" in page.inner_text("#state"), state(page)
+    page.wait_for_function(
+        f"(() => {{ const m = document.getElementById('state').textContent.match(/running, iteration (\\d+)/);"
+        f" return m && Number(m[1]) < {trained} / 2; }})()",
+        timeout=30_000,
+    )
+    print("new run:", state(page))
+    page.click("button:text('Stop')")
+    page.wait_for_timeout(1000)
     page.locator(".ckpt", has_text="my run").locator("button:text('Restore')").click()
     page.wait_for_function(
         f"document.getElementById('state').textContent.includes('iteration {trained}')", timeout=20_000
     )
     print("restored by name:", state(page))
+    page.click("#tabs button:text('World')")
 
 
 def main():
     """command line"""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--screenshot", type=Path)
-    parser.add_argument("--packages", action="store_true", help="wait for pytorch / jax / webgpu")
+    parser.add_argument("--packages", action="store_true", help="wait for pytorch, then train PPO (torch)")
     parser.add_argument("--query", default="", help="URL query, e.g. env=LunarLander")
     parser.add_argument("--stress", type=float, default=0, help="seconds per env at max population / speed")
     parser.add_argument("--crash", action="store_true", help="crash python (wasm trap), expect a restart")
     parser.add_argument("--converge", type=float, help="time training until the mean return reaches this")
     parser.add_argument("--checkpoints", action="store_true", help="autosave / save / restore / reload")
-    parser.add_argument("--gpu-train", action="store_true", help="train PPO (jax) on the GPU (WebGPU)")
     args = parser.parse_args()
     base = serve(DIST)
     # (the page starts training by itself: the checks below start watching, train=0;
@@ -101,8 +121,7 @@ def main():
     # (the architecture is printed with the loading times: wasm64 by default in chromium)
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--enable-unsafe-webgpu",
-                  "--enable-features=Vulkan"]
+            args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
         )
         page = browser.new_page(viewport={"width": 1200, "height": 700})
         errors = []
@@ -112,7 +131,6 @@ def main():
             lambda m: m.type == "error" and not any(w in m.text for w in ("Warning", "import filelock"))
             and errors.append(m.text),
         )
-        page.on("console", lambda m: ("webgym.gpu" in m.text or "GPU_ERROR" in m.text) and print(m.text[:400]))
         page.on("pageerror", lambda e: errors.append(str(e)))
         print("cold:", load(page, url, errors))
         print("reload:", load(page, url, errors))
@@ -123,9 +141,24 @@ def main():
         assert page.is_visible("#help-popup") and "ghosts" in page.inner_text("#help-popup")
         page.click("[data-help] >> text=Show policies")
         assert not page.is_visible("#help-popup")
-        # the Code section: edit the env's source (a comment), apply: the env is rebuilt
-        # with it in the worker(s), no error
-        page.click("#sec-code > summary")
+        # the tours (not by themselves in automated tests: the links), through to the end:
+        # the quick one, then from its last step the detailed one
+        page.click("#tour-link")
+        for _ in range(5):
+            assert page.is_visible("#tour-card") and page.is_visible("#tour-frame")
+            page.click("#tour-card .next")
+        page.click("#tour-card .more")  # (the last step: "Detailed tour")
+        steps = 0
+        while page.is_visible("#tour-card"):
+            assert "Detailed tour" in page.inner_text("#tour-card .step")
+            page.click("#tour-card .next")
+            steps += 1
+        assert steps >= 18 and not page.is_visible("#tour-frame"), steps
+        page.click("#tabs button:text('World')")  # (the tour opened other tabs)
+        # the code panel (right, closed): edit the env's source (a comment), apply: the env
+        # is rebuilt with it in the worker(s), no error
+        assert not page.is_visible("#code-panel")
+        page.click("#code-toggle")
         page.wait_for_function("document.getElementById('code').textContent.includes('register_env')", timeout=10_000)
         page.click("#code .cm-content")
         page.keyboard.press("ControlOrMeta+End")
@@ -135,6 +168,21 @@ def main():
         assert "# edited in the browser" in page.inner_text("#code")  # (the file, sent back)
         assert "applying the edited" in page.text_content("#log")  # (collapsed: no inner_text)
         page.wait_for_timeout(1000)
+        assert not errors, errors
+        # kept in this browser (IndexedDB): after a reload the workers start with the edit
+        load(page, url, errors)
+        page.click("#code-toggle")
+        page.wait_for_function("document.getElementById('code').textContent.includes('# edited in the browser')",
+                               timeout=10_000)
+        assert "edited (kept in this browser)" in page.inner_text("#code-path")
+        # Revert: the original comes back (the page reloads)
+        page.once("dialog", lambda dialog: dialog.accept())
+        with page.expect_console_message(lambda m: READY in m.text, timeout=120_000):
+            page.click("#code-revert")
+        page.click("#code-toggle")
+        page.wait_for_function("document.getElementById('code').textContent.includes('register_env')", timeout=10_000)
+        assert "# edited in the browser" not in page.inner_text("#code")
+        page.click("#code-toggle")
         assert not errors, errors
         page.click("button:text('Train')")
         page.wait_for_function(
@@ -159,31 +207,6 @@ def main():
             )
             print(f"converged (mean >= {args.converge}) after {time.perf_counter() - start:.1f} s:",
                   page.inner_text("#state").replace("\n", " | "))
-        if args.gpu_train:
-            # PPO (jax) on the GPU: jax loads, the update is compiled for WebGPU (compile
-            # worker), training runs; the policy line says where it ran
-            page.click("button:text('Stop')")
-            page.select_option("#controls-training select >> nth=0", "ppo_jax")
-            page.wait_for_timeout(500)
-            page.locator(".control.checkbox", has_text="Use GPU").locator("input").check()
-            page.wait_for_timeout(500)
-            start = time.perf_counter()
-            page.click("button:text('Train')")
-            page.wait_for_function(
-                "/ppo_jax, iteration [3-9]/.test(document.getElementById('state').textContent)"
-                " || document.getElementById('status').textContent.startsWith('error')",
-                timeout=600_000,
-            )
-            assert not page.inner_text("#status").startswith("error"), (
-                page.inner_text("#state") + "\n" + page.inner_text("#status"))
-            text = page.inner_text("#state").replace("\n", " | ")
-            print(f"GPU training ({time.perf_counter() - start:.0f} s):", text)
-            assert "(GPU: " in text and "ms/minibatch" in text, "trained on the CPU, not on the GPU"
-            # the same run on the CPU (the box off): the policy line says so, with its time
-            page.locator(".control.checkbox", has_text="Use GPU").locator("input").uncheck()
-            page.wait_for_function("/ppo_jax, iteration \\d+ \\(CPU, /.test(document.getElementById('state').textContent)",
-                                   timeout=300_000)
-            print("CPU training:", page.inner_text("#state").splitlines()[1])
         if args.checkpoints:
             check_checkpoints(page, url, errors)
         if args.crash:
@@ -218,29 +241,55 @@ def main():
                 print(f"stress {env}:", page.inner_text("#state").replace("\n", " | "))
                 page.click("button:text('Stop')")
         if args.packages:
-            # pytorch, jax, webgpu (IREE) load in the background by themselves; their
-            # checks (incl. the GPU probe) end up in the packages panel
-            page.wait_for_function(
-                "['pytorch', 'jax', 'webgpu'].every((n) => document.getElementById('package-' + n))",
-                timeout=900_000,
-            )
-            for name in ("pytorch", "jax", "webgpu"):  # (collapsed section: text_content)
-                print(page.text_content(f"#package-{name}"))
+            # pytorch loads in the background by itself (pinned, cached after the first
+            # visit); its check ends up in the packages panel; then PPO (torch) trains
+            page.wait_for_function("document.getElementById('package-pytorch')", timeout=900_000)
+            print(page.text_content("#package-pytorch"))  # (collapsed section: text_content)
+            assert "failed" not in page.text_content("#package-pytorch")
+            if page.is_visible("button:text('Stop')"):
+                page.click("button:text('Stop')")
+            page.click("#tabs button:text('Training')")
+            page.select_option("#controls-training select >> nth=0", "ppo_torch")
+            page.click("#tabs button:text('World')")
+            page.wait_for_timeout(500)
+            page.click("button:text('Train')")
+            page.wait_for_function("/ppo_torch, iteration [2-9]/.test(document.getElementById('state').textContent)",
+                                   timeout=300_000)
+            print("PPO (torch):", page.inner_text("#state").replace("\n", " | "))
+            page.click("button:text('Stop')")
         if args.screenshot:
             page.screenshot(path=str(args.screenshot))
+            page.click("#tabs button:text('Policy')")  # (the network view: its own picture)
+            page.wait_for_timeout(1000)
             section = page.locator("#network-section")
-            if section.is_visible():  # (the network view, below the fold: its own picture)
+            if section.is_visible():
                 section.screenshot(path=str(args.screenshot.with_name(args.screenshot.stem + "_network.png")))
-        # torture: the Crawler, three things thrown at it (no errors; a picture)
-        page.select_option("#controls-environment select >> nth=0", "Crawler")
-        page.wait_for_timeout(1500)
-        for _ in range(3):
-            page.click("button:text('Throw (T)')")
-            page.wait_for_timeout(250)
-        if args.screenshot:
-            page.screenshot(path=str(args.screenshot.with_name(args.screenshot.stem + "_throw.png")))
+            page.click("#tabs button:text('World')")
+        # every env loads and runs in the browser (no errors)
+        for env in ("LunarLander", "Walker", "Crawler", "Car"):
+            page.select_option("#controls-environment select >> nth=0", env)
+            page.wait_for_timeout(800)
+        # the pretrained walker that comes with the page (public/pretrained/): restorable
+        page.select_option("#controls-environment select >> nth=0", "Walker")
+        page.click("#tabs button:text('Policy')")
+        pretrained = page.locator(".ckpt", has_text="pretrained")
+        pretrained.wait_for(timeout=20_000)
+        pretrained.locator("button:text('Restore')").click()
+        page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration 300')",
+                               timeout=20_000)
+        print("pretrained walker:", state(page))
+        page.click("#tabs button:text('World')")
+        page.select_option("#controls-environment select >> nth=0", "Car")
+        page.wait_for_timeout(800)
+        # the car (not batchable: one world per agent) trains too
+        page.wait_for_function("document.getElementById('state').textContent.includes('none yet')", timeout=30_000)
+        page.click("button:text('Train')")
+        page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration')",
+                               timeout=60_000)  # (the display watches the trained car policy)
+        print("car:", state(page))
+        page.click("button:text('Stop')")
         page.select_option("#controls-environment select >> nth=0", "CartPole")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(800)
         # the plain page starts training by itself
         load(page, base + (f"?{args.query}" if args.query else ""), errors)
         page.wait_for_function("document.getElementById('state').textContent.includes('running')", timeout=60_000)

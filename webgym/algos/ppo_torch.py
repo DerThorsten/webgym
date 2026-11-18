@@ -61,7 +61,11 @@ def train(env, policy, iterations=1000, lr=3e-3, gamma=0.99, clip=0.2, epochs=4,
         from_flat(critic, state["critic"])
         log_std.data = torch.as_tensor(state["log_std"], dtype=torch.float32)
         start = state["iteration"]
-    optimizer = torch.optim.Adam([*actor.parameters(), *critic.parameters(), log_std], lr=lr)
+    # two optimizers: the critic's loss (squared returns, large when rewards add up over
+    # long episodes) must not drown the actor's gradient in a shared clip
+    actor_params = [*actor.parameters(), log_std]
+    actor_optimizer = torch.optim.Adam(actor_params, lr=lr)
+    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=lr)
 
     for iteration in range(start, start + iterations):
         # one episode per agent
@@ -108,10 +112,14 @@ def train(env, policy, iterations=1000, lr=3e-3, gamma=0.99, clip=0.2, epochs=4,
                 policy_loss = -torch.min(ratio * adv[idx], ratio.clamp(1 - clip, 1 + clip) * adv[idx]).mean()
                 value_loss = (critic(o[idx]).squeeze(-1) - ret[idx]).pow(2).mean()
                 entropy = dist.entropy().sum(-1).mean()
-                optimizer.zero_grad()
-                (policy_loss + 0.5 * value_loss).backward()
-                nn.utils.clip_grad_norm_([*actor.parameters(), *critic.parameters()], 0.5)
-                optimizer.step()
+                actor_optimizer.zero_grad()
+                policy_loss.backward()
+                nn.utils.clip_grad_norm_(actor_params, 0.5)
+                actor_optimizer.step()
+                critic_optimizer.zero_grad()
+                value_loss.backward()
+                nn.utils.clip_grad_norm_(critic.parameters(), 0.5)
+                critic_optimizer.step()
                 losses["policy_loss"] += float(policy_loss.detach())
                 losses["value_loss"] += float(value_loss.detach())
                 losses["entropy"] += float(entropy.detach())

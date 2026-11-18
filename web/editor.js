@@ -6,7 +6,7 @@ import { indentWithTab } from "@codemirror/commands";
 import { Prec } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { python } from "@codemirror/lang-python";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { monokai } from "@uiw/codemirror-theme-monokai";
 
 /** an editor in `parent`; onChange(text) after edits, onRun() on Ctrl/Cmd+Enter;
  * returns {get, set} */
@@ -18,7 +18,7 @@ export function createEditor(parent, onChange, onRun) {
       basicSetup,
       keymap.of([indentWithTab]),
       python(),
-      oneDark,
+      monokai,
       EditorView.updateListener.of((u) => u.docChanged && onChange(view.state.doc.toString())),
     ],
   });

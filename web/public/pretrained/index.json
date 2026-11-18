@@ -1,0 +1,9 @@
+[
+  {
+    "file": "Walker-cem.safetensors",
+    "env": "Walker",
+    "algo": "cem",
+    "iteration": 300,
+    "mean_return": 147.61761505189497
+  }
+]

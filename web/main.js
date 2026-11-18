@@ -5,10 +5,15 @@
 //   its policy go to the display worker (replay in real time)
 // On phones / tablets (or ?workers=1) one worker does both (role "single").
 
+import { compileRuntime as compileWasm32 } from "@derthorsten/pyjs/wasm32";
+import { compileRuntime as compileWasm64 } from "@derthorsten/pyjs/wasm64";
+import { pageArch } from "./arch.js";
 import { setupPanel } from "./checkpoints.js";
 import { createEditor, forgetFile, openFile, saveFile } from "./editor.js";
+import { removeEdit, saveEdit, storedEdits } from "./edits.js";
 import { drawNetwork } from "./network.js";
 import { plot } from "./plot.js";
+import { startTour, tourDone } from "./tour.js";
 
 const stage = document.getElementById("stage");
 let canvas = document.getElementById("canvas"); // replaced on a worker restart
@@ -24,13 +29,13 @@ let autoTrain = params.get("train") !== "0"; // start training once the page is 
 let trainerState = null; // the trainer's state message (two workers)
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
-const DISPLAY_COMMANDS = new Set(["controller", "auto_reset", "reset", "show_n", "replay_speed", "follow", "throw", "throw_every"]);
+const DISPLAY_COMMANDS = new Set(["controller", "auto_reset", "reset", "show_n", "replay_speed", "follow", "decorate"]);
 
 /** a widget changed: route the command to the worker(s) concerned */
 function command(name, value) {
   const message = { type: "command", name, value };
   if (!TWO_WORKERS) return toDisplay(message);
-  if (DISPLAY_COMMANDS.has(name) || name === "env" || name === "code") toDisplay(message);
+  if (DISPLAY_COMMANDS.has(name) || name === "env" || name.startsWith("setting.") || name === "code") toDisplay(message);
   toTraining(message);
 }
 const statusEl = document.getElementById("status");
@@ -45,6 +50,7 @@ const bars = new Map(); // progress id -> {label, value, bar}
 /** a message: errors in red at the top of the panel, everything else only in the log
  * ("Packages & log" section); "" clears the top */
 function status(text, isError = false) {
+  if (isError && text === statusEl.textContent) return; // (the same error again: shown already)
   if (text) log(text, isError);
   if (!isError && text) return;
   statusEl.textContent = text;
@@ -61,15 +67,15 @@ function log(text, isError = false) {
   while (list.children.length > 100) list.lastChild.remove();
 }
 
-/** one progress bar per id (startup, core, pytorch, jax, ...): phase + bytes */
+/** one progress bar per id (startup, pytorch): phase + bytes */
 function showProgress({ id, phase, done, total }) {
   if (!bars.has(id)) {
     const el = document.createElement("div");
     el.className = "bar";
     el.innerHTML = `<label><span></span><span></span></label><progress></progress>`;
-    // the page's own start at the top; everything in the background (packages, the
-    // training / compile worker) in the "Packages & log" section
-    const top = id === "startup" || id === "core";
+    // the page's own start at the top; everything in the background (packages) in the
+    // "Packages & log" section
+    const top = id === "startup";
     document.getElementById(top ? "bars" : "package-bars").append(el);
     bars.set(id, { el, label: el.querySelectorAll("span"), bar: el.querySelector("progress") });
   }
@@ -87,7 +93,7 @@ function showProgress({ id, phase, done, total }) {
   showBusy();
 }
 
-const loading = new Map(); // id -> what it is doing (startup, core, pytorch, jax)
+const loading = new Map(); // id -> what it is doing (startup, pytorch)
 /** the hourglass overlay over the canvas while the user waits: the start, or a
  * package an action waits for (the background loading shows in the panel only) */
 function showBusy() {
@@ -129,16 +135,55 @@ function showCode(next) {
 }
 function showCodeKind() {
   const { path = "", text = "" } = code[codeKind.value] ?? {};
-  document.getElementById("code-path").textContent = path;
+  const edited = editedPaths.has(path);
+  document.getElementById("code-path").textContent = path + (edited ? " · edited (kept in this browser)" : "");
+  document.getElementById("code-revert").disabled = !edited;
   if (editor.get() !== text) editor.set(text);
 }
 codeKind.onchange = showCodeKind;
 const fileName = () => (code[codeKind.value]?.path ?? "code.py").split("/").pop();
-function applyCode() {
+async function applyCode() {
+  const { path } = code[codeKind.value] ?? {};
+  const text = editor.get();
   log(`applying the edited ${codeKind.selectedOptions[0].text} code`);
-  command("code", JSON.stringify({ kind: codeKind.value, text: editor.get() }));
+  command("code", JSON.stringify({ kind: codeKind.value, text }));
+  if (!path) return;
+  // kept in this browser: every worker started from now on (a reload, a restart, the
+  // simulation helpers) gets it; the running helpers are restarted with it
+  await saveEdit(path, text, await version);
+  editedPaths.add(path);
+  showCodeKind();
+  const n = wantedHelpers;
+  if (n) {
+    setHelpers(0);
+    setHelpers(n);
+  }
 }
 document.getElementById("code-apply").onclick = applyCode;
+document.getElementById("code-revert").onclick = async () => {
+  const { path } = code[codeKind.value] ?? {};
+  if (!path || !confirm(`Back to the original ${fileName()}? Your edit is forgotten, the page reloads.`)) return;
+  await removeEdit(path);
+  location.reload();
+};
+
+// the edited files kept in this browser (edits.js), for this webgym version (the content
+// hash of the sources archive): every worker gets them when it starts
+const version = fetch(new URL("config.json", location.href), { cache: "no-cache" })
+  .then((r) => r.json())
+  .then((config) => config[pageArch(location.href)].archives[0].url)
+  .catch(() => "");
+let editedPaths = new Set();
+let staleReported = false;
+async function editedSources() {
+  const { current, stale } = await storedEdits(await version);
+  editedPaths = new Set(current.map((e) => e.path));
+  if (stale.length && !staleReported) {
+    staleReported = true;
+    log(`not applied: your edits of ${stale.join(", ")} (made for another version of webgym)`);
+  }
+  return current;
+}
 document.getElementById("code-open").onclick = async () => {
   try {
     const file = await openFile(codeKind.value);
@@ -158,20 +203,34 @@ document.getElementById("code-save").onclick = async () => {
   }
 };
 
-const openGroups = new Set(); // control groups the user opened (stay open on a rebuild)
+
+/** a docstring's hard-wrapped lines as flowing text: paragraphs stay, and a line that
+ * starts with a label ("obs:", "Keys (human controller):") or a list item ("- ") starts a
+ * new line */
+const unwrap = (text) =>
+  text
+    .split(/\n\s*\n/)
+    .map((paragraph) =>
+      paragraph
+        .split("\n")
+        .map((line, i) => (i && /^(- |[A-Za-z][\w .()/-]*:)/.test(line) ? "\n" : i ? " " : "") + line.trim())
+        .join(""),
+    )
+    .join("\n\n");
 
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
 function showControls(controls) {
-  // each control in its section ("environment", "training"), buttons at its end
+  // each control in its section ("bar": the top bar, "environment", "training"), buttons
+  // at its end
   const sections = new Map();
-  for (const name of ["environment", "training"]) {
+  for (const name of ["bar", "environment", "training"]) {
     const el = document.getElementById(`controls-${name}`);
     const buttons = document.createElement("div");
     el.replaceChildren(buttons);
     sections.set(name, { el, buttons });
   }
-  const groups = new Map(); // group name -> <details> (e.g. the algorithm's parameters)
+  const groups = new Map(); // group name -> a box with a title (e.g. the algorithm's parameters)
   for (const c of controls) {
     const { buttons } = sections.get(c.section ?? "environment");
     // (appended before the section's buttons)
@@ -179,11 +238,10 @@ function showControls(controls) {
     let parent = root;
     if (c.group) {
       if (!groups.has(c.group)) {
-        const details = Object.assign(document.createElement("details"), { className: "group", open: openGroups.has(c.group) });
-        details.append(Object.assign(document.createElement("summary"), { textContent: c.group }));
-        details.ontoggle = () => (details.open ? openGroups.add(c.group) : openGroups.delete(c.group));
-        root.append(details);
-        groups.set(c.group, details);
+        const box = Object.assign(document.createElement("div"), { className: "group" });
+        box.append(Object.assign(document.createElement("div"), { className: "group-title", textContent: c.group }));
+        root.append(box);
+        groups.set(c.group, box);
       }
       parent = groups.get(c.group);
     }
@@ -205,13 +263,16 @@ function showControls(controls) {
       root.append(Object.assign(document.createElement("div"), { className: c.active ? "hint active" : "hint", textContent: c.text }));
       continue;
     }
+    if (c.type === "heading") {
+      root.append(Object.assign(document.createElement("h4"), { textContent: c.text }));
+      continue;
+    }
     if (c.type === "info") {
-      // first line always visible, the rest on click
+      // (the env's description, in the World tab: its title line in bold, the rest below)
       const [first, ...rest] = c.text.split("\n");
-      const details = Object.assign(document.createElement("details"), { className: "info" });
-      const summary = Object.assign(document.createElement("summary"), { textContent: first });
-      details.append(summary, rest.join("\n").trim());
-      root.append(details);
+      const info = Object.assign(document.createElement("div"), { className: "info" });
+      info.append(Object.assign(document.createElement("b"), { textContent: first }), "\n", unwrap(rest.join("\n").trim()));
+      root.append(info);
       continue;
     }
     const label = document.createElement("label");
@@ -225,7 +286,7 @@ function showControls(controls) {
     }
     let input;
     if (c.type === "checkbox") {
-      el.className = "control checkbox";
+      el.className = c.inline ? "control checkbox inline" : "control checkbox"; // (inline: side by side)
       input = Object.assign(document.createElement("input"), { type: "checkbox", checked: c.value, disabled: Boolean(c.disabled) });
       input.onchange = () => {
         command(c.name, input.checked);
@@ -268,6 +329,8 @@ function showControls(controls) {
     el.append(label, input);
     parent.append(el);
   }
+  worldKey = controls.find((c) => c.name === "env")?.key ?? "";
+  showState();
   // the URL names the current env / algo: reload or share the link to get them
   const url = new URL(location.href);
   for (const c of controls) if (c.name === "env" || c.name === "algo") url.searchParams.set(c.name, c.value);
@@ -321,12 +384,32 @@ function showState() {
       : "") +
     (last ? `mean/best ${last.mean_return.toFixed(0)} / ${last.best_return.toFixed(0)}\n` : "") +
     `frame     ${s.frame_ms.toFixed(1)} ms`;
+  // the same, short, in the top bar
+  const chip = (html, cls = "") => `<span class="chip ${cls}">${html}</span>`;
+  document.getElementById("chips").innerHTML =
+    (worldKey ? chip(`<b>${worldKey}</b>`, "world") : "") +
+    (training ? chip(`training · iteration <b>${t.iteration}</b>`, "running") : chip("not training")) +
+    (last ? chip(`mean <b>${last.mean_return.toFixed(0)}</b>`) + chip(`best <b>${last.best_return.toFixed(0)}</b>`) : "") +
+    chip(`watching: episode ${s.episode}, return <b>${s.episode_return.toFixed(0)}</b>`);
 }
 let displayState = null;
+let worldKey = ""; // the env with its settings (e.g. "WaterCannon · balls 2"): a chip in the bar
 
 /** a message from a worker: `role` "display" (also "single") or "trainer" */
 function onMessage(role, { data }) {
   const training = role === "trainer" || !TWO_WORKERS; // (the worker that trains)
+  if (data.type === "evaluate") {
+    // the trainer's request for a simulation helper: part k goes to the k-th ready one
+    readyHelpers()[data.part]?.postMessage(data);
+    return;
+  }
+  if (data.type === "log") return log(data.text); // (a notice: only in the Log tab)
+  if (data.type === "ready" && role === "trainer") {
+    // the simulation helpers start once the trainer is up (not competing with the page's
+    // start for the CPU); a restarted trainer: told how many are ready
+    if (helpers.length < wantedHelpers) setHelpers(wantedHelpers);
+    sendHelperCount();
+  }
   if (data.type === "progress") {
     // the trainer's own start: its own bars (no hourglass: the page is usable)
     const id = role === "trainer" && (data.id === "startup" || data.id === "core") ? `training worker ${data.id}` : data.id;
@@ -334,6 +417,9 @@ function onMessage(role, { data }) {
   } else if (data.type === "ready") {
     if (role !== "trainer" && Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
     if (role === "display" && lastSnapshot) toDisplay({ type: "snapshot", data: lastSnapshot });
+    // the first visit: a short tour, once the page is up (not in automated tests: they
+    // would click into it; ?tour=0 skips it too)
+    if (role !== "trainer" && !tourDone() && !navigator.webdriver && params.get("tour") !== "0") setTimeout(startTour, 1500);
     // the big packages in the training worker, in the background, a bit later: the
     // restore of the autosave goes first (the installs keep python busy)
     if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
@@ -348,7 +434,7 @@ function onMessage(role, { data }) {
       // the watched policy's network (weights + live activations), if there is one
       const net = data.state.network;
       document.getElementById("network-section").hidden = !net;
-      if (net) drawNetwork(document.getElementById("network"), net);
+      if (net && !document.getElementById("tab-policy").hidden) drawNetwork(document.getElementById("network"), net);
     }
     showState();
   } else if (!training) {
@@ -367,11 +453,6 @@ function onMessage(role, { data }) {
     }
   } else if (data.type === "checkpoint" || data.type === "delete_checkpoint") checkpoints.onMessage(data);
   else if (data.type === "code") showCode(data.code);
-  else if (data.type === "result" && execs.has(data.id)) {
-    execs.get(data.id)(data.value);
-    execs.delete(data.id);
-  }
-  else if (data.type === "compile_request") compileRequest(data);
   else if (data.type === "need_package") {
     // e.g. Train with PPO (pytorch) before pytorch is loaded: load it, then train
     status(`loading ${data.package} for this algorithm…`);
@@ -406,6 +487,11 @@ const checkpoints = setupPanel(toTraining);
 let freshWorker = true; // the training (or single) worker just started
 let keepStatusUntil = 0; // the crash notice is not cleared by the restarted worker before
 const TRAP = /RuntimeError: (unreachable|memory access out of bounds|null function|indirect call)|Aborted\(|out of memory/i;
+// the pyjs runtime (wasm), fetched and compiled once here for all workers (also the
+// restarted ones); undefined if that fails: then each worker compiles it itself
+const ARCH = pageArch(location.href);
+const runtime = (ARCH === "wasm64" ? compileWasm64 : compileWasm32)({ assetsUrl: new URL("pyjs/", location.href).href, cdnFallback: false })
+  .catch((e) => console.warn("pyjs runtime: not compiled in the page", e));
 
 /** a new worker with `role`: "display" / "single" (rendering into a new canvas) or
  * "trainer" (no canvas) */
@@ -423,7 +509,8 @@ function startWorker(role) {
   }
   if (role === "trainer") {
     trainer = w;
-    w.postMessage({ type: "init", canvas: null, base: location.href, role });
+    Promise.all([runtime, editedSources()]).then(([wasmModule, sources]) =>
+      w.postMessage({ type: "init", canvas: null, base: location.href, role, wasmModule, sources }));
     return;
   }
   const fresh = Object.assign(document.createElement("canvas"), { id: "canvas" });
@@ -431,8 +518,10 @@ function startWorker(role) {
   canvas = fresh;
   display = w;
   const offscreen = canvas.transferControlToOffscreen();
-  w.postMessage({ type: "init", canvas: offscreen, base: location.href, role }, [offscreen]);
-  resize();
+  Promise.all([runtime, editedSources()]).then(([wasmModule, sources]) => {
+    w.postMessage({ type: "init", canvas: offscreen, base: location.href, role, wasmModule, sources }, [offscreen]);
+    resize(); // (after the init: before it, the worker has no canvas to resize)
+  });
 }
 
 /** a worker crashed (`error`): restart it, unless it crashes too often */
@@ -494,87 +583,164 @@ document.addEventListener("click", (e) => {
   helpPopup.hidden = false;
 });
 
-// the panel's sections (accordion): which are open is remembered in this browser
-const SECTIONS = "webgym.sections";
-try {
-  const saved = JSON.parse(localStorage.getItem(SECTIONS) ?? "{}");
-  for (const [id, open] of Object.entries(saved)) {
-    const el = document.getElementById(id);
-    if (el) el.open = open;
-  }
-} catch {
-  // (no storage: the defaults)
-}
-for (const section of document.querySelectorAll("details.section")) {
-  section.addEventListener("toggle", () => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(SECTIONS) ?? "{}");
-      localStorage.setItem(SECTIONS, JSON.stringify({ ...saved, [section.id]: section.open }));
-    } catch {
-      // (not remembered)
-    }
-    if (section.open) showHistory(); // (the plots get their size back)
-  });
-}
-
-// the side panel's width: drag the resizer (remembered in this browser)
-const SIDE_WIDTH = "webgym.sideWidth";
-const setSideWidth = (px) => document.documentElement.style.setProperty("--side-width", `${px}px`);
-try {
-  const saved = Number(localStorage.getItem(SIDE_WIDTH));
-  if (saved) setSideWidth(saved);
-} catch {
-  // (no storage: the default width)
-}
-const resizer = document.getElementById("resizer");
-resizer.addEventListener("pointerdown", (e) => {
-  resizer.setPointerCapture(e.pointerId);
-  resizer.classList.add("dragging");
-});
-resizer.addEventListener("pointermove", (e) => {
-  if (!resizer.hasPointerCapture(e.pointerId)) return;
-  const width = Math.round(Math.min(Math.max(e.clientX, 260), window.innerWidth * 0.7));
-  setSideWidth(width);
+/** a remembered choice of this browser (localStorage; none: `fallback`) */
+function remembered(key, fallback) {
   try {
-    localStorage.setItem(SIDE_WIDTH, String(width));
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback; // (no storage)
+  }
+}
+function remember(key, value) {
+  try {
+    localStorage.setItem(key, value);
   } catch {
     // (not remembered)
   }
+}
+
+// the panel's tabs (World / Training / Policy / Log): the chosen one is remembered
+const TAB = "webgym.tab";
+function showTab(name) {
+  for (const button of document.querySelectorAll("#tabs button")) {
+    button.classList.toggle("active", button.dataset.tab === name);
+    document.getElementById(`tab-${button.dataset.tab}`).hidden = button.dataset.tab !== name;
+  }
+  remember(TAB, name);
+}
+for (const button of document.querySelectorAll("#tabs button")) button.onclick = () => showTab(button.dataset.tab);
+showTab(document.getElementById(`tab-${remembered(TAB, "world")}`) ? remembered(TAB, "world") : "world");
+
+// the training progress under the world: open / closed (remembered; small devices:
+// closed at first)
+const PLOT = "webgym.plot";
+const plotToggle = document.getElementById("plot-toggle");
+function showPlots(open) {
+  document.getElementById("plots").hidden = !open;
+  plotToggle.textContent = `${open ? "▾" : "▸"} Training progress`;
+  remember(PLOT, open ? "open" : "closed");
+  if (open) showHistory(); // (the plots get their size back)
+}
+plotToggle.onclick = () => showPlots(document.getElementById("plots").hidden);
+showPlots(remembered(PLOT, SMALL_DEVICE ? "closed" : "open") === "open");
+
+document.getElementById("tour-link").onclick = (e) => {
+  e.preventDefault();
+  startTour("quick");
+};
+document.getElementById("tour-detailed-link").onclick = (e) => {
+  e.preventDefault();
+  startTour("detailed");
+};
+
+// the right panel (python editor): closed by default, the button opens / closes it
+const codeToggle = document.getElementById("code-toggle");
+codeToggle.addEventListener("click", () => {
+  const panel = document.getElementById("code-panel");
+  panel.hidden = !panel.hidden;
+  document.getElementById("code-resizer").hidden = panel.hidden;
+  codeToggle.classList.toggle("open", !panel.hidden);
 });
-resizer.addEventListener("pointerup", () => resizer.classList.remove("dragging"));
+
+/** drag `resizer` to set the CSS width variable `name` (px; remembered in this browser);
+ * width(clientX) -> the panel's width at that pointer position */
+function resizable(resizer, name, width) {
+  const set = (px) => document.documentElement.style.setProperty(name, `${px}px`);
+  try {
+    const saved = Number(localStorage.getItem(`webgym${name}`));
+    if (saved) set(saved);
+  } catch {
+    // (no storage: the default width)
+  }
+  resizer.addEventListener("pointerdown", (e) => {
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add("dragging");
+  });
+  resizer.addEventListener("pointermove", (e) => {
+    if (!resizer.hasPointerCapture(e.pointerId)) return;
+    const px = Math.round(Math.min(Math.max(width(e.clientX), 260), window.innerWidth * 0.8));
+    set(px);
+    try {
+      localStorage.setItem(`webgym${name}`, String(px));
+    } catch {
+      // (not remembered)
+    }
+  });
+  resizer.addEventListener("pointerup", () => resizer.classList.remove("dragging"));
+}
+resizable(document.getElementById("resizer"), "--side-width", (x) => x); // (left panel)
+resizable(document.getElementById("code-resizer"), "--code-width", (x) => window.innerWidth - x); // (editor)
+// ---- simulation helpers: more workers that run episodes for the trainer -------------
+// (CEM / ES: each runs a share of the population in its own python + box2d, on another
+// CPU core; webgym/helpers.py). The slider: how many (remembered in this browser).
+const HELPERS = "webgym.helpers";
+const MAX_HELPERS = Math.max(0, (navigator.hardwareConcurrency || 2) - 2); // (the page + display + trainer)
+const helpers = []; // {worker, ready}
+let wantedHelpers = 0; // (the slider; started once the trainer is ready)
+const readyHelpers = () => helpers.filter((h) => h.ready).map((h) => h.worker);
+/** the trainer splits its population over the ready helpers */
+const sendHelperCount = () => trainer?.postMessage({ type: "command", name: "helpers", value: readyHelpers().length });
+
+function startHelper() {
+  const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  const helper = { worker, ready: false };
+  helpers.push(helper);
+  worker.onmessage = ({ data }) => {
+    if (data.type === "ready") {
+      helper.ready = true;
+      sendHelperCount();
+    } else if (data.type === "evaluated") trainer?.postMessage(data);
+    else if (data.type === "error") status(`error (simulation worker): ${data.error}`, true);
+    else if (data.type === "fatal") {
+      console.error("a simulation worker crashed:", data.error);
+      stopHelper(helper); // (the trainer goes on without it)
+    }
+  };
+  Promise.all([runtime, editedSources()]).then(([wasmModule, sources]) =>
+    worker.postMessage({ type: "init", canvas: null, base: location.href, role: "helper", wasmModule, sources }));
+}
+
+function stopHelper(helper) {
+  helper.worker.terminate();
+  helpers.splice(helpers.indexOf(helper), 1);
+  if (helper.ready) sendHelperCount();
+}
+
+/** run `n` simulation helpers */
+function setHelpers(n) {
+  wantedHelpers = n;
+  while (helpers.length < n) startHelper();
+  while (helpers.length > n) stopHelper(helpers.at(-1));
+  document.getElementById("helpers-value").textContent = String(n);
+}
+
 startWorker(TWO_WORKERS ? "display" : "single");
 if (TWO_WORKERS) startWorker("trainer");
+if (TWO_WORKERS && MAX_HELPERS > 0) {
+  // (one worker on small devices: no helpers either)
+  const slider = document.getElementById("helpers");
+  let saved = null;
+  try {
+    saved = localStorage.getItem(HELPERS);
+  } catch {
+    // (no storage: the default)
+  }
+  slider.max = String(MAX_HELPERS);
+  slider.value = params.get("helpers") ?? saved ?? String(Math.min(MAX_HELPERS, Math.floor(MAX_HELPERS / 2)));
+  slider.oninput = () => {
+    setHelpers(Number(slider.value));
+    try {
+      localStorage.setItem(HELPERS, slider.value);
+    } catch {
+      // (not remembered)
+    }
+  };
+  document.getElementById("helpers-control").hidden = false;
+  wantedHelpers = Number(slider.value); // (started when the trainer is ready)
+  document.getElementById("helpers-value").textContent = slider.value;
+}
 // for test_page.py: a real wasm trap in the worker (checks the restart)
 window.webgymCrashTest = () => toDisplay({ type: "command", name: "__crash__" });
-// for experiments (web/compile_test.py): python in the training worker (with jax, once
-// loaded) -> the value of the last expression (a string)
-const execs = new Map();
-window.webgymExec = (code) =>
-  new Promise((resolve) => {
-    const id = execs.size + Math.random();
-    execs.set(id, resolve);
-    toTraining({ type: "exec", id, code });
-  });
-// for the reproducers (web/repro_test.py): python in / an install into the compile worker
-window.webgymCompilerExec = async (code) => (await compileWorker()).exec(code);
-window.webgymCompilerInstall = async (packages, check) => (await compileWorker()).install(packages, check);
-// a fresh compile worker (compiler options are global: per process)
-window.webgymCompilerReset = async () => {
-  if (compiler) (await compiler).terminate();
-  compiler = null;
-  return "compile worker reset";
-};
-// for compile experiments (web/compile_test.py): StableHLO -> WebGPU in the compile
-// worker -> "ok <bytes>" or the error
-window.webgymCompileTest = async (mlir) => {
-  try {
-    const { exec } = await compileWorker();
-    const data = await exec(`from webgym import gpu\ngpu.compile_b64(${JSON.stringify(mlir)})`);
-    return `ok ${Math.round((data.length * 3) / 4)} bytes`;
-  } catch (e) {
-    return `error ${String(e?.message ?? e).split("\n")[0]}`;
-  }
-};
 
 // pointer input -> display worker (drawing-buffer px): drag bodies, pan, wheel zoom.
 // The listeners are on the stage: they survive the canvas being replaced on a restart
@@ -612,14 +778,11 @@ stage.addEventListener(
   { passive: false },
 );
 
-// The big packages, always loaded in the background after the start (from the
-// worker's package cache after the first visit), one after the other; each is
-// checked once loaded (the result shows in the packages panel). "webgpu": IREE (jax ->
-// WebGPU), checked with a small benchmark on the GPU (webgym/gpu.py)
+// The big package groups (pinned in config.json by build_page.py), loaded in the
+// background after the start (from pyjs' package cache after the first visit); each
+// is checked once loaded (the result shows in the packages panel)
 const PACKAGES = {
-  pytorch: {
-    packages: ["pytorch"],
-    check: `
+  pytorch: `
 import time, torch
 torch.autograd.set_multithreading_enabled(False)
 t = time.perf_counter()
@@ -627,92 +790,14 @@ loss = torch.nn.Linear(8, 2)(torch.randn(64, 8)).pow(2).mean()
 loss.backward()
 f"torch {torch.__version__}, fwd+bwd {1e3 * (time.perf_counter() - t):.1f} ms"
 `,
-  },
-  jax: {
-    packages: ["jax"],
-    check: `
-import time, jax, jax.numpy as jnp
-t = time.perf_counter()
-jax.jit(jax.grad(lambda w: (w ** 2).sum()))(jnp.ones(8)).block_until_ready()
-f"jax {jax.__version__}, jit+grad {1e3 * (time.perf_counter() - t):.1f} ms"
-`,
-  },
-  webgpu: {
-    // (the compiler runs in the compile worker, see below)
-    packages: ["iree-base-runtime"],
-    check: "from webgym import gpu\nawait gpu.probe()",
-  },
 };
-
-// ---- the compile worker: IREE's compiler (StableHLO -> WebGPU) -----------------------
-// jaxlib and the IREE compiler both bring MLIR python bindings, which abort python when
-// loaded into one process: the compiler lives in its own compute-only worker, started
-// on the first compile request (python start + 29 MB compiler, cached after that)
-let compiler = null;
-
-/** the compile worker: {exec(code) -> value}; resolves when the compiler is loaded */
-function compileWorker() {
-  compiler ??= new Promise((resolve, reject) => {
-    const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-    const pending = new Map();
-    const installs = []; // (web/repro_test.py) waiting for an extra install
-    const install = (packages, check) =>
-      new Promise((res) => {
-        installs.push(res);
-        w.postMessage({ type: "install", name: "extra", packages, check });
-      });
-    let nextId = 0;
-    const exec = (code) =>
-      new Promise((res, rej) => {
-        const id = nextId++;
-        pending.set(id, { res, rej });
-        w.postMessage({ type: "exec", id, code });
-      });
-    w.onmessage = ({ data }) => {
-      if (data.type === "progress") {
-        // its own bars would mix with the main worker's: one "compiler" entry
-        showProgress({ ...data, id: "compiler", phase: `${data.id}: ${data.phase}` });
-        if (data.id === "startup" && data.phase === "done")
-          w.postMessage({ type: "install", name: "compiler", packages: ["iree-base-compiler"], check: "'ok'" });
-      } else if (data.type === "installed") {
-        showProgress({ id: "compiler", phase: "done" });
-        if (installs.length) installs.shift()(data.result);
-        else resolve({ exec, install, terminate: () => w.terminate() });
-      } else if (data.type === "result") pending.get(data.id).res(data.value);
-      else if (data.type === "error" || data.type === "fatal") {
-        for (const p of pending.values()) p.rej(new Error(data.error));
-        pending.clear();
-        for (const res of installs.splice(0)) res(`${data.type}: ${data.error}`);
-        reject(new Error(data.error));
-        // a crashed compiler (wasm trap) is unusable: the next request starts a new one
-        if (data.type === "fatal") {
-          w.terminate();
-          compiler = null;
-        }
-      }
-    };
-    w.postMessage({ type: "init", canvas: null, base: location.href });
-  });
-  return compiler;
-}
-
-/** a compile request of the main worker: StableHLO -> IREE module for WebGPU (base64) */
-async function compileRequest({ id, mlir }) {
-  try {
-    const { exec } = await compileWorker();
-    const data = await exec(`from webgym import gpu\ngpu.compile_b64(${JSON.stringify(mlir)})`);
-    toTraining({ type: "compile_result", id, data });
-  } catch (e) {
-    toTraining({ type: "compile_result", id, error: String(e?.message ?? e) });
-  }
-}
 
 /** load a package group in the worker once (installs run one after the other); not
  * one that crashed python (wasm trap) while it was loading / checked: no crash loop */
 function loadPackage(name) {
   if (requested.has(name) || brokenPackages.has(name)) return;
   requested.add(name);
-  toTraining({ type: "install", name, packages: PACKAGES[name].packages, check: PACKAGES[name].check });
+  toTraining({ type: "install", name, check: PACKAGES[name] });
 }
 
 /** the result of a package's check, in the packages panel */

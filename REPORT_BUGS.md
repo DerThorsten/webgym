@@ -1,5 +1,7 @@
 # Bugs found in the browser stack (jax / IREE / WebGPU / pytorch on emscripten-forge)
 
+> **Note (2026-11-18):** webgym has since dropped jax and the GPU path; it now uses pytorch only, on pyjs 5. The jax/GPU code and the reproducer scripts named below are in commit `bb4c07a`.
+
 This file covers bugs found while building webgym. The environment:
 - pyjs npm 4.4.1 (Python 3.14, wasm32), with packages from emscripten-forge.
 - Chrome (headless chromium with swiftshader, and desktop).

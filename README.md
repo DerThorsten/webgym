@@ -12,4 +12,4 @@ pixi run web-build                 # static page in web/dist
 pixi run -e web-test web-test      # the page in headless chromium
 ```
 
-See [PLAN.md](PLAN.md) for the design and the milestones.
+See [CLAUDE.md](CLAUDE.md) for how it is built (envs, algorithms, the browser setup).

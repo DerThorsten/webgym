@@ -4,23 +4,73 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>webgym</title>
+    <!-- the lander, firing its main engine -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23333'/%3E%3Cpath d='M16 21 l-4 9 h8z' fill='%23FFA040'/%3E%3Cpath d='M6 19 L26 19 L22 7 L10 7z' fill='%23E06C6C' stroke='%23FFB0B0' stroke-width='1.2'/%3E%3Cpath d='M8 19 L4 27 M24 19 L28 27' stroke='%23E06C6C' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
     <style>
       html, body { margin: 0; height: 100%; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
-      #app { display: flex; height: 100dvh; }
-      #side { width: var(--side-width, 380px); flex: none; padding: 12px; box-sizing: border-box; overflow: auto; background: #1b1b1b; }
+      body { display: flex; flex-direction: column; height: 100dvh; }
+      /* the top bar: always in view */
+      #top { flex: none; background: #1b1b1b; border-bottom: 1px solid #2a2a2a; }
+      #bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 6px 12px; }
+      #logo { font-weight: 700; font-size: 16px; margin-right: 4px; }
+      /* (the packages' source: emscripten-forge) */
+      #bar a#forge { display: flex; align-items: center; gap: 6px; padding: 2px 10px 2px 3px; border: 1px solid #3c4253;
+                     border-radius: 14px; background: #20242e; color: #bbb; font-size: 12px; text-decoration: none; }
+      #bar a#forge:hover { border-color: #ff6d42; color: #fff; }
+      #bar a#forge b { color: #ff8d62; font-weight: 600; }
+      #forge span { display: flex; flex-direction: column; line-height: 1.05; }
+      #forge small { font-size: 9px; color: #999; }
+      #forge, #github-link, #tour-link, #tour-detailed-link, #help-link, #about-link { white-space: nowrap; flex: none; }
+      #forge img { height: 22px; width: 22px; border-radius: 4px; }
+      #github-link { display: flex; color: #bbb; }
+      #github-link:hover { color: #fff; }
+      #controls-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+      #controls-bar .control { display: flex; align-items: center; gap: 6px; margin: 0; }
+      #controls-bar .control label { display: inline; font-size: 12px; }
+      #controls-bar .control:not(.checkbox) label > span:last-child { display: none; }
+      #controls-bar .control select { width: auto; }
+      #controls-bar button { margin: 0 4px 0 0; }
+      #controls-bar .control.inline { margin: 0; }
+      #controls-bar .hint { margin: 0; }
+      #controls-bar .hint:not(.active) { display: none; }  /* (the keys: only while you play) */
+      #chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: #262626; color: #bbb; white-space: nowrap; }
+      .chip b { color: #fff; font-weight: 600; }
+      .chip.running { background: #1f4d2c; color: #cfe; }
+      .chip.world { background: #22324a; }
+      .spacer { flex: 1; }
+      #bar a { color: #6a9fd8; font-size: 13px; text-decoration: none; }
+      #bar a:hover { text-decoration: underline; }
+      #bars { padding: 0 12px; }
+      #bars:empty { display: none; }
+      #status:empty { display: none; }
+      #status { padding: 4px 12px 6px; }
+      #app { display: flex; flex: 1; min-height: 0; }
+      #side { width: var(--side-width, 340px); flex: none; display: flex; flex-direction: column; box-sizing: border-box; background: #1b1b1b; }
+      /* the panel's tabs */
+      #tabs { display: flex; flex: none; border-bottom: 1px solid #2a2a2a; }
+      #tabs button { flex: 1; margin: 0; padding: 8px 0; background: none; color: #999; border: 0;
+                     border-bottom: 2px solid transparent; font: inherit; font-size: 13px; cursor: pointer; }
+      #tabs button:hover { color: #ddd; }
+      #tabs button.active { color: #fff; border-bottom-color: #2f6fd6; }
+      .tab { flex: 1; overflow: auto; padding: 4px 12px 12px; }
+      .tab[hidden] { display: none; }
       /* drag to resize the side panel */
-      #resizer { width: 6px; flex: none; cursor: col-resize; background: #222; touch-action: none; }
-      #resizer:hover, #resizer.dragging { background: #2f6fd6; }
-      #stage { flex: 1; position: relative; min-width: 0; }
+      .resizer { width: 6px; flex: none; cursor: col-resize; background: #222; touch-action: none; }
+      .resizer:hover, .resizer.dragging { background: #2f6fd6; }
+      .resizer[hidden] { display: none; }
+      #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      #stage { flex: 1; position: relative; min-height: 0; }
       #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
-      h3 { margin: 0 0 8px; }
+      /* the training progress under the world */
+      #plot-strip { flex: none; background: #1b1b1b; border-top: 1px solid #2a2a2a; padding: 2px 12px 6px; }
+      #plot-toggle { margin: 2px 0; padding: 0; background: none; border: 0; color: #999; font-size: 12px; cursor: pointer; }
+      #plot-toggle:hover { color: #ddd; }
+      #plots { display: flex; gap: 16px; }
+      #plots[hidden] { display: none; }
+      #plots #plot { flex: 2; min-width: 0; height: 130px; }
+      #plots #loss-plot { flex: 1; min-width: 0; height: 130px; margin: 0; }
       h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; color: #888; }
-      /* accordion sections */
-      details.section { border-top: 1px solid #2a2a2a; padding: 6px 0; }
-      details.section > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; color: #999;
-                                  padding: 4px 0; user-select: none; }
-      details.section > summary:hover { color: #ddd; }
-      details.section[hidden] { display: none; }
       .bar { margin: 8px 0; }
       .bar label { display: flex; justify-content: space-between; font-size: 12px; color: #aaa; }
       .bar progress { width: 100%; }
@@ -29,19 +79,20 @@
       .control select, .control input { width: 100%; }
       .control.checkbox label { justify-content: flex-start; gap: 6px; align-items: center; }
       .control.checkbox input { width: auto; margin: 0; }
-      .info { font-size: 12px; color: #999; white-space: pre-wrap; margin: 6px 0 10px; }
-      .info summary { cursor: pointer; color: #bbb; white-space: normal; }
+      .control.inline { display: inline-block; margin-right: 18px; }
+      .control[hidden] { display: none; }
+      .info { font-size: 12px; line-height: 1.45; color: #aaa; white-space: pre-wrap; margin: 8px 0 10px; }
+      .info b { color: #eee; font-size: 13px; }
       .hint { font-size: 12px; color: #999; margin: -4px 0 8px; }
       .hint.active { color: #fff; background: #2f6fd6; padding: 6px 8px; border-radius: 3px; margin: 0 0 8px; }
       button { margin: 4px 4px 0 0; padding: 4px 10px; }
       button.primary { background: #2f6fd6; color: #fff; border: 0; border-radius: 3px; }
-      #plot, #loss-plot { width: 100%; height: 160px; display: block; --grid: #444; color: #aaa; }
-      #loss-plot { height: 110px; margin-top: 6px; }
+      #plot, #loss-plot { width: 100%; display: block; --grid: #444; color: #aaa; }
       #network { width: 100%; aspect-ratio: 4 / 3; display: block; color: #aaa; }  /* grows with the panel */
       #network-section[hidden] { display: none; }
       #loss-plot[hidden] { display: none; }
-      details.group { margin: 8px 0; padding: 4px 8px; background: #222; border-radius: 3px; }
-      details.group summary { cursor: pointer; font-size: 12px; color: #bbb; }
+      .group { margin: 8px 0; padding: 4px 8px; background: #222; border-radius: 3px; }
+      .group-title { font-size: 12px; color: #bbb; }
       #state { font: 12px monospace; color: #8c8; white-space: pre; }
       #score { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); pointer-events: none;
                background: rgba(0, 0, 0, 0.6); color: #fff; padding: 10px 18px; border-radius: 6px; text-align: center; }
@@ -55,7 +106,13 @@
       .code-bar select { flex: 1; }
       .code-bar button { margin: 0; }
       #code-path { font: 11px monospace; color: #888; margin: 4px 0; }
-      #code { height: 450px; resize: vertical; overflow: hidden; border: 1px solid #333; font-size: 12px; }
+      #code-panel { width: var(--code-width, 55vw); flex: none; display: flex; flex-direction: column; padding: 12px;
+                    box-sizing: border-box; background: #1b1b1b; }
+      #code-panel[hidden] { display: none; }
+      #code-panel h4 { margin-top: 0; }
+      #code-toggle { margin: 0; }
+      #code-toggle.open { background: #2f6fd6; color: #fff; border: 0; border-radius: 3px; }
+      #code { flex: 1; min-height: 0; overflow: hidden; border: 1px solid #333; font-size: 12px; }
       #code .cm-editor { height: 100%; }
       #log { margin-top: 6px; max-height: 200px; overflow: auto; }
       .log { font: 11px monospace; color: #888; padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -75,62 +132,108 @@
       .ckpt > div { flex: 1; min-width: 0; color: #ddd; overflow: hidden; text-overflow: ellipsis; }
       .ckpt .meta { color: #888; font-size: 11px; }
       .ckpt button { margin: 0; padding: 2px 6px; font-size: 11px; }
-      #status.error { color: #f66; white-space: pre-wrap; font: 11px monospace; }
+      #status.error { color: #f66; white-space: pre-wrap; font: 11px monospace; max-height: 30vh; overflow: auto; }
+      /* the first-visit tour (tour.js): the page dimmed around a frame, a caption */
+      #tour-frame { position: fixed; z-index: 20; border: 2px solid #4fa3ff; border-radius: 6px; pointer-events: none;
+                    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6); transition: all 0.25s; }
+      #tour-card { position: fixed; z-index: 21; width: 280px; background: #2a2f38; color: #eee; border: 1px solid #4a6fa5;
+                   border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.45;
+                   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6); }
+      #tour-card .step { font-size: 11px; color: #999; margin-bottom: 4px; }
+      #tour-card .buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+      #tour-card button { margin: 0; }
     </style>
   </head>
   <body>
+    <!-- the top bar: always in view (the env, Train, the live numbers) -->
+    <div id="top">
+      <div id="bar">
+        <span id="logo">webgym</span>
+        <div id="controls-bar"></div>
+        <div id="chips"></div>
+        <span class="spacer"></span>
+        <button id="code-toggle" title="The python code of the environment / algorithm (editor)">&lt;/&gt; Code</button>
+        <a id="tour-link" href="#" title="A short tour of the page">Tour</a>
+        <a id="tour-detailed-link" href="#" title="A tour of every control of the page">Detailed tour</a>
+        <a id="help-link" href="help.html" target="_blank" title="What is what: the help page">Help</a>
+        <a id="about-link" href="help.html#about" target="_blank" title="What this is, why, and who made it possible">About</a>
+        <a id="github-link" href="https://github.com/DerThorsten/webgym" target="_blank" rel="noopener" title="webgym on GitHub">
+          <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-label="GitHub"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+        <a id="forge" href="https://emscripten-forge.org" target="_blank" rel="noopener"
+           title="python, numpy, box2d (pyb2d3) and pytorch, compiled to WebAssembly: all packages of this page come from emscripten-forge">
+          <img src="emscripten-forge.svg" alt="" /><span><small>powered by</small><b>emscripten-forge</b></span></a>
+      </div>
+      <div id="bars"></div>
+      <div id="status"></div>
+    </div>
     <div id="app">
+      <!-- the left panel: tabs (the chosen one is remembered) -->
       <div id="side">
-        <h3>webgym</h3>
-        <div id="bars"></div>
-        <p id="status"></p>
-        <!-- the sections: click a title to close / open it (remembered) -->
-        <details class="section" id="sec-environment" open>
-          <summary>Environment</summary>
+        <div id="tabs">
+          <button data-tab="world">World</button>
+          <button data-tab="training">Training</button>
+          <button data-tab="policy">Policy</button>
+          <button data-tab="log">Log</button>
+        </div>
+        <div class="tab" id="tab-world">
           <div class="controls" id="controls-environment"></div>
-        </details>
-        <details class="section" id="sec-training-settings" open>
-          <summary>Training settings</summary>
+        </div>
+        <div class="tab" id="tab-training" hidden>
           <div class="controls" id="controls-training"></div>
-        </details>
-        <details class="section" id="sec-code">
-          <summary>Code (python editor) <span class="help" data-help="The python source of the environment and of the algorithm, running in your browser. Edit it and press Apply: the file is reloaded (an edited environment starts a new run, an edited algorithm takes over a running training). Reload the page to get the original back." title="Edit the python source of the environment / algorithm, then Apply">ⓘ</span></summary>
-          <div class="code-bar">
-            <select id="code-kind"><option value="env">environment</option><option value="algo">algorithm</option></select>
-            <button id="code-open" title="Open a .py file of this machine (then Apply it)">Open…</button>
-            <button id="code-save" title="Save the code to a file of this machine">Save…</button>
-            <button id="code-apply" class="primary" title="Run the edited code (Ctrl/Cmd+Enter)">Apply</button>
+          <!-- (the page's own setting: more workers that run episodes, see main.js) -->
+          <div class="control" id="helpers-control" hidden>
+            <label><span data-help="More workers (each its own python and box2d, on another CPU core) run a share of the population's episodes: CEM and ES train faster. Each costs memory (~150 MB); more than your CPU cores don't help. Remembered in this browser.">Simulation workers <span class="help">ⓘ</span></span><span id="helpers-value"></span></label>
+            <input type="range" id="helpers" min="0" step="1" />
           </div>
-          <div id="code-path"></div>
-          <div id="code"></div>
-        </details>
-        <details class="section" id="sec-training" open>
-          <summary>Training progress</summary>
-          <canvas id="plot"></canvas>
-          <canvas id="loss-plot" hidden></canvas>
-          <div id="state"></div>
-        </details>
-        <details class="section" id="network-section" open hidden>
-          <summary>Network <span class="help" data-help="The watched policy's neural network: neurons colored by their current activation (orange positive, blue negative), connections by their weight. Inputs left (with what the network sees), actions right." title="The watched policy's neural network: neurons colored by their current activation (orange positive, blue negative), connections by their weight. Inputs left (with what the network sees), actions right.">ⓘ</span></summary>
-          <canvas id="network"></canvas>
-        </details>
-        <details class="section" id="sec-checkpoints" open>
-          <summary>Checkpoints</summary>
+        </div>
+        <div class="tab" id="tab-policy" hidden>
+          <div id="network-section" hidden>
+            <h4>Network <span class="help" data-help="The watched policy's neural network: neurons colored by their current activation (orange positive, blue negative), connections by their weight. Inputs left (with what the network sees), actions right." title="The watched policy's neural network">ⓘ</span></h4>
+            <canvas id="network"></canvas>
+          </div>
+          <h4>Checkpoints</h4>
           <div class="ckpt-save">
             <input id="ckpt-name" placeholder="name for a checkpoint" />
             <button id="ckpt-save">Save</button>
           </div>
           <div id="ckpt-list"></div>
-        </details>
-        <details class="section" id="sec-packages">
-          <summary>Packages &amp; log</summary>
+        </div>
+        <div class="tab" id="tab-log" hidden>
+          <h4>State</h4>
+          <div id="state"></div>
+          <h4>Packages</h4>
           <div id="package-bars"></div>
           <div id="packages"></div>
+          <h4>Log</h4>
           <div id="log"></div>
-        </details>
+        </div>
       </div>
-      <div id="resizer" title="drag to resize the panel"></div>
-      <div id="stage"><canvas id="canvas"></canvas><div id="score" hidden></div><div id="busy" hidden></div></div>
+      <div id="resizer" class="resizer" title="drag to resize the panel"></div>
+      <div id="main">
+        <div id="stage"><canvas id="canvas"></canvas><div id="score" hidden></div><div id="busy" hidden></div></div>
+        <!-- the training progress under the world: always in view (can be closed) -->
+        <div id="plot-strip">
+          <button id="plot-toggle" title="Show / hide the training progress">▾ Training progress</button>
+          <div id="plots">
+            <canvas id="plot"></canvas>
+            <canvas id="loss-plot" hidden></canvas>
+          </div>
+        </div>
+      </div>
+      <!-- the right panel: the python editor (closed by default) -->
+      <div id="code-resizer" class="resizer" title="drag to resize the editor" hidden></div>
+      <div id="code-panel" hidden>
+        <h4>Python code <span class="help" data-help="The python source of the environment and of the algorithm, running in your browser. Edit it and press Apply: the file is reloaded (an edited environment starts a new run, an edited algorithm takes over a running training). Reload the page to get the original back." title="Edit the python source of the environment / algorithm, then Apply">ⓘ</span></h4>
+        <div class="code-bar">
+          <select id="code-kind"><option value="env">environment</option><option value="algo">algorithm</option></select>
+          <button id="code-open" title="Open a .py file of this machine (then Apply it)">Open…</button>
+          <button id="code-save" title="Save the code to a file of this machine">Save…</button>
+          <button id="code-revert" title="Back to the original code (forgets your edit, reloads the page)" disabled>Revert</button>
+          <button id="code-apply" class="primary" title="Run the edited code (Ctrl/Cmd+Enter)">Apply</button>
+        </div>
+        <div id="code-path"></div>
+        <div id="code"></div>
+      </div>
     </div>
     <script type="module" src="./main.js"></script>
   </body>

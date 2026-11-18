@@ -4,7 +4,7 @@ weights along the return-weighted noise (rank-shaped returns, Adam)."""
 
 import numpy as np
 
-from webgym.algos.cem import TOP, rollout
+from webgym.algos.cem import TOP, population, rollout
 
 
 def ranks(returns):
@@ -14,23 +14,22 @@ def ranks(returns):
     return r / max(len(returns) - 1, 1) - 0.5
 
 
-def train(env, policy, iterations=1000, sigma=0.1, lr=0.03, seed=0, state=None, forward=None):
-    """ES over the flat parameters of `policy`; population = env.n (pairs of mirrored
-    candidates, an odd last agent runs the current weights). `forward(params, obs)`:
-    the batched policy (default: the numpy MLP; es_jax passes a jitted one).
+def train(env, policy, iterations=1000, sigma=0.1, lr=0.03, seed=0, state=None):
+    """ES over the flat parameters of `policy`; population: population(env) (pairs of
+    mirrored candidates, an odd last one runs the current weights).
     Yields None per env step, stats per iteration; `state` resumes."""
-    forward = forward or policy
     rng = np.random.default_rng(seed)
     p = policy.num_params
     if state is None:
         state = {"iteration": 0, "theta": np.zeros(p), "m": np.zeros(p), "v": np.zeros(p)}
     theta, m, v, start = state["theta"], state["m"], state["v"], state["iteration"]
-    half = env.n // 2
+    n = population(env)
+    half = n // 2
     for iteration in range(start, start + iterations):
         eps = rng.standard_normal((half, p))
         noise = np.concatenate([eps, -eps])
-        params = np.concatenate([theta + sigma * noise, theta[None].repeat(env.n - 2 * half, 0)])
-        returns = yield from rollout(env, forward, params, seed=int(rng.integers(1 << 30)))
+        params = np.concatenate([theta + sigma * noise, theta[None].repeat(n - 2 * half, 0)])
+        returns = yield from rollout(env, policy, params, seed=int(rng.integers(1 << 30)))
         grad = ranks(returns[: 2 * half]) @ noise / (2 * half * sigma)
         # Adam (ascent)
         t = iteration + 1

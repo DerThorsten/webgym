@@ -3,13 +3,14 @@
 import numpy as np
 
 
-def policy_for(env, discrete=False, hidden=16):
-    """the MLP an algorithm trains for `env`: actions (tanh output) or, `discrete`, one
-    Q-value per discrete action (linear output)"""
+def policy_for(env, discrete=False, hidden=16, layers=1):
+    """the MLP an algorithm trains for `env`: `layers` hidden layers of `hidden` neurons;
+    actions (tanh output) or, `discrete`, one Q-value per discrete action (linear output)"""
     obs_dim = env.observation_space.shape[0]
+    sizes = (int(hidden),) * int(layers)
     if discrete:
-        return MLP(obs_dim, len(env.discrete_actions), hidden=(int(hidden),), tanh_out=False)
-    return MLP(obs_dim, env.action_space.shape[0], hidden=(int(hidden),))
+        return MLP(obs_dim, len(env.discrete_actions), hidden=sizes, tanh_out=False)
+    return MLP(obs_dim, env.action_space.shape[0], hidden=sizes)
 
 
 class MLP:

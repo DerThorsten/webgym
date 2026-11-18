@@ -20,7 +20,11 @@ import traceback
 
 import pyjs
 
+from webgym import helpers
+from webgym.algos import ALGOS
 from webgym.app import App, NeedPackage
+from webgym.core import ENVS
+from webgym.helpers import Pool
 
 AUTOSAVE = "autosave"  # the name of the automatic checkpoint (one per env + algo)
 AUTOSAVE_SECONDS = 2.0  # while training: at most this often
@@ -87,21 +91,31 @@ class WebHost:
         "role" ("single" / "display" / "trainer")"""
         self.role = options.get("role", "single")
         kwargs = {k: options[k] for k in ("env", "algo") if k in options}
+        # (an env / algorithm the URL names, but webgym no longer has (renamed, removed):
+        # the default, with a note in the log)
+        for k, known in (("env", ENVS), ("algo", ALGOS)):
+            if k in kwargs and kwargs[k] not in known:
+                post({"type": "log", "text": f"no {k} {kwargs.pop(k)!r} (any more): the default instead"})
         kwargs.update({k: int(options[k]) for k in ("population", "seed") if k in options})
-        self.app = App(**kwargs)
+        # (the training worker draws nothing: no decoration, no particles; it can have
+        # simulation helpers: more workers, see webgym/helpers.py)
+        self.pool = Pool(post) if self.role == "trainer" else None
+        self.app = App(**kwargs, draws=self.role != "trainer", helpers=self.pool)
         self.frames = 0
         self.history_sent = 0  # entries of app.history already sent to the page
         self.autosaved_at = 0.0  # time.monotonic() of the last autosave
         self.snapshot_at = 0.0  # trainer: time.monotonic() of the last snapshot
         self.state_at = 0.0  # trainer: ... of the last state message
         self.code_sent = None  # (env, algo) whose source the page has (Code section)
+        self.frame_error = None  # the last error of a frame (reported once)
         # worker.js forwards the page's pointer events / widget changes / checkpoints
         # to restore / snapshots of the trainer's policy to these
-        functions = (self.event, self.command, self.restore, self.snapshot)
+        functions = (self.event, self.command, self.restore, self.snapshot, self.evaluated)
         self._callables = [pyjs.create_callable(f) for f in functions]
         pyjs.js.Function(
-            "e", "c", "r", "s",
-            "self.webgymEvent = e; self.webgymCommand = c; self.webgymRestore = r; self.webgymSnapshot = s",
+            "e", "c", "r", "s", "v",
+            "self.webgymEvent = e; self.webgymCommand = c; self.webgymRestore = r; self.webgymSnapshot = s; "
+            "self.webgymEvaluated = v",
         )(*(js for js, _ in self._callables))
         self.send_controls()
         if self.role == "trainer":
@@ -131,7 +145,12 @@ class WebHost:
                 post({"type": "error", "error": traceback.format_exc()})
                 self.app.stop()
                 self.send_controls()
-            await asyncio.sleep(0 if self.app.training else 0.05)
+            await asyncio.sleep(0.002 if self.app.waiting else 0 if self.app.training else 0.05)
+
+    def evaluated(self, text):
+        """a simulation helper's returns (JSON, see helpers.Pool.receive)"""
+        if self.pool is not None:
+            self.pool.receive(json.loads(str(text)))
 
     def send_snapshot(self):
         """the current policy (a checkpoint) for the display worker"""
@@ -182,7 +201,7 @@ class WebHost:
         post({
             "type": "checkpoint",
             "name": name,
-            "env": app.env_name,
+            "env": app.env_key,  # (the env with its settings: checkpoints are kept per setting)
             "algo": app.algo,
             "iteration": last.get("iteration", 0),
             "mean_return": last.get("mean_return"),
@@ -202,6 +221,10 @@ class WebHost:
             self.send_controls()
             if self.role == "trainer":
                 self.send_snapshot()
+        except ValueError as e:
+            # (expected: e.g. an autosave of an older version of the env: a line in the
+            # log, the page goes on with a new run)
+            post({"type": "log", "text": str(e)})
         except Exception:
             post({"type": "error", "error": traceback.format_exc()})
 
@@ -215,7 +238,10 @@ class WebHost:
             if self.frames % 15 == 0:
                 post({"type": "state", "state": self.app.state()})
         except Exception:
-            post({"type": "error", "error": traceback.format_exc()})
+            error = traceback.format_exc()
+            if error != self.frame_error:  # (the same error every frame: reported once)
+                post({"type": "error", "error": error})
+                self.frame_error = error
             self.app.watch()
         return True
 
@@ -242,10 +268,11 @@ class WebHost:
             if name == "stop" or (training and not self.app.training):
                 self.autosave()
             if name == "new_run":  # the run is gone: so is its autosave
-                post({"type": "delete_checkpoint", "name": AUTOSAVE, "env": self.app.env_name,
+                post({"type": "delete_checkpoint", "name": AUTOSAVE, "env": self.app.env_key,
                       "algo": self.app.algo})
             self.send_controls()
-            if self.role == "trainer" and name in ("env", "algo", "new_run", "stop", "train"):
+            if self.role == "trainer" and (name in ("env", "algo", "new_run", "stop", "train")
+                                           or name.startswith("setting.")):
                 self.send_snapshot()  # (the display shows the current policy / env)
         except Exception:
             post({"type": "error", "error": traceback.format_exc()})
@@ -259,9 +286,26 @@ class WebHost:
             post({"type": "error", "error": traceback.format_exc()})
 
 
+class HelperHost:
+    """a simulation helper (role "helper"): runs chunks of the trainer's population
+    (helpers.evaluate), nothing else"""
+
+    def __init__(self):
+        self._callable = pyjs.create_callable(self.evaluate)
+        pyjs.js.Function("v", "self.webgymEvaluate = v")(self._callable[0])
+
+    def evaluate(self, text):
+        """a request (JSON) -> its answer to the page"""
+        try:
+            post(helpers.evaluate(json.loads(str(text))))
+        except Exception:
+            post({"type": "error", "error": traceback.format_exc()})
+
+
 def start():
     """start the host with the page's options (worker.js: self.webgymOptions, JSON);
     returns it (keep it alive in a global)"""
-    host = WebHost(json.loads(str(pyjs.js.self.webgymOptions)))
+    options = json.loads(str(pyjs.js.self.webgymOptions))
+    host = HelperHost() if options.get("role") == "helper" else WebHost(options)
     post({"type": "ready"})
     return host

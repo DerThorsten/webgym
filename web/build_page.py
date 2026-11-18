@@ -1,37 +1,32 @@
-"""Pack the python side of the page into web/public: per architecture (wasm32, wasm64)
-one `core-<arch>-<hash>.tar.gz` (numpy, openblas, pyopengl, pyb2d3 from emscripten-forge
-+ the webgym sources at /app) and config.json naming them ({arch: {"archives": [...]}}).
-No package install (mamba) in the browser for the core.
+"""Prepare the python side of the page in web/public:
 
-pytorch / jax are NOT packed (too big for the deployment): the worker fetches them
-from the channel at runtime.
+* the packages, pinned per architecture (wasm32, wasm64) with pyjs' lock CLI (solved
+  here, at build time: no solver in the browser): "core" (numpy, pyopengl, pyb2d3:
+  installed when python starts) and "pytorch" (loaded in the background; only the
+  packages that are not in the core). pyjs caches them in the browser after the first
+  visit (installed layout + bytecode).
+* `webgym-<hash>.tar.gz`: the webgym sources, unpacked at /app.
+* config.json: {arch: {"core": [{url, sha256}], "pytorch": [...], "archives": [...]}}.
 
-Adapted from pyb2d3/examples/web/build_page.py.
-
-    python web/build_page.py      # then: cd web && npx vite
+    python web/build_page.py              # then: cd web && npx vite
+    python web/build_page.py --sources    # only the sources (the dev server, on a change)
 """
 
 import contextlib
 import gzip
 import hashlib
 import json
-import re
+import subprocess
+import sys
 import tarfile
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 PUBLIC = HERE / "public"
-CHANNEL = "https://repo.prefix.dev/emscripten-forge/6x/emscripten-{arch}"
-ARCHS = ("wasm32", "wasm64")
-PACKAGES = ["numpy", "openblas", "pyopengl", "pyb2d3"]
-PACKAGE_CACHE = REPO / "build" / "conda-packages"
-# must match the python of the pyjs npm package (web/package.json)
-PYTHON_VERSION = "3.14"
-# not needed to run anything: tests, headers, docs, metadata, ...
-DROP_DIRS = {"tests", "testing", "f2py", "distutils", "include", "__pycache__", "doc"}
-DROP_SUFFIXES = (".pyi", ".pxd", ".h", ".a", ".pc", ".cmake", ".pyc", ".c", ".cpp")
+LOCK_CLI = HERE / "node_modules" / "@derthorsten" / "pyjs" / "bin" / "pyjs.mjs"
+CORE = ["numpy", "pyopengl", "pyb2d3>=1.2.0"]
+GROUPS = {"pytorch": ["pytorch"]}  # loaded later, in the background
 
 
 @contextlib.contextmanager
@@ -49,87 +44,82 @@ def _normalized(tarinfo):
     return tarinfo
 
 
-def _download(url):
-    """the bytes at `url` (the channel refuses urllib's default user agent)"""
-    request = urllib.request.Request(url, headers={"User-Agent": "webgym-build-page"})
-    with urllib.request.urlopen(request) as response:
-        return response.read()
+def lock(specs):
+    """{arch: [{url, sha256}]} for `specs`, solved with pyjs' lock CLI"""
+    out = REPO / "build" / "lock.json"
+    out.parent.mkdir(exist_ok=True)
+    subprocess.run(["node", str(LOCK_CLI), "lock", *specs, "-o", str(out)], check=True)
+    return json.loads(out.read_text())
 
 
-def _version_key(info):
-    """sort key: newest version, then build number, then upload time"""
-    version = tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-_]", info["version"]))
-    return version, info.get("build_number", 0), info.get("timestamp", 0)
-
-
-def fetch_packages(names, arch):
-    """the newest emscripten-<arch> builds of `names` (for PYTHON_VERSION), downloaded
-    into PACKAGE_CACHE/<arch> once. Returns their paths."""
-    channel = CHANNEL.format(arch=arch)
-    packages = json.loads(_download(f"{channel}/repodata.json"))["packages"]
-    python_build = f"py{PYTHON_VERSION.replace('.', '')}"
-    cache = PACKAGE_CACHE / arch
-    cache.mkdir(parents=True, exist_ok=True)
-    paths = []
-    for name in names:
-        builds = {f: i for f, i in packages.items() if i["name"] == name}
-        if any(python_build in i["build"] for i in builds.values()):
-            builds = {f: i for f, i in builds.items() if python_build in i["build"]}
-        if not builds:
-            raise SystemExit(f"no {name} for python {PYTHON_VERSION} in {channel}")
-        filename = max(builds, key=lambda f: _version_key(builds[f]))
-        path = cache / filename
-        if not path.exists():
-            print(f"downloading {arch}/{filename}")
-            path.write_bytes(_download(f"{channel}/{filename}"))
-        paths.append(path)
-    return paths
-
-
-def _keep(name):
-    """files of a conda package needed at runtime (not tests, headers, metadata, ...)"""
-    parts = name.split("/")
-    return not (
-        parts[0] in ("info", "etc", "share", "bin")
-        or any(p in DROP_DIRS or p.endswith(".dist-info") for p in parts)
-        or name.endswith(DROP_SUFFIXES)
-    )
-
-
-def pack_core(path, conda_pkgs):
-    """the core archive (unpacked at /): runtime files of the conda packages + the
-    webgym sources at app/webgym"""
-    with tar_gz(path) as dst:
-        for conda_pkg in conda_pkgs:
-            with tarfile.open(conda_pkg, "r:bz2") as src:
-                for member in src.getmembers():
-                    if member.isfile() and _keep(member.name):
-                        dst.addfile(_normalized(member), src.extractfile(member))
-        dst.add(REPO / "webgym", arcname="app/webgym", filter=_normalized)
-
-
-def build():
-    """write public/core-<arch>-<hash>.tar.gz and public/config.json. A page loading
-    meanwhile (dev server) always finds the archives its config.json names: new
-    archives first, then config.json (atomic rename), old archives removed last"""
+def pack_sources():
+    """public/webgym-<hash>.tar.gz (the webgym sources) -> its name"""
     PUBLIC.mkdir(exist_ok=True)
-    config, urls = {}, set()
-    for arch in ARCHS:
-        tmp = PUBLIC / f"core-{arch}.tar.gz.tmp"
-        pack_core(tmp, fetch_packages(PACKAGES, arch))
-        data = tmp.read_bytes()
-        digest = hashlib.sha256(data).hexdigest()[:16]
-        url = f"core-{arch}-{digest}.tar.gz"
-        tmp.replace(PUBLIC / url)
-        urls.add(url)
-        config[arch] = {"archives": [{"name": "core", "url": url, "path": "/", "hash": digest, "size": len(data)}]}
-        print(f"{url}: {len(data) / 1e6:.1f} MB")
+    tmp = PUBLIC / "webgym.tar.gz.tmp"
+    with tar_gz(tmp) as tar:
+        tar.add(REPO / "webgym", arcname="webgym", filter=_normalized)
+    digest = hashlib.sha256(tmp.read_bytes()).hexdigest()[:16]
+    archive = f"webgym-{digest}.tar.gz"
+    tmp.replace(PUBLIC / archive)
+    return archive
+
+
+def pretrained_index():
+    """public/pretrained/index.json: the pretrained runs there (checkpoints written by
+    `python -m webgym.cli ENV --save public/pretrained/NAME.safetensors`), from their own
+    metadata: [{file, env (its key, with the settings), algo, iteration, mean_return}]"""
+    from webgym import checkpoints
+
+    folder = PUBLIC / "pretrained"
+    if not folder.exists():
+        return
+    index = []
+    for path in sorted(folder.glob("*.safetensors")):
+        _, meta = checkpoints.loads(path.read_bytes())
+        index.append({"file": path.name, "env": meta.get("env_key", meta["env"]), "algo": meta["algo"],
+                      "iteration": meta["iteration"], "mean_return": meta["mean_return"]})
+    (folder / "index.json").write_text(json.dumps(index, indent=2))
+    print(f"pretrained: {', '.join(f'{r['env']} / {r['algo']}' for r in index) or 'none'}")
+
+
+def build(sources_only=False):
+    """write public/webgym-<hash>.tar.gz and public/config.json (sources_only: keep the
+    pinned packages of the config.json there is). A page loading meanwhile (dev server)
+    always finds the archive its config.json names: new archive first, then config.json
+    (atomic rename), old archives removed last"""
+    archive = pack_sources()
+    pretrained_index()
+    if sources_only and (PUBLIC / "config.json").exists():
+        config = json.loads((PUBLIC / "config.json").read_text())
+        for groups in config.values():
+            groups["archives"] = [{"url": archive, "path": "/app"}]
+    else:
+        config = locked_config(archive)
     (PUBLIC / "config.json.tmp").write_text(json.dumps(config, indent=2))
     (PUBLIC / "config.json.tmp").replace(PUBLIC / "config.json")
-    for old in PUBLIC.glob("core-*.tar.gz"):
-        if old.name not in urls:
+    for old in [*PUBLIC.glob("webgym-*.tar.gz"), *PUBLIC.glob("core-*.tar.gz")]:
+        if old.name != archive:
             old.unlink()
+    for arch, groups in config.items():
+        print(arch, ", ".join(f"{g}: {len(p)} packages" for g, p in groups.items() if g != "archives"))
+    print(f"{archive}: {(PUBLIC / archive).stat().st_size / 1e3:.0f} kB")
+
+
+def locked_config(archive):
+    """config.json with the packages pinned per architecture (pyjs' lock CLI)"""
+    core = lock(CORE)
+    config = {arch: {"core": pkgs, "archives": [{"url": archive, "path": "/app"}]} for arch, pkgs in core.items()}
+    for group, specs in GROUPS.items():
+        # solved together with the core (the same versions of the shared packages);
+        # installed later: only what the core does not have
+        full = lock(CORE + specs)
+        for arch, pkgs in full.items():
+            core_urls = {p["url"] for p in core[arch]}
+            if not core_urls <= {p["url"] for p in pkgs}:
+                raise SystemExit(f"{group} ({arch}) needs other versions of the core packages")
+            config[arch][group] = [p for p in pkgs if p["url"] not in core_urls]
+    return config
 
 
 if __name__ == "__main__":
-    build()
+    build(sources_only="--sources" in sys.argv)

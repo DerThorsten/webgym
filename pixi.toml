@@ -14,7 +14,7 @@ ruff = "*"
 nodejs = ">=22"
 
 [pypi-dependencies]
-pyb2d3 = ">=1.0.0"
+pyb2d3 = ">=1.2.0"
 webgym = { path = ".", editable = true }
 
 [tasks.test]
@@ -33,7 +33,7 @@ inputs = ["web/package.json"]
 outputs = ["web/node_modules/.package-lock.json"]
 
 [tasks.web-archives]
-description = "Pack the python archives of the page + config.json into web/public"
+description = "Pin the page's packages (pyjs lock) and pack the webgym sources + config.json into web/public"
 cmd = "python web/build_page.py"
 
 [tasks.web-dev]
@@ -60,19 +60,13 @@ description = "Build the page, load it in headless chromium (cold + cached), fai
 cmd = "playwright install chromium && python web/test_page.py --checkpoints --crash --screenshot build/page.png"
 depends-on = ["web-build"]
 
-# the torch / jax trainers natively (in the browser they are loaded from emscripten-forge
-# at runtime); jaxlib is not on conda-forge for every platform: pixi run -e ml test
+# the torch trainers natively (in the browser pytorch is loaded from emscripten-forge
+# at runtime): pixi run -e ml test
 [feature.ml]
 platforms = ["osx-arm64", "linux-64"]
 
 [feature.ml.dependencies]
 pytorch = "*"
-jax = "*"
-
-# IREE (jax -> StableHLO -> IREE; natively on the CPU, in the browser on WebGPU)
-[feature.ml.pypi-dependencies]
-iree-base-compiler = "*"
-iree-base-runtime = "*"
 
 [environments]
 web-test = ["web-test"]

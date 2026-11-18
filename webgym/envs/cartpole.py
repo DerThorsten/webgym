@@ -1,9 +1,9 @@
 """CartPole: keep a pole upright by pushing its cart left / right.
 
-A cart on a prismatic joint (slides along x) with a pole on a revolute joint.
+A cart on a rail (a prismatic joint) with a pole on a hinge (a revolute joint).
 obs: cart x, cart velocity, pole angle, pole angular velocity.
-action: force in [-1, 1] (x max_force). reward: 1 per step while the pole is up.
-Episode ends when the pole tilts > 12 degrees or the cart leaves |x| < 2.4.
+action: the force on the cart. reward: 1 per step while the pole is up.
+The episode ends when the pole tilts more than 12 degrees or the cart leaves |x| < 2.4.
 
 Keys (human controller): left / right arrow push the cart.
 """
@@ -11,72 +11,55 @@ Keys (human controller): left / right arrow push the cart.
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import Box, Env, register_env
+from webgym.core import Env, register_env
+
+MAX_FORCE = 10.0  # N; the cart weighs 1 kg, the pole 0.1 kg (as the classic cart-pole)
 
 
 @register_env("CartPole")
 class CartPole(Env):
-    observation_space = Box(-np.inf, np.inf, (4,))
-    action_space = Box(-1.0, 1.0, (1,))
-    max_steps = 500
-    max_force = 10.0  # N; cart 1 kg, pole 0.1 kg (as the classic cart-pole)
-    view_center = (0.0, 1.0)
-    view_zoom = 3.0
-    keys = "← / → push the cart"
-    discrete_actions = np.array([[-1.0], [1.0]], dtype=np.float32)  # push left / right
     obs_names = ("cart x", "cart velocity", "pole angle", "pole ang. vel.")
     action_names = ("force",)
+    discrete_actions = np.array([[-1.0], [1.0]])  # (for DQN: push left / right)
     discrete_names = ("push left", "push right")
+    max_steps = 500
+    view_center, view_zoom = (0.0, 1.0), 3.0
+    keys = "← / → push the cart"
 
-    def build(self):
-        ground = self.world.create_static_body(position=(0, 0))
-        self.scenery_shape(ground, b2d.box(3.0, 0.05))
-        carts, poles = [], []
-        for i in range(self.n):
-            # densities for 1 kg (0.5 x 0.24 box) and 0.1 kg (0.05 x 1 box)
-            cart = self.agent_body(i, (0, 0.3), [(b2d.box(0.25, 0.12), 1 / 0.12)])
-            pole = self.agent_body(i, (0, 0.92), [(b2d.box(0.025, 0.5), 2.0)])
-            # the rail: stops at its ends (episodes end before, at |x| = 2.4)
-            self.world.create_prismatic_joint(
-                body_a=ground,
-                body_b=cart,
-                local_frame_a=b2d.transform(p=(0, 0.3)),
-                local_frame_b=b2d.transform(p=(0, 0)),
-                enable_limit=True,
-                lower_translation=-2.75,
-                upper_translation=2.75,
-            )
-            self.world.create_revolute_joint(
-                body_a=cart,
-                body_b=pole,
-                local_frame_a=b2d.transform(p=(0, 0.12)),
-                local_frame_b=b2d.transform(p=(0, -0.5)),
-            )
-            carts.append(cart)
-            poles.append(pole)
-        self.carts, self.poles = b2d.Bodies(carts), b2d.Bodies(poles)
-        self.forces = np.zeros((self.n, 2), dtype=np.float32)
+    def build_scenery(self):
+        self.ground = self.scenery(b2d.box(3.0, 0.05))
 
-    def _reset(self, rng):
-        velocity = np.zeros((self.n, 2), dtype=np.float32)
-        velocity[:, 0] = rng.uniform(-0.1, 0.1, self.n)
-        self.carts.linear_velocity = velocity
-        self.poles.angular_velocity = rng.uniform(-0.1, 0.1, self.n).astype(np.float32)
+    def build_agent(self, i):
+        cart = self.body((0, 0.3), b2d.box(0.25, 0.12), density=1 / 0.12)  # (1 kg)
+        pole = self.body((0, 0.92), b2d.box(0.025, 0.5), density=2.0)  # (0.1 kg)
+        # the rail, with stops at its ends (the episode ends before, at |x| = 2.4)
+        self.world.create_prismatic_joint(
+            body_a=self.ground, body_b=cart,
+            local_frame_a=b2d.transform(p=(0, 0.3)), local_frame_b=b2d.transform(p=(0, 0)),
+            enable_limit=True, lower_translation=-2.75, upper_translation=2.75,
+        )
+        # the hinge: the pole's lower end on the top of the cart
+        self.world.create_revolute_joint(
+            body_a=cart, body_b=pole,
+            local_frame_a=b2d.transform(p=(0, 0.12)), local_frame_b=b2d.transform(p=(0, -0.5)),
+        )
+        return {"cart": cart, "pole": pole}
 
-    def _apply(self, actions):
-        self.forces[:, 0] = np.clip(actions[:, 0], -1, 1) * self.max_force
-        self.carts.apply_force_to_center(self.forces, True)
+    def randomize(self, rng):
+        self.cart.linear_velocity = np.column_stack([rng.uniform(-0.1, 0.1, self.n), np.zeros(self.n)])
+        self.pole.angular_velocity = rng.uniform(-0.1, 0.1, self.n)
 
-    def _observe(self):
-        return np.column_stack(
-            [self.carts.position[:, 0], self.carts.linear_velocity[:, 0], self.poles.angle,
-             self.poles.angular_velocity]
-        ).astype(np.float32)
+    def act(self, actions):
+        force = np.column_stack([actions[:, 0] * MAX_FORCE, np.zeros(self.n)])
+        self.cart.apply_force_to_center(force, True)
 
-    def _outcome(self):
-        failed = (np.abs(self.poles.angle) > 0.21) | (np.abs(self.carts.position[:, 0]) > 2.4)
-        return np.ones(self.n), failed
+    def observe(self):
+        return [self.cart.position[:, 0], self.cart.linear_velocity[:, 0], self.pole.angle,
+                self.pole.angular_velocity]
+
+    def reward(self):
+        fallen = (np.abs(self.pole.angle) > 0.21) | (np.abs(self.cart.position[:, 0]) > 2.4)
+        return np.ones(self.n), fallen
 
     def human_action(self, keys):
-        """left / right arrow: full force"""
         return np.array([("right" in keys) - ("left" in keys)], dtype=np.float32)

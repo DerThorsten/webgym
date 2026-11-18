@@ -1,5 +1,10 @@
 # pyb2d3: what webgym is missing (candidates for the `webgym` branch of pyb2d3)
 
+**Status 2026-11-18: answered** (PYB2D3_WEBGYM_REPLY.md, pyb2d3's
+HANDOVER_WEBGYM_NEXT_RELEASE.md) and released in pyb2d3 1.2.0. webgym uses: worlds beyond
+128 raise (1), joint batches (2: the walkers' motors), sensors (7: feet), emitters (11: the
+lander's exhaust). The items below are kept as they were written.
+
 Found while building webgym. Each item: what happened, the workaround in webgym, the
 suggested change in pyb2d3.
 
@@ -53,6 +58,30 @@ suggested change in pyb2d3.
    ENV_IDEAS.md).
    Suggestion: document this as guaranteed behaviour (and that restored bodies come back
    enabled), so apps can build on it.
+
+10. **A velocity set on a disabled body is lost (found 2026-11-18, pyb2d3 1.1.0).**
+    `bodies.linear_velocity = v` on disabled bodies, then `bodies.enabled = True`: the
+    velocity is 0 afterwards. Positions set while disabled are kept.
+    Workaround (webgym's thrust particles): enable first, then set position + velocity.
+    Suggestion: keep the velocity (or document the order).
+
+11. **An emitter: create (or recycle) many small bodies at once.**
+    webgym's LunarLander ejects thrust particles in watch mode: a few per engine and step,
+    each living ~0.5 s. pyb2d3 can only create bodies one by one (`create_dynamic_body` +
+    `create_shape`), so webgym keeps a pool of 300 disabled particle bodies (created once,
+    at build) and recycles them as a ring with batch updates (`Bodies[slots].enabled /
+    .position / .linear_velocity`, `Shapes[slots].custom_color`).
+    Suggestion: a batch API for this pattern, e.g.
+    - `world.create_bodies(n, body_def, shape_def, geometry)` -> `Bodies` (batch creation),
+      and `Bodies.destroy()` exists already; or
+    - an `Emitter(world, capacity, shape_def, geometry, lifetime)` with
+      `emit(positions, velocities, colors=None)` (a ring of bodies, expiring by itself,
+      recycled internally). Useful for exhaust, debris, sparks, rain, sand.
+    - (idea, not thought through) a `BodySet`: a batch like `Bodies`, but with fast
+      `add(bodies)` / `remove(bodies)` (e.g. swap-remove in a contiguous id array, so the
+      batch properties stay one call). Today `Bodies` has `append`, but no remove, and
+      building a new `Bodies` from a list each step costs a python loop. An emitter could
+      be built on it; so could things thrown into a world and removed again later.
 
 FYI: the wasm64 build of pyb2d3 1.0.0 (emscripten-forge 6x) works: all webgym envs
 (CartPole, LunarLander, Walker, Crawler, Hopper) run and train on wasm64 in the browser,

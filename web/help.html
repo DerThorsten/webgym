@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>webgym help</title>
+    <!-- screenshots: web/help_shots.py writes public/help/*.png -->
+    <style>
+      body { margin: 0 auto; max-width: 860px; padding: 16px 16px 60px; font: 15px/1.55 system-ui, sans-serif;
+             background: #111; color: #ddd; }
+      h1, h2 { color: #fff; }
+      h2 { margin-top: 36px; border-top: 1px solid #2a2a2a; padding-top: 16px; }
+      a { color: #6a9fd8; }
+      img { max-width: 100%; border: 1px solid #333; border-radius: 4px; display: block; margin: 10px 0; }
+      img.small { max-width: 380px; }
+      .orange { color: #ff8c42; font-weight: 600; }
+      .blue { color: #4fa3ff; font-weight: 600; }
+      code, kbd { background: #222; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+      dt { font-weight: 600; color: #fff; margin-top: 8px; }
+      dd { margin: 0 0 4px 18px; }
+    </style>
+  </head>
+  <body>
+    <h1>webgym help</h1>
+    <p>
+      webgym is a reinforcement learning playground that runs entirely in your browser: the
+      physics (box2d), the environments and the learning algorithms are python, running in
+      WebAssembly (<a href="https://emscripten-forge.org">emscripten-forge</a> +
+      <a href="https://github.com/emscripten-forge/pyjs">pyjs</a>). Nothing runs on a server. Pick an environment, press <b>Train</b> and watch the
+      agents learn, live.
+    </p>
+    <ul>
+      <li><a href="#overview">The page</a></li>
+      <li><a href="#training">Training</a></li>
+      <li><a href="#watching">Watching a policy</a></li>
+      <li><a href="#panels">Progress, network, checkpoints</a></li>
+      <li><a href="#code">Editing the python code</a></li>
+      <li><a href="#fun">Having fun with agents</a></li>
+      <li><a href="#tips">Tips</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="#credits">Credits</a></li>
+    </ul>
+
+    <h2 id="overview">The page</h2>
+    <img src="help/overview.png" alt="the page" />
+    <p>
+      <b>Top bar</b> (always in view): <b>Train</b> / Stop, New run, and the live numbers: the
+      world, is it training, which iteration, the population's mean and best return, the
+      episode you watch. On the right: <b>&lt;/&gt; Code</b> (the python editor), the
+      <b>Tour</b> and this help.
+    </p>
+    <p>
+      <b>Left panel</b>, four tabs: <i>World</i> (pick the environment and its settings, e.g.
+      how many balls; what it is about; how you watch it), <i>Training</i> (the algorithm and
+      its parameters, population, simulation workers), <i>Policy</i> (the network and the
+      checkpoints), <i>Log</i> (state, packages, messages).
+      <b>Middle</b>: the world, the training progress below it (click its title to hide it).
+      The <span class="blue">ⓘ</span> next to a control explains it (click it).
+    </p>
+    <p>In the world: drag the background to pan, the mouse wheel zooms, drag a body to
+      push it around (while watching).</p>
+
+    <h2 id="training">Training</h2>
+    <img src="help/training.png" alt="training" />
+    <p>
+      <b>Train</b> starts learning. While training, the world shows the whole
+      <b>population</b>: many agents in one world (they don't collide with each other), each
+      trying a different policy. The <span class="orange">orange</span> one is the leader (the
+      best one still alive), the <span class="blue">blue</span> ones are the others.
+    </p>
+    <dl>
+      <dt>Algorithm</dt>
+      <dd><b>CEM</b> and <b>ES</b> (numpy): evolution strategies; they try many random variations
+        of the policy and move towards the best ones. Fast and robust for small problems.
+        <b>PPO</b> and <b>DQN</b> (pytorch, loaded in the background the first time): gradient
+        based. DQN uses a few discrete actions (e.g. the lander: nothing / main engine / left /
+        right).</dd>
+      <dt>Algorithm parameters</dt>
+      <dd>Each has an ⓘ. <i>layers</i> and <i>hidden</i> set the size of the policy network
+        (shown below as "Policy network 8 → 16 → 2"); changing them starts a new run.</dd>
+      <dt>Population</dt>
+      <dd>How many agents learn at once.</dd>
+      <dt>Simulation workers</dt>
+      <dd>More workers (each its own python and box2d, on another CPU core) run a share of the
+        population's episodes: CEM and ES train several times faster. Each costs memory;
+        more than your CPU cores don't help.</dd>
+      <dt>Stop / Train / New run</dt>
+      <dd>Stop keeps the run: Train continues it. <b>New run</b> starts from scratch.</dd>
+    </dl>
+
+    <h2 id="watching">Watching a policy</h2>
+    <img src="help/watch.png" alt="watching" />
+    <p>
+      When not training, the world shows the current policy in
+      <span class="orange">orange</span> and, as <span class="blue">ghosts</span>, the best
+      candidates of the last iteration (CEM / ES) or recent policies (PPO / DQN). They all get
+      the same random start, so you can compare them fairly; each episode a new one.
+      (While training, the page uses a second worker for this: you watch the latest policy
+      while the training goes on.)
+    </p>
+    <dl>
+      <dt>Play yourself</dt><dd>You are the controller (keys shown below it), alone in the world. Auto reset is off meanwhile.</dd>
+      <dt>Auto reset</dt><dd>A new episode starts when all agents are done.</dd>
+      <dt>Show policies</dt><dd>How many policies you watch at once (1: only the orange one).</dd>
+      <dt>Replay speed</dt><dd>Slow motion or fast forward.</dd>
+      <dt>Camera follows</dt><dd>The environment controls the camera: it says which point the
+        view follows (the walkers' hull, the car, the water cannon's cart; while training the
+        leading agent). Off: a fixed view you pan and zoom yourself. Environments with a fixed
+        scene (CartPole, the lander) don't move the camera, so the option is greyed out there.
+        In your own env: return the point from <code>camera_target(i)</code>.</dd>
+      <dt>Decoration</dt><dd>Looks only: the lander's flags and thrust particles. Never used in training.</dd>
+      <dt>Reset episode (R)</dt><dd>A new episode now.</dd>
+    </dl>
+
+    <h2 id="panels">Progress, network, checkpoints</h2>
+    <img src="help/progress.png" alt="training progress" />
+    <p><b>Training progress</b> (under the world): per iteration the
+      <span class="blue">mean</span> and the <span class="orange">best</span> return of the
+      population (higher is better); PPO / DQN also show their losses next to it.</p>
+    <img class="small" src="help/policy.png" alt="the Policy tab: network and checkpoints" />
+    <p><b>Network</b> (Policy tab): the watched policy's neural network, live. Left the inputs
+      (what the agent sees, with their values), right the actions. Neurons are colored by
+      activation (<span class="orange">orange</span> positive, <span class="blue">blue</span>
+      negative), connections by their weight.</p>
+    <p><b>Checkpoints</b> (Policy tab, below the network): stored in your browser, per
+      environment (with its settings) + algorithm. The <i>autosave</i> is updated while
+      training (a reload continues where you were); give a name and press Save to keep one.
+      Restore loads it, Delete removes it.</p>
+    <p><b>Log</b> tab: the detailed state, what was loaded (e.g. pytorch), messages / errors.</p>
+
+    <h2 id="code">Editing the python code</h2>
+    <img src="help/code.png" alt="the code editor" />
+    <p>
+      <b>&lt;/&gt; Code</b> opens the source of the current <b>environment</b> or
+      <b>algorithm</b>. Edit it and press <b>Apply</b> (<kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd>):
+      the python module is reloaded in the browser. An edited environment starts a new run, an
+      edited algorithm takes over the training. <b>Open…</b> loads a <code>.py</code> file
+      from your machine, <b>Save…</b> writes one. A page reload brings the original back.
+    </p>
+    <p>Try: in the lander, change <code>gravity</code> or <code>CONE</code> (the width of the
+      thrust plume), or the reward in <code>_outcome</code>.</p>
+
+    <h2 id="fun">Having fun with agents</h2>
+    <p>
+      A trained agent has only ever seen its own episodes. What does it do when you mess
+      with it? Try this with the walker:
+    </p>
+    <ol>
+      <li>World tab: pick <b>Walker</b>. Policy tab: <b>Restore</b> the <i>pretrained</i> run
+        (it comes with the page), or press <b>Train</b> and wait a minute, then <b>Stop</b>.</li>
+      <li>Show policies: <b>1</b> (only the policy, no ghosts), and in the top bar switch
+        <b>Auto reset</b> off: the episode goes on after a fall instead of starting over.</li>
+      <li>Let it walk.</li>
+    </ol>
+    <img src="help/walker_walks.png" alt="the walker walks" />
+    <ol start="4">
+      <li>Grab its hull with the mouse, lift it and turn it over (the camera follows it).</li>
+    </ol>
+    <img src="help/walker_grabbed.png" alt="the walker, lifted and turned over with the mouse" />
+    <ol start="5">
+      <li>Let go and watch how it reacts: it never trained for this. Sometimes it catches
+        itself, sometimes it kicks on its back.</li>
+    </ol>
+    <img src="help/walker_reacts.png" alt="the walker after the fall" />
+    <p>
+      More to try: push the lander sideways while it lands; play a world yourself (top bar,
+      <i>Play yourself</i>) and compare your score with the agent's; or edit the walker's
+      code (e.g. its gravity) and see whether the trained policy still walks.
+    </p>
+
+    <h2 id="tips">Tips</h2>
+    <ul>
+      <li>CartPole learns in seconds, LunarLander in a minute or so, the walkers take longer.</li>
+      <li>The Car pushes crates and gravel around, so its agents can't share a world: each one gets its
+        own (at most 32), you watch one car and the population sliders are off.</li>
+      <li>URL options: <code>?env=Walker&amp;algo=es&amp;population=128&amp;seed=1</code>,
+        <code>train=0</code> (don't start training).</li>
+      <li>The first visit downloads python and the packages; later visits come from the
+        browser cache and start in about a second.</li>
+    </ul>
+
+    <h2 id="about">About</h2>
+    <!-- TODO (the author): the final text -->
+    <p><b>TODO: draft.</b>
+      Python in the browser is no longer a toy. <a href="https://emscripten-forge.org">emscripten-forge</a>
+      is a conda channel of packages compiled to WebAssembly: python, numpy, box2d
+      (<a href="https://github.com/DerThorsten/pyb2d3">pyb2d3</a>), pytorch and many more,
+      installed the way you know from conda / pixi.
+      <a href="https://github.com/emscripten-forge/pyjs">pyjs</a> runs them in the browser
+      (here: in Web Workers, drawing with WebGL on an offscreen canvas) and bridges python
+      and JavaScript.
+    </p>
+    <p>
+      Why: <b>TODO</b>. To show what runs in a browser today: a physics engine, a deep learning
+      framework and the code that trains it, live, on your machine, without a server and
+      without installing anything; and because the python is right there, you can read it,
+      change it, and see what happens.
+    </p>
+    <p>The code: <a href="https://github.com/DerThorsten/webgym">github.com/DerThorsten/webgym</a>.</p>
+
+    <h2 id="credits">Credits</h2>
+    <!-- TODO (the author): complete the list -->
+    <ul>
+      <li><a href="https://emscripten-forge.org">emscripten-forge</a> and
+        <a href="https://github.com/emscripten-forge/pyjs">pyjs</a>: the packages and the runtime.</li>
+      <li><a href="https://box2d.org">Box2D</a> by Erin Catto, via
+        <a href="https://github.com/DerThorsten/pyb2d3">pyb2d3</a>.</li>
+      <li><a href="https://gymnasium.farama.org">Gymnasium</a> (Farama Foundation): the idea
+        and the classic environments (CartPole, LunarLander, BipedalWalker).</li>
+      <li><a href="https://numpy.org">numpy</a>, <a href="https://pytorch.org">pytorch</a>,
+        <a href="https://pyopengl.sourceforge.net">PyOpenGL</a>,
+        <a href="https://codemirror.net">CodeMirror</a>, <a href="https://vite.dev">vite</a>.</li>
+      <li>TODO: people, funding.</li>
+    </ul>
+  </body>
+</html>

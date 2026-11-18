@@ -1,5 +1,7 @@
 # jax → IREE → WebGPU in the browser (emscripten-forge): bugs found, with reproducers
 
+> **Note (2026-11-18):** webgym has since dropped jax and the GPU path; it now uses pytorch only. The code this report refers to (`webgym/gpu.py`, `webgym/algos/ppo_jax.py`, `web/repro_test.py`, `web/compile_test.py`) is in commit `bb4c07a` of webgym.
+
 **Context.** webgym trains a small PPO policy in the browser. The pipeline:
 1. jax (`jax.jit(fn).lower(...).as_text()`) produces StableHLO;
 2. `iree-base-compiler` compiles it for WebGPU, in the browser;

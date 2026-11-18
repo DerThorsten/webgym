@@ -1,152 +1,109 @@
 // The pyjs web worker: python, the simulation, training and WebGL2 rendering on the
 // OffscreenCanvas the page transferred. Talks to main.js with messages:
-//   page -> worker: {type: "init", canvas, base, role}, {type: "resize", width, height},
+//   page -> worker: {type: "init", canvas, base, role, wasmModule, sources} (wasmModule:
+//                   the pyjs runtime compiled once by the page; optional; sources: the
+//                   python files edited in this browser, [{path, text}], see edits.js),
+//                   {type: "resize", width, height},
 //                   {type: "snapshot", data} (display: the trainer's policy, base64),
 //                   {type: "event", kind, x, y, delta, key} (pointer: drawing-buffer px; keys),
 //                   {type: "command", name, value} (a widget changed),
 //                   {type: "restore", data} (a checkpoint, base64 .safetensors),
-//                   {type: "compile_result", id, data | error} (an IREE module, base64),
 //                   {type: "exec", id, code} (python; -> {type: "result", id, value}),
-//                   {type: "install", name, packages}
-//   worker -> page: {type: "progress", id, phase, done, total}, {type: "ready"},
+//                   {type: "install", name, check} (a package group of config.json, e.g. pytorch),
+//                   {type: "evaluate", ...} (helper: a chunk of the population, helpers.py),
+//                   {type: "evaluated", id, part, returns} (trainer: a helper's answer)
+//   worker -> page: {type: "progress", id, phase, done, total},
 //                   {type: "controls", controls}, {type: "history", entries, reset},
 //                   {type: "state", state}, {type: "installed", name, seconds}, {type: "error", error},
+//                   {type: "log", text} (a notice: only in the log),
 //                   {type: "fatal", error} (wasm trap: the page restarts the worker),
 //                   {type: "checkpoint", name, env, algo, iteration, mean_return, data},
 //                   {type: "delete_checkpoint", name, env, algo},
-//                   {type: "compile_request", id, mlir} (StableHLO for the compile worker),
 //                   {type: "snapshot", data} (trainer: its current policy, for the display)
-// (archive download / unpack: from pyb2d3/examples/web/main.js)
+//
+// Packages: pinned at build time (config.json, see build_page.py: no solver in the
+// browser); pyjs caches them (installed layout + bytecode, Cache Storage) for the next visit.
 
 import { initializePyjsRuntime as initWasm32 } from "@derthorsten/pyjs/wasm32";
 import { initializePyjsRuntime as initWasm64 } from "@derthorsten/pyjs/wasm64";
+import { pageArch } from "./arch.js";
 
 const post = (message) => self.postMessage(message);
-
-// does this browser run wasm64 (memory64)? a module with just a 64-bit memory validates
-// (header, memory section: 1 memory, flags 0x04 = 64-bit, minimum 0)
-const MEMORY64 = WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 5, 3, 1, 4, 0]));
-
-// conda packages (pytorch, jax, ... from the channels) are immutable files: cache-first
-// in Cache Storage, so a second visit loads them without the network. Everything else
-// (repodata.json, ...) goes to the network as usual.
-const PACKAGE_CACHE = "webgym-packages-v1";
-const isPackage = (url) => /\.(tar\.bz2|conda)(\?|$)/.test(url);
-const networkFetch = self.fetch.bind(self);
-self.fetch = async (input, init) => {
-  const url = typeof input === "string" ? input : input.url ?? String(input);
-  if (!isPackage(url) || typeof caches === "undefined") return networkFetch(input, init);
-  try {
-    const cache = await caches.open(PACKAGE_CACHE);
-    const hit = await cache.match(url);
-    if (hit) return hit;
-    const response = await networkFetch(input, init);
-    if (response.ok) await cache.put(url, response.clone());
-    return response;
-  } catch (e) {
-    console.warn("package cache:", e);
-    return networkFetch(input, init);
-  }
-};
 const progress = (id, phase, done = 0, total = 0) => post({ type: "progress", id, phase, done, total });
-
-/** the bytes at `url` as a Blob, reporting bytes received */
-async function download(url, onBytes) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-  // a dev server answers a missing file with index.html (200)
-  if ((response.headers.get("content-type") ?? "").includes("text/html"))
-    throw new Error(`${url} is missing (an HTML page came instead): the archives were rebuilt, reload the page`);
-  const reader = response.body.getReader();
-  const chunks = [];
-  let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
-    onBytes(received);
-  }
-  return new Blob(chunks);
-}
-
-/** download an archive of config.json and unpack it into the file system */
-async function unpackArchive(pyjs, archive) {
-  const url = new URL(archive.url, base).href;
-  const blob = await download(url, (n) => progress(archive.name, "downloading", n, archive.size));
-  progress(archive.name, "unpacking");
-  // pyjs picks the decompression by the url's ending: keep it after the blob url
-  const blobUrl = URL.createObjectURL(blob);
-  await pyjs.unpackArchive({ url: `${blobUrl}#${archive.url}`, path: archive.path });
-  URL.revokeObjectURL(blobUrl);
-  progress(archive.name, "done");
-}
-
-// IREE compiles in another worker (the page's compile worker): jaxlib and the IREE
-// compiler bring their own MLIR python bindings, which cannot be loaded into one
-// process (nanobind aborts). python awaits self.webgymCompile(mlir) -> base64 module
-const compiles = new Map();
-let nextCompile = 0;
-self.webgymCompile = (mlir) =>
-  new Promise((resolve, reject) => {
-    const id = nextCompile++;
-    compiles.set(id, { resolve, reject });
-    post({ type: "compile_request", id, mlir });
-  });
+/** pyjs' progress ({item, phase, done, total}) as one of our progress bars */
+const reportTo = (id) => (p) => progress(id, `${p.item}: ${p.phase}`, p.done, p.total);
 
 let pyjs = null;
-// the page's url: config.json, the archives and pyjs/ live there (the bundled
-// worker itself is in assets/)
-let base = self.location.href;
+let config = null; // config.json of this architecture: {core, pytorch, archives}
 const times = {};
 const t0 = performance.now();
 const lap = (name) => (times[name] = +((performance.now() - t0) / 1000).toFixed(2));
 
-/** start python, unpack the core, start the host (rendering into `canvas`) */
-async function init(canvas, pageUrl, role) {
+// (python: writes self.webgymSources ([{path, text}]) over the files; -> the skipped ones)
+const EDITED_SOURCES = `
+import json, pyjs
+_skipped = []
+for _source in json.loads(str(pyjs.js.self.webgymSources)):
+    try:
+        compile(_source["text"], _source["path"], "exec")
+        with open(_source["path"], "w") as _f:
+            _f.write(_source["text"])
+    except (SyntaxError, OSError) as _e:
+        _skipped.append(f"{_source['path']}: {_e}")
+"; ".join(_skipped)
+`;
+
+/** start python with the core packages and webgym's sources, then the host (rendering
+ * into `canvas`); `base`: the page's url (config.json, the archives and pyjs/ live there) */
+async function init(canvas, base, role, wasmModule, sources = []) {
   self.canvas = canvas; // host_web.py reads it via pyjs.js.canvas (null: no drawing)
-  base = pageUrl;
   // the URL query parameters (?env=LunarLander&algo=cem...) + the role ("single",
   // "display", "trainer"; none: compute only) for host_web.start
-  self.webgymOptions = JSON.stringify({ ...Object.fromEntries(new URL(pageUrl).searchParams), role });
+  self.webgymOptions = JSON.stringify({ ...Object.fromEntries(new URL(base).searchParams), role });
   progress("startup", "starting python");
-  // the architecture: ?arch=wasm32 / wasm64, else wasm64 where the browser has 64-bit
-  // memory (memory64: Chrome, Firefox), wasm32 elsewhere (Safari)
-  const asked = new URL(pageUrl).searchParams.get("arch");
-  const arch = asked === "wasm32" || asked === "wasm64" ? asked : MEMORY64 ? "wasm64" : "wasm32";
+  const arch = pageArch(base);
   times.arch = arch;
-  const config = await (await fetch(new URL("config.json", base), { cache: "no-cache" })).json();
+  config = (await (await fetch(new URL("config.json", base), { cache: "no-cache" })).json())[arch];
   pyjs = await (arch === "wasm64" ? initWasm64 : initWasm32)({
     assetsUrl: new URL("pyjs/", base).href,
     cdnFallback: false,
+    wasmModule, // (compiled by the page once for all workers; none: compiled here)
+    urls: config.core, // numpy, pyopengl, pyb2d3 (pinned)
+    // (cache: the archive's name has its content hash, so pyjs caches it like a package:
+    // unpacked files + bytecode, no download on later visits)
+    archives: config.archives.map((a) => ({ url: new URL(a.url, base).href, path: a.path, cache: true })),
+    onProgress: reportTo("startup"),
   });
   lap("python");
-  for (const archive of config[arch].archives) await unpackArchive(pyjs, archive);
-  lap("archives");
-  progress("startup", "importing");
-  await pyjs.async_exec_eval(`
-import sys, importlib
-sys.path.insert(0, "/app")
-sys.dont_write_bytecode = True  # code edited in the page is re-imported
-importlib.invalidate_caches()
-`);
-  // no role: a compute-only worker (benchmarks, the IREE compiler)
+  await pyjs.async_exec_eval('import sys, importlib\nsys.path.insert(0, "/app")\nimportlib.invalidate_caches()');
+  // the python files edited in this browser (edits.js), over the originals, before
+  // webgym is imported; one that doesn't compile is skipped (and reported)
+  if (sources.length) {
+    self.webgymSources = JSON.stringify(sources);
+    const skipped = await pyjs.async_exec_eval(EDITED_SOURCES);
+    if (String(skipped)) post({ type: "error", error: `edited code not applied (it doesn't compile): ${skipped}` });
+  }
+  // no role: a compute-only worker (benchmarks)
   if (role) await pyjs.async_exec_eval("from webgym import host_web\n_host = host_web.start()");
+  // keep the bytecode of the startup imports (numpy, pyopengl, pyb2d3, webgym) for the
+  // next visit: in a worker pyjs saves it only when asked (>= 5.2)
+  await pyjs.saveBytecode();
   lap("running");
   progress("startup", "done");
-  console.info("webgym loading times (s since start):", times);
+  console.info("webgym loading times (s since start):", times, "pyjs:", pyjs.initTimings);
 }
 
-/** install conda packages from the channel (e.g. pytorch), then run `check` (python) */
-async function install(name, packages, check) {
+/** install a package group of config.json (e.g. "pytorch"), then run `check` (python) */
+async function install(name, check) {
   const start = performance.now();
   progress(name, "downloading");
-  await pyjs.installPackages(packages, { logger: { log: (m) => progress(name, String(m)), warn: console.warn, error: console.error } });
+  await pyjs.installPackages(config[name], { onProgress: reportTo(name) });
   const downloaded = (performance.now() - start) / 1000;
   progress(name, "importing");
   let result;
   try {
     result = await pyjs.async_exec_eval(check);
+    await pyjs.saveBytecode(); // (the next visit imports it without compiling the sources)
   } catch (e) {
     // a failed check (python exception): reported as the result, the page goes on
     result = `failed: ${String(e?.message ?? e).trim().split("\n").at(-1)}`;
@@ -175,22 +132,19 @@ self.addEventListener("unhandledrejection", (e) => {
 
 self.onmessage = async ({ data }) => {
   try {
-    if (data.type === "init") await init(data.canvas, data.base, data.role);
+    if (data.type === "init") await init(data.canvas, data.base, data.role, data.wasmModule, data.sources);
     else if (data.type === "snapshot") self.webgymSnapshot?.(data.data);
     else if (data.type === "event") self.webgymEvent?.(data.kind, data.x ?? 0, data.y ?? 0, data.delta ?? 0, data.key ?? "");
     else if (data.type === "command") self.webgymCommand?.(data.name, data.value ?? null);
     else if (data.type === "restore") self.webgymRestore?.(data.data);
-    else if (data.type === "compile_result") {
-      const { resolve, reject } = compiles.get(data.id);
-      compiles.delete(data.id);
-      if (data.error) reject(new Error(data.error));
-      else resolve(data.data);
-    }
+    // simulation helpers: a chunk of the population to run (helper) / its returns (trainer)
+    else if (data.type === "evaluate") self.webgymEvaluate?.(JSON.stringify(data));
+    else if (data.type === "evaluated") self.webgymEvaluated?.(JSON.stringify(data));
     else if (data.type === "resize") {
       if (!self.canvas) return; // (not initialized: the init message sets the size anyway)
       self.canvas.width = data.width;
       self.canvas.height = data.height;
-    } else if (data.type === "install") await install(data.name, data.packages, data.check);
+    } else if (data.type === "install") await install(data.name, data.check);
     else if (data.type === "exec") {
       // compute-only workers: run python, the value of the last expression comes back
       const value = await pyjs.async_exec_eval(data.code);

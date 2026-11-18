@@ -35,7 +35,7 @@ end of the parcours is purely a question of design.
     `b2d.polygon(points=…)`, it builds the convex hull with `compute_hull` and silently
     removes every concave dent.
   - Instead, make **8 triangles** `(0,0), p_k, p_{k+1}` as shapes on one body
-    (`agent_body(i, position, shapes=[…])`). Any star-shaped car becomes possible, as in
+    (`self.body(position, triangle_0)`, then `self.shape(body, triangle_k)`). Any star-shaped car becomes possible, as in
     BoxCar2D.
   - A triangle with a tiny area makes `compute_hull` return `count == 0`. Clamp each radius
     to at least 0.2 m and skip degenerate triangles.

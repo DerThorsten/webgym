@@ -8,7 +8,6 @@ import pyb2d3 as b2d
 import pytest
 
 from webgym.app import App
-from webgym.core import new_world
 
 
 def screen_of(app, world_pos):
@@ -24,14 +23,14 @@ def make_app(**kwargs):
 
 
 def cart_x(app):
-    return float(app.env.carts.position[0, 0])
+    return float(app.env.cart.position[0, 0])
 
 
 def test_drag_the_cart_in_watch_mode():
     """grab the cart, move the pointer right: the cart follows"""
     app = make_app()
     app.command("show_n", 1)  # (one cart: the grabbed one is agent 0)
-    start = tuple(app.env.carts.position[0])
+    start = tuple(app.env.cart.position[0])
     app.event("down", *screen_of(app, start))
     assert app.mouse_drag.active
     app.event("move", *screen_of(app, (start[0] + 1.5, start[1])))
@@ -58,10 +57,12 @@ def test_pan_and_zoom():
 
 
 def test_human_controller_and_delayed_reset():
-    """human: the right arrow pushes the cart right; after the episode ends, the next
-    one starts only after a pause"""
+    """human: the right arrow pushes the cart right; with auto reset (off while playing,
+    switched on again here) the next episode starts only after a pause"""
     app = make_app()
     app.command("controller", "human")
+    assert not app.auto_reset
+    app.command("auto_reset", True)
     app.event("keydown", key="right")
     while app.end_timer is None:
         app._watch_step()
@@ -105,7 +106,7 @@ def test_train_stop_continue_new_run():
     app = make_app()
     app.command("train")
     assert app.training and app.state()["mode"] == "train"
-    app.event("down", *screen_of(app, tuple(app.pop_env.carts.position[0])))
+    app.event("down", *screen_of(app, tuple(app.pop_env.cart.position[0])))
     assert not app.mouse_drag.active  # pan only while training
     app.event("up", 0, 0)
     while len(app.history) < 3:
@@ -120,8 +121,14 @@ def test_train_stop_continue_new_run():
         app._train_steps()
     iterations = [h["iteration"] for h in app.history]
     assert iterations == list(range(1, len(iterations) + 1))  # continued, no restart
-    app.command("new_run")
+    app.command("new_run")  # (starts over and trains right away)
     assert app.history == [] and app.params is None and app.train_state is None
+    assert app.training
+    app.command("algo", "es")  # (switched while training: the new algorithm trains at once)
+    assert app.algo == "es" and app.training and app.history == []
+    app.command("stop")
+    app.command("algo", "cem")  # (not training: it only switches)
+    assert app.algo == "cem" and not app.training
 
 
 def test_checkpoint_restore_continue():
@@ -133,7 +140,7 @@ def test_checkpoint_restore_continue():
         app._train_steps()
     app.command("stop")
     data = app.checkpoint()
-    assert data[:8] and len(data) < 50_000  # small
+    assert data[:8] and len(data) < 100_000  # small
 
     fresh = make_app()  # CartPole: restore switches the env
     fresh.restore(data)
@@ -175,6 +182,8 @@ def test_show_n_best_policies():
         trainer._train_steps()
     assert trainer.top_params is not None and len(trainer.top_params) >= 8
     display = make_app()
+    assert display.env.n == 1  # (by default: the current policy alone)
+    display.command("show_n", 8)
     display.load_policy(trainer.checkpoint())
     assert display.env.n == 8
     params = display._watch_params()
@@ -187,6 +196,23 @@ def test_show_n_best_policies():
     display.command("controller", "agent")
     display.command("show_n", 3)
     assert display.env.n == 3
+
+
+def test_watched_policies_start_alike():
+    """the policies you watch all get the same (random) start, a new one each episode;
+    in training every agent gets its own"""
+    app = App(env="LunarLander", seed=0)
+    starts = []
+    for _ in range(2):
+        app.env.reset()
+        pos = app.env.lander.position
+        assert np.allclose(pos, pos[0])
+        starts.append(pos[0].copy())
+    assert not np.allclose(starts[0], starts[1])
+    app.command("train")
+    app.pop_env.reset(seed=0)
+    pos = app.pop_env.lander.position
+    assert len(np.unique(pos[:, 0])) == app.population
 
 
 def test_network_view():
@@ -232,13 +258,164 @@ def test_non_batchable_env_disables_population(monkeypatch):
     assert {"population", "show_n"} <= disabled()
 
 
-def test_gpu_checkbox_only_for_gpu_algorithms():
-    """'Use GPU' can only be ticked for an algorithm that trains on the GPU (PPO jax)"""
+def test_non_batchable_env_trains_in_separate_worlds():
+    """the car: one car in view, training with a population of separate worlds (at
+    most MAX_SEPARATE); the leader's world is drawn"""
+    from webgym.core import MAX_SEPARATE
+
+    app = make_app(env="Car", population=64)
+    assert app.env.n == 1
+    app.command("train")
+    assert app.pop_env.n == MAX_SEPARATE
+    while not app.history:
+        app._train_steps()
+        app._update_view()
+    assert app.pop_env.world is app.pop_env.envs[app.leader or 0].world
+    app.command("stop")
+    assert app.env.n == 1
+
+
+def test_checkpoint_of_an_unknown_env():
+    """a checkpoint of an env webgym no longer has (renamed, removed): refused with a
+    message (the page puts it in the log), the app goes on"""
+    from webgym import checkpoints
+
     app = make_app()
-    use_gpu = lambda: next(c for c in app.controls() if c["name"] == "use_gpu")  # noqa: E731
-    assert use_gpu()["disabled"]  # (CEM)
-    app.command("algo", "ppo_jax")
-    assert not use_gpu()["disabled"]
+    data = app.checkpoint()
+    tensors, meta = checkpoints.loads(data)
+    with pytest.raises(ValueError, match="no longer has"):
+        app.restore(checkpoints.dumps(tensors, dict(meta, env="Tank")))
+    assert app.env_name == "CartPole"
+
+
+def test_env_settings():
+    """an env setting (the water cannon's balls) is a select in the page's World tab; a
+    change rebuilds the env (more balls: more observations) as a new run; checkpoints
+    carry the settings and bring them back; the env key names them"""
+    app = make_app(env="WaterCannon")
+    control = next(c for c in app.controls() if c["name"] == "setting.balls")
+    assert control["type"] == "select" and control["options"] == [1, 2, 3] and control["value"] == 1
+    # (the World tab: the env and its settings; the top bar: who plays, auto reset, the
+    # keys, Train / New run)
+    sections = {c["name"]: c["section"] for c in app.controls()}
+    assert sections["env"] == sections["setting.balls"] == "environment"
+    assert {n for n, s in sections.items() if s == "bar"} == {"controller", "auto_reset", "keys", "train", "new_run"}
+    assert app.env_key == "WaterCannon · balls 1"
+    app.command("train")
+    while not app.history:
+        app._train_steps()
+    one_ball = app.checkpoint()
+    app.command("setting.balls", "2")  # (the page sends text)
+    assert app.settings == {"balls": 2} and app.env.balls == 2 and not app.history
+    assert len(app.env.obs_names) == 15 and app.policy.sizes[0] == 15  # (2 balls, 2 cannons)
+    assert app.env_key == "WaterCannon · balls 2"
+    app.command("train")
+    while not app.history:
+        app._train_steps()
+    assert app.pop_env.balls == 2
+    app.restore(one_ball)  # (back to one ball, with its run)
+    assert app.settings == {"balls": 1} and app.history and app.policy.sizes[0] == 8
+    display = make_app()
+    display.load_policy(app.checkpoint())
+    assert display.env_key == "WaterCannon · balls 1"
+    for _ in range(3):
+        display._watch_step()
+
+
+def test_simulation_helpers():
+    """CEM with simulation helpers: the population is split (this env runs its share, the
+    helpers the rest: connected directly here, in the browser through the page); the
+    helpers' returns come back and training learns as without them; a helper that never
+    answers: its candidates count as failed, training goes on"""
+    from webgym import helpers as h
+
+    answers = []
+    pool = h.Pool(lambda message: answers.append(h.evaluate(message)))
+    pool.count = 3
+    app = make_app(population=64, helpers=pool)
+    app.command("train")
+    assert app.pop_env.n == 16 and app.pop_env.population == 64
+    while len(app.history) < 12:
+        app._train_steps()
+        while answers:  # (the page would deliver them between the steps)
+            pool.receive(answers.pop())
+    first, last = app.history[0]["mean_return"], app.history[-1]["mean_return"]
+    assert last > 3 * first  # (CartPole learns, with all 64)
+    app.command("helpers", 0)  # (the helpers went away: all in this env again)
+    assert app.pop_env.n == 64
+
+    from webgym.algos.cem import rollout
+    from webgym.core import make
+    from webgym.policies import policy_for
+
+    silent = h.Pool(lambda message: None)  # (a helper that never answers)
+    silent.count = 1
+    env = make("CartPole", n=4)
+    env.helpers, env.population = silent, 8
+    policy = policy_for(env)
+    h.TIMEOUT, timeout = 0.0, h.TIMEOUT
+    try:
+        episode = rollout(env, policy, np.zeros((8, policy.num_params)), 0)
+        while True:
+            next(episode)
+    except StopIteration as end:
+        returns = end.value
+    finally:
+        h.TIMEOUT = timeout
+    assert len(returns) == 8 and (returns[4:] == returns[:4].min()).all()
+
+
+def test_pretrained_from_the_command_line(tmp_path):
+    """python -m webgym.cli ENV --save FILE trains headless and writes a page checkpoint:
+    the app restores it like its own (the page's pretrained runs)"""
+    from webgym.cli import train_and_save
+
+    path = tmp_path / "pretrained" / "CartPole-cem.safetensors"
+    train_and_save(path, "CartPole", iterations=3, population=16, log=lambda line: None)
+    app = make_app()
+    app.restore(path.read_bytes())
+    n = len(app.history)  # (at least 3: a training chunk may run a few more)
+    assert n >= 3 and [h["iteration"] for h in app.history] == list(range(1, n + 1)) and app.params is not None
+    app.command("train")  # (it goes on from there)
+    while len(app.history) < n + 1:
+        app._train_steps()
+    assert app.history[n]["iteration"] == n + 1  # (continued: no restart at 1)
+
+
+def test_checkpoint_of_another_env_version_is_refused():
+    """a checkpoint whose policy doesn't fit the env as it is now (the env's code changed:
+    other observations) is refused with a clear error; the app goes on as it was"""
+    from webgym import checkpoints
+
+    app = make_app()
+    app.command("train")
+    while not app.history:
+        app._train_steps()
+    tensors, meta = checkpoints.loads(app.checkpoint())
+    meta["policy_sizes"] = [5, *meta["policy_sizes"][1:]]  # (CartPole sees 4 values)
+    other = make_app()
+    with pytest.raises(ValueError, match="another version of the env"):
+        other.restore(checkpoints.dumps(tensors, meta))
+    with pytest.raises(ValueError, match="another version of the env"):
+        other.load_policy(checkpoints.dumps(tensors, meta))
+    for _ in range(5):
+        other._watch_step()
+
+
+def test_checkpoint_of_an_unknown_algorithm_is_refused():
+    """a checkpoint of an algorithm webgym no longer has (e.g. ppo_jax) gives a clear
+    error, the app stays as it was"""
+    from webgym import checkpoints
+
+    app = make_app()
+    app.command("train")
+    while not app.history:
+        app._train_steps()
+    app.command("stop")
+    tensors, meta = checkpoints.loads(app.checkpoint())
+    data = checkpoints.dumps(tensors, dict(meta, algo="ppo_jax"))
+    with pytest.raises(ValueError, match="no longer has"):
+        make_app().restore(data)
 
 
 def test_camera_follows_the_walker():
@@ -248,7 +425,7 @@ def test_camera_follows_the_walker():
     assert next(c for c in app.controls() if c["name"] == "follow")["disabled"]
     app.command("env", "Walker")
     app.command("follow", True)
-    app.env.hulls.position = app.env.hulls.position + np.array([5.0, 0.0])  # (walked away)
+    app.env.hull.position = app.env.hull.position + np.array([5.0, 0.0])  # (walked away)
     for _ in range(100):
         app._update_view()
     assert abs(app.camera.center[0] - app.env.camera_target(0)[0]) < 0.01
@@ -256,27 +433,28 @@ def test_camera_follows_the_walker():
     assert tuple(app.camera.center) == app.env.view_center
 
 
-def test_throw_things_at_the_agent():
-    """torture: a thrown ball / box flies at the watched agent and hits it (its hull is
-    pushed); the next episode has none of them; automatic throwing every few seconds"""
-    app = make_app(env="Walker")
-    app.command("show_n", 1)
-    for _ in range(30):  # (let it stand)
-        app._watch_step()
-    body = app.throw()
-    before = np.array(app.env.hulls.linear_velocity[0])
-    hit = False
-    for _ in range(60):
-        app._watch_step()
-        hit |= np.abs(np.array(app.env.hulls.linear_velocity[0]) - before).max() > 0.3
-    assert hit, "the thrown thing did not hit the walker"
-    assert body.is_valid
-    app.command("reset")
-    assert not body.is_valid  # (gone with the snapshot reset)
-    app.command("throw_every", 3)  # every 0.3 s
-    for _ in range(60):
-        app._watch_step()
-    assert app._throw_timer < 0.3
+def test_layers_and_play_yourself():
+    """'layers' x 'hidden' make the network (a new run); the controls show its shape;
+    the play-yourself checkbox switches to the keyboard and back"""
+    app = make_app()
+    assert app.policy.sizes == [4, 16, 16, 1]  # (CEM: two layers by default)
+    app.command("hp.layers", 3)
+    app.command("hp.hidden", 8)
+    assert app.policy.sizes == [4, 8, 8, 8, 1]
+    hint = next(c for c in app.controls() if c["name"] == "network")
+    assert "4 → 8 → 8 → 8 → 1" in hint["text"] and f"{app.policy.num_params:,} weights" in hint["text"]
+    app.command("train")
+    while not app.history:
+        app._train_steps()
+    app.command("stop")
+    fresh = make_app()  # (a restored run shows its network in the sliders)
+    fresh.restore(app.checkpoint())
+    assert fresh.hp["cem"]["layers"] == 3 and fresh.hp["cem"]["hidden"] == 8
+    app.command("controller", True)  # playing: auto reset off ...
+    assert app.controller == "human" and next(c for c in app.controls() if c["name"] == "controller")["value"]
+    assert not app.auto_reset
+    app.command("controller", False)  # ... and back on afterwards
+    assert app.controller == "agent" and app.auto_reset
 
 
 def test_replay_speed():
@@ -349,18 +527,7 @@ def test_switching_envs_frees_worlds():
         app.command("train")
         app._train_steps()
         app.command("stop")
-    worlds = [new_world() for _ in range(b2d.MAX_WORLDS - 10)]
-    assert all(w.is_valid for w in worlds)
-    for w in worlds:
-        w.destroy()
-
-
-def test_too_many_worlds_raise():
-    """an invalid world (all worlds in use) is an error, not silent memory corruption"""
-    worlds = []
-    with pytest.raises(RuntimeError, match="too many box2d worlds"):
-        for _ in range(b2d.MAX_WORLDS + 1):
-            worlds.append(new_world())
+    worlds = [b2d.World() for _ in range(b2d.MAX_WORLDS - 10)]  # (raises if they leaked)
     for w in worlds:
         w.destroy()
 
