@@ -55,6 +55,7 @@ PARTICLE_COLOR = 0xFFA040
 SCENERY_COLOR = 0x4E8A68  # custom debug draw colors (the view keeps these opaque)
 PROP_COLOR = 0xB08850
 LEADER_COLOR = 0xFF8C42
+MARK_COLOR = 0xA8B8B0  # (marks on the scenery, e.g. the walkers' ground ticks)
 
 
 class Box:

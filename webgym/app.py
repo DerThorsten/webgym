@@ -27,7 +27,7 @@ import pyb2d3 as b2d
 
 from webgym import checkpoints, toys
 from webgym.algos import ALGOS, HELP
-from webgym.core import ENVS, LEADER_COLOR, PARTICLE_COLOR, PROP_COLOR, SCENERY_COLOR, env_key, make
+from webgym.core import ENVS, LEADER_COLOR, MARK_COLOR, PARTICLE_COLOR, PROP_COLOR, SCENERY_COLOR, env_key, make
 from webgym.gl.debug_draw_gl import Camera, GLDebugDraw
 from webgym.policies import from_sizes
 
@@ -370,7 +370,8 @@ class App:
              "value": self.show_n, "disabled": not self.env.batchable,
              "help": "How many policies run at once in the view: the current one (solid) and as "
                      "ghosts the best candidates of the last iteration (CEM / ES) or the most "
-                     "recent policies (PPO / DQN)."},
+                     "recent policies (PPO / DQN). (Phones, while training: 1 shows the leading "
+                     "candidate alone, more the whole population.)"},
             {"type": "slider", "name": "replay_speed", "label": "Replay speed", "min": 0,
              "max": len(REPLAY_SPEEDS) - 1, "step": 1, "value": REPLAY_SPEEDS.index(self.replay_speed),
              "labels": [f"{s}x" for s in REPLAY_SPEEDS],
@@ -784,8 +785,12 @@ class App:
         self.debug_draw.begin_draw()
         env = self.pop_env if self.training else self.env
         if env.n > 1:  # ghosts, the leader solid
+            # (training, drawn here: one worker, e.g. a phone: "show policies" 1 = the
+            # leader alone, the other candidates invisible)
+            alpha = 0 if self.training and self.show_n == 1 else GHOST_ALPHA
             self.debug_draw.draw_world(
-                env.world, color=GHOST_COLOR, alpha=GHOST_ALPHA, keep=(LEADER_COLOR, SCENERY_COLOR, PROP_COLOR, PARTICLE_COLOR)
+                env.world, color=GHOST_COLOR, alpha=alpha,
+                keep=(LEADER_COLOR, SCENERY_COLOR, PROP_COLOR, PARTICLE_COLOR, MARK_COLOR),
             )
         else:
             self.debug_draw.draw_world(env.world)
