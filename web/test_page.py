@@ -270,7 +270,8 @@ def main():
         for env in ("LunarLander", "Walker", "Crawler", "Car"):
             page.select_option("#controls-environment select >> nth=0", env)
             page.wait_for_timeout(800)
-        # the pretrained walker that comes with the page (public/pretrained/): restorable
+        # the pretrained walker that comes with the page (public/pretrained/): restorable;
+        # all its algorithms are listed, the best first (PPO): a restore switches to it
         page.select_option("#controls-environment select >> nth=0", "Walker")
         page.click("#tabs button:text('Policy')")
         # (Walker's: wait for its world, the list may still show the previous env's runs)
@@ -279,8 +280,9 @@ def main():
         page.wait_for_timeout(500)
         pretrained = page.locator(".ckpt", has_text="pretrained")
         pretrained.first.wait_for(timeout=20_000)
+        assert pretrained.count() > 1 and "PPO" in pretrained.first.inner_text(), pretrained.first.inner_text()
         pretrained.first.locator("button:text('Restore')").click()
-        page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration')",
+        page.wait_for_function("document.getElementById('state').textContent.includes('ppo_torch, iteration')",
                                timeout=20_000)
         print("pretrained walker:", state(page))
         page.click("#tabs button:text('World')")

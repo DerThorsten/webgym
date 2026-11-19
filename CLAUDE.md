@@ -157,8 +157,9 @@ Technical considerations:
   checkpoint of the best mean iteration) into `web/public/pretrained/` (not in git:
   `--upload` puts them on the GitHub release `pretrained-<version>`, `--download` gets
   them; the Pages workflow downloads before building). `build_page.py` writes
-  `public/pretrained/index.json`; the Policy tab lists them as "pretrained" (restore
-  only, fetched on click) for their env key + algo. 29 runs (2026-11-19; limits per run:
+  `public/pretrained/index.json`; the Policy tab lists them as "Pretrained · <algo
+  label>" (restore only, fetched on click) for their env key, every algorithm, the best
+  mean first (a restore switches algo + network). 29 runs (2026-11-19; limits per run:
   numpy 6 min, pytorch 12 min, the trainer ends after 1000 iterations; not shipped: Car /
   NEAT and Car / SAC, negative on fresh tracks). `--upload` doesn't remove assets that are
   gone locally: `gh release delete-asset`. After an env changes, retrain its runs and

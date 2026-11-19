@@ -69,8 +69,10 @@ def pack_sources():
 def pretrained_index():
     """public/pretrained/index.json: the pretrained runs there (checkpoints written by
     `python -m webgym.cli ENV --save public/pretrained/NAME.safetensors`), from their own
-    metadata: [{file, env (its key, with the settings), algo, iteration, mean_return}]"""
+    metadata: [{file, env (its key, with the settings), algo, label (the algorithm's
+    name), iteration, mean_return}]"""
     from webgym import checkpoints
+    from webgym.algos import ALGOS
 
     folder = PUBLIC / "pretrained"
     if not folder.exists():
@@ -79,7 +81,8 @@ def pretrained_index():
     for path in sorted(folder.glob("*.safetensors")):
         _, meta = checkpoints.loads(path.read_bytes())
         index.append({"file": path.name, "env": meta.get("env_key", meta["env"]), "algo": meta["algo"],
-                      "iteration": meta["iteration"], "mean_return": meta["mean_return"]})
+                      "label": ALGOS[meta["algo"]].label, "iteration": meta["iteration"],
+                      "mean_return": meta["mean_return"]})
     (folder / "index.json").write_text(json.dumps(index, indent=2))
     print(f"pretrained: {', '.join(f'{r['env']} / {r['algo']}' for r in index) or 'none'}")
 

@@ -41,19 +41,20 @@ export const put = (record) =>
   transaction("readwrite", (s) => s.put({ ...record, key: keyOf(record.env, record.algo, record.name), saved: Date.now() }));
 export const remove = (env, algo, name) => transaction("readwrite", (s) => s.delete(keyOf(env, algo, name)));
 export const get = (env, algo, name) => transaction("readonly", (s) => s.get(keyOf(env, algo, name)));
-/** the checkpoints of env + algo, the autosave first, then the newest, then the
- * pretrained ones that come with the page */
+/** the checkpoints of env + algo, the autosave first, then the newest; then the
+ * pretrained ones of env that come with the page, of every algorithm (a restore
+ * switches to it), the best first */
 export async function list(env, algo) {
   const all = (await transaction("readonly", (s) => s.getAll())) ?? [];
   const own = all
     .filter((r) => r.env === env && r.algo === algo)
     .sort((a, b) => (b.name === AUTOSAVE) - (a.name === AUTOSAVE) || b.saved - a.saved);
-  const shipped = (await pretrained).filter((r) => r.env === env && r.algo === algo);
-  return [...own, ...shipped.map((r) => ({ ...r, name: "pretrained", pretrained: true }))];
+  const shipped = (await pretrained).filter((r) => r.env === env).sort((a, b) => b.mean_return - a.mean_return);
+  return [...own, ...shipped.map((r) => ({ ...r, name: `Pretrained · ${r.label ?? r.algo}`, pretrained: true }))];
 }
 
 // the pretrained runs that come with the page (public/pretrained/index.json, written by
-// build_page.py): [{file, env, algo, iteration, mean_return}]
+// build_page.py): [{file, env, algo, label, iteration, mean_return}]
 const pretrained = fetch("pretrained/index.json")
   .then((r) => (r.ok ? r.json() : []))
   .catch(() => []);
