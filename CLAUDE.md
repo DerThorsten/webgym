@@ -49,8 +49,9 @@ Technical considerations:
   natively (tests, headless CLI) and in the browser (pyjs 5 in Web Workers, WebGL2 on an
   OffscreenCanvas via PyOpenGL). Deployed to GitHub Pages from `main` (`.github/workflows/pages.yml`).
 - Envs (`webgym/envs/`, registered with `@register_env`): CartPole, LunarLander, Walker,
-  Crawler, Car (was Tank; an unknown env / algo in the URL falls back to the default with
-  a log note, a checkpoint of one is refused), DoubleCartPole (CartPole with a second pole on
+  Crawler (the Car (was Tank) was dropped 2026-11-19: its pretrained runs were poor; it is
+  in git history before that; an unknown env / algo in the URL falls back to the default
+  with a log note, a checkpoint of one is refused), DoubleCartPole (CartPole with a second pole on
   top; replaced the swing-up Pendulum), Ragdoll (pyb2d3's ragdoll as a walker, `Legged`
   subclass; feet on ankles, every one of its 11 joints a motor (action) and observed, plus
   the heels' heights; limp motors at action 0, so it falls untrained), WaterCannon (the CarDesigner was dropped 2026-11-19: open loop, one design
@@ -80,7 +81,8 @@ Technical considerations:
   2026-11-19: no faster than separate worlds (0.6x driving: every ray meets all cars'
   pebbles). One world vs separate worlds, agent-steps/s, 32 agents: CartPole 24x,
   DoubleCartPole 25x, LunarLander 14x, Walker 11x, WaterCannon 6x, Crawler 2.4x.
-- `batchable = False` (Car: it pushes loose crates and gravel, `Env.prop`): `make(name, n > 1)` returns
+- `batchable = False` (no env now; was the Car: it pushed loose crates and gravel, `Env.prop`;
+  tested with CartPole marked so): `make(name, n > 1)` returns
   `Separate`, n one-agent envs in their own worlds behind the batched API (at most
   `MAX_SEPARATE` = 32); the view shows one agent; while training the leader's world is drawn.
 - Decoration (looks only): `make(name, decorated=True)` builds it (e.g. the lander's flags,
@@ -160,8 +162,8 @@ Technical considerations:
   `public/pretrained/index.json`; the Policy tab lists them as "Pretrained · <algo
   label>" (restore only, fetched on click) for their env key, every algorithm, the best
   mean first (a restore switches algo + network). 29 runs (2026-11-19; limits per run:
-  numpy 6 min, pytorch 12 min, the trainer ends after 1000 iterations; not shipped: Car /
-  NEAT and Car / SAC, negative on fresh tracks). `--upload` doesn't remove assets that are
+  numpy 6 min, pytorch 12 min, the trainer ends after 1000 iterations; no Car runs: the
+  Car was dropped). `--upload` doesn't remove assets that are
   gone locally: `gh release delete-asset`. After an env changes, retrain its runs and
   check them all: `pixi run -e ml python web/check_pretrained.py` (restores each as the
   page does, replays its policy on the current env vs its training mean).
@@ -200,7 +202,8 @@ Technical considerations:
   answers are in; no answer in 60 s: those candidates count as the worst). Slider
   "Simulation workers" (0 .. cores - 2, default half, remembered; `?helpers=N`); started
   once the trainer is ready. Measured: Walker, 20 s: 20 iterations alone, 72 with 3.
-- Query params: `env`, `algo`, `population`, `seed`, `train=0` (no autostart), `workers`,
+- Query params: `env`, `algo`, `population`, `seed`, `train=0` (no autostart; picking another world or a
+  setting in the page always starts training, after restoring its autosave), `workers`,
   `arch`, `dpr`, `tour=0`, `welcome=1`.
 - Crash handling: a wasm trap in a worker -> the page restarts it (autosave restored); more
   than 3 crashes a minute -> stop. Python exceptions are only reported.

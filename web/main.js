@@ -13,7 +13,7 @@ import { createEditor, forgetFile, openFile, saveFile } from "./editor.js";
 import { removeEdit, saveEdit, storedEdits } from "./edits.js";
 import { drawNetwork } from "./network.js";
 import { plot } from "./plot.js";
-import { startTour, tourDone, welcome } from "./tour.js";
+import { ask, startTour, tourDone, welcome } from "./tour.js";
 
 const stage = document.getElementById("stage");
 let canvas = document.getElementById("canvas"); // replaced on a worker restart
@@ -44,6 +44,9 @@ const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "show_n", "replay_speed
 /** a widget changed: route the command to the worker(s) concerned */
 function command(name, value) {
   const message = { type: "command", name, value };
+  // another world (or its settings): it starts training at once, as on page load (its
+  // autosave, if there is one, is restored first: that run continues)
+  if (name === "env" || name.startsWith("setting.")) autoTrain = true;
   if (!TWO_WORKERS) return toDisplay(message);
   if (DISPLAY_COMMANDS.has(name) || name.startsWith("toy.") || name === "env" || name.startsWith("setting.") || name === "code") toDisplay(message);
   toTraining(message);
@@ -232,7 +235,22 @@ const openFolds = new Set(["Things to drop"]); // the folds that are open (kept 
 
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
+// the compact training buttons above the tabs: ▶ / ⏸ (train / stop, as the bar's button
+// says) and ⟲ (new run)
+const quickTrain = document.getElementById("quick-train");
+document.getElementById("quick-new").onclick = () => command("new_run");
+function showQuick(controls) {
+  const button = controls.find((c) => c.name === "train" || c.name === "stop");
+  if (!button) return;
+  const running = button.name === "stop";
+  quickTrain.textContent = running ? "⏸" : "▶";
+  quickTrain.title = button.label; // (Train / Continue training / Stop)
+  quickTrain.classList.toggle("running", running);
+  quickTrain.onclick = () => command(button.name);
+}
+
 function showControls(controls) {
+  showQuick(controls);
   // each control in its section ("bar": Train / Stop, New run, auto reset above the watching panel, "environment", "training"), buttons
   // at its end
   const sections = new Map();
@@ -781,13 +799,19 @@ async function checkRelease() {
     const release = config[pageArch(location.href)].release;
     const seen = localStorage.getItem(RELEASE);
     if (!release || seen === release) return;
-    if (VISITED) {
-      const ok = confirm(
-        `webgym was updated (${seen ?? "an older version"} → ${release}).\n\n` +
-          "What this browser saved for the old version doesn't fit any more and will be deleted: " +
-          "your training runs and checkpoints, your code edits, the cached packages (downloaded " +
-          "again, once) and the page's settings.\n\nOK: delete and continue. Cancel: keep it for now " +
-          "(old runs may fail to load); you'll be asked again next time.",
+    // (only a browser with work to lose is asked: runs, checkpoints, code edits; old
+    // settings and cached packages go without asking; a first visit has neither)
+    if (VISITED && !(await savedWork())) await forgetEverything();
+    else if (VISITED) {
+      const ok = await ask(
+        `<h2>webgym was updated</h2>
+        <p>${seen ?? "An older version"} → <b>${release}</b>. What this browser saved for the old
+          version may not fit any more: your training runs and checkpoints, your code edits,
+          the cached packages and the page's settings.</p>
+        <p><b>Delete and continue</b> starts fresh (the packages are downloaded again, once).
+          <b>Keep for now</b> keeps them (old runs may fail to load); you'll be asked again next
+          time.</p>`,
+        [[false, "Keep for now"], [true, "Delete and continue"]],
       );
       if (!ok) return;
       await forgetEverything();
@@ -795,6 +819,32 @@ async function checkRelease() {
     localStorage.setItem(RELEASE, release);
   } catch (error) {
     console.warn("release check:", error); // (no storage, no config: go on)
+  }
+}
+
+/** does this browser hold webgym work: runs and checkpoints (IndexedDB "webgym"), code
+ * edits ("webgym-code")? (the page opens them on every visit: their records count; an
+ * error: assume so) */
+async function savedWork() {
+  const count = (name, store) =>
+    new Promise((resolve) => {
+      const request = indexedDB.open(name);
+      request.onerror = () => resolve(1);
+      request.onsuccess = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(store)) return db.close(), resolve(0);
+        const counting = db.transaction(store).objectStore(store).count();
+        counting.onsuccess = () => (db.close(), resolve(counting.result));
+        counting.onerror = () => (db.close(), resolve(1));
+      };
+    });
+  try {
+    const names = (await indexedDB.databases()).map((d) => d.name); // (open() would create them)
+    const runs = names.includes("webgym") ? await count("webgym", "checkpoints") : 0;
+    const edits = names.includes("webgym-code") ? await count("webgym-code", "files") : 0;
+    return runs + edits > 0;
+  } catch {
+    return true;
   }
 }
 

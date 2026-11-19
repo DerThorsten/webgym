@@ -33,13 +33,13 @@ const TOURS = {
     { target: barButton(0), text: "<b>Train / Stop.</b> Starts learning; Stop keeps the run, <i>Continue training</i> goes on with it. Training runs in a worker of its own: the page stays responsive." },
     { target: barButton(1), text: "<b>New run</b> throws the run away (network, history, autosave) and starts training from scratch." },
     { target: "#chips", text: "<b>The live numbers:</b> the world (with its settings), training and its iteration, the population's mean and best return, the episode you watch and its return so far." },
-    { target: control("Auto reset"), text: "<b>Auto reset:</b> a new episode when the watched one ends. Off: it goes on after a fall, see whether the agent recovers; R starts a new one.<br>Fun with it off: tease a trained agent with the mouse (knock the walker over, nudge the lander off course, push the car back) and watch how it copes." },
+    { target: control("Auto reset"), text: "<b>Auto reset:</b> a new episode when the watched one ends. Off: it goes on after a fall, see whether the agent recovers; R starts a new one.<br>Fun with it off: tease a trained agent with the mouse (knock the walker over, nudge the lander off course, tip the ragdoll) and watch how it copes." },
     // the World tab
     { target: "#controls-environment select", tab: "world", text: "<b>The world.</b> Each one is a python file: a box2d world with agents in it, what they see, what they do, what earns reward." },
     { target: "#controls-environment .info", tab: "world", text: "<b>What it is about:</b> the task, the observations, the actions and the reward, from the world's own python code." },
     { target: control("Show policies"), text: "<b>Show policies:</b> how many policies you watch at once: the current one (solid) and as ghosts the best candidates of the last iteration, all from the same start." },
     { target: control("Replay speed"), text: "<b>Replay speed:</b> slow motion or fast forward for watching (training always runs as fast as it can)." },
-    { target: control("Camera follows"), text: "<b>Camera follows:</b> the world moves the camera with its agent (the walkers, the car, the cart). Off: pan and zoom yourself." },
+    { target: control("Camera follows"), text: "<b>Camera follows:</b> the world moves the camera with its agent (the walkers, the water cannon's cart). Off: pan and zoom yourself." },
     { target: control("Decoration"), text: "<b>Decoration:</b> looks only, e.g. the lander's exhaust and flags; never part of training." },
     // the Training tab
     { target: control("Algorithm"), tab: "training", text: "<b>The algorithm.</b> CEM and ES try many variations of the policy and keep the best (fast, robust); PPO and DQN learn from every step with pytorch (loaded in the background)." },
@@ -68,6 +68,23 @@ export function tourDone() {
   }
 }
 
+/** a question in the welcome card's look (centered, the page dimmed): `html`, then one
+ * button per [value, label] (the last one highlighted) -> the value of the one clicked */
+export function ask(html, buttons) {
+  return new Promise((resolve) => {
+    const back = Object.assign(document.createElement("div"), { id: "welcome-back" });
+    const card = Object.assign(document.createElement("div"), { id: "welcome" });
+    card.innerHTML = `${html}<div class="buttons"></div>`;
+    buttons.forEach(([value, label], k) => {
+      const b = Object.assign(document.createElement("button"), { textContent: label });
+      if (k === buttons.length - 1) b.className = "primary";
+      b.onclick = () => (back.remove(), card.remove(), resolve(value));
+      card.querySelector(".buttons").append(b);
+    });
+    document.body.append(back, card);
+  });
+}
+
 /** the first visit: what this is, in a few lines, then: a tour, the help page or skip */
 export function welcome() {
   const back = Object.assign(document.createElement("div"), { id: "welcome-back" });
@@ -89,8 +106,9 @@ export function welcome() {
         shows the progress.</li>
       <li>Look inside: the agent's <b>neural network</b>, live (Policy tab): what it sees,
         how its neurons fire and its weights, as it acts.</li>
-      <li>Or restore a <b>pretrained</b> run (Policy tab) and tease it in the <b>Toys</b>
-        tab: ramps, explosions, rain.</li>
+      <li>No time to wait? <b>Pretrained agents come with the page</b>, for every world and
+        several algorithms: restore one (Policy tab) to see it walk, fly or balance right
+        away, then tease it in the <b>Toys</b> tab: ramps, explosions, rain.</li>
       <li>Every world and algorithm is plain python: open <b>Code</b>, change it, run it.</li>
     </ul>
     <div class="buttons">
@@ -120,15 +138,20 @@ export function welcome() {
 export function startTour(kind = "quick") {
   document.getElementById("tour-frame")?.remove();
   document.getElementById("tour-card")?.remove();
+  document.getElementById("tour-catch")?.remove();
   const frame = Object.assign(document.createElement("div"), { id: "tour-frame" });
   const card = Object.assign(document.createElement("div"), { id: "tour-card" });
-  document.body.append(frame, card);
+  // (over the page: a click anywhere but on Skip / Previous is "Next")
+  const catcher = Object.assign(document.createElement("div"), { id: "tour-catch" });
+  document.body.append(catcher, frame, card);
   const steps = TOURS[kind];
   let step = 0;
 
   const end = () => {
     frame.remove();
     card.remove();
+    catcher.remove();
+    clearInterval(follow);
     if (!drawerOpen) app.classList.remove("drawer-open"); // (as it was)
     removeEventListener("resize", place);
     try {
@@ -162,23 +185,35 @@ export function startTour(kind = "quick") {
   // (a phone in landscape: the panel is a drawer, opened for the steps in it)
   const app = document.getElementById("app");
   const drawerOpen = app.classList.contains("drawer-open");
-  function show() {
+  /** the step `step`; `dir`: where to go on when its element isn't there (+1 / -1) */
+  function show(dir = 1) {
     const s = steps[step];
     if (s.tab) document.querySelector(`#tabs button[data-tab="${s.tab}"]`)?.click();
     app.classList.add("drawer-open");
     if (!drawerOpen && !target()?.closest("#side")) app.classList.remove("drawer-open");
-    if (!target()) return step < steps.length - 1 ? (step++, show()) : end(); // (left out)
+    if (!target()) {  // (left out)
+      if (dir < 0 && step > 0) return step--, show(-1);
+      return step < steps.length - 1 ? (step++, show()) : end();
+    }
     const last = step === steps.length - 1;
     card.innerHTML =
-      `<div class="step">${kind === "detailed" ? "Detailed tour · " : ""}${step + 1} / ${steps.length}</div>` +
+      `<div class="step">${kind === "detailed" ? "Detailed tour · " : ""}${step + 1} / ${steps.length}` +
+      " · click anywhere for the next step</div>" +
       `<div>${s.text}</div><div class="buttons">${last ? "" : '<button class="skip">Skip</button>'}` +
+      (step > 0 ? '<button class="prev">Previous</button>' : "") +
       (s.next ? '<button class="more">Detailed tour</button>' : "") +
       `<button class="primary next">${last ? "Done" : "Next"}</button></div>`;
-    card.querySelector(".next").onclick = () => (last ? end() : (step++, show()));
     card.querySelector(".skip")?.addEventListener("click", end);
+    card.querySelector(".prev")?.addEventListener("click", () => (step--, show(-1)));
     card.querySelector(".more")?.addEventListener("click", () => startTour(s.next));
     place();
   }
+  const next = () => (step === steps.length - 1 ? end() : (step++, show()));
+  // anything but Skip / Previous / Detailed tour (the card's text, Next, the page around it)
+  card.onclick = (e) => !e.target.closest(".skip, .prev, .more") && next();
+  catcher.onclick = next;
   addEventListener("resize", place);
+  // (the page may still move: e.g. the loading bar above comes and goes: follow it)
+  const follow = setInterval(() => target() && place(), 250);
   show();
 }

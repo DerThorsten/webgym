@@ -18,9 +18,19 @@
       code, kbd { background: #222; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
       dt { font-weight: 600; color: #fff; margin-top: 8px; }
       dd { margin: 0 0 4px 18px; }
+      /* always in view: the way back to the simulation */
+      #back { position: sticky; top: 0; z-index: 1; margin: -16px -16px 0; padding: 10px 16px;
+              background: #1b1b1b; border-bottom: 1px solid #333; }
+      #back a { display: inline-block; padding: 6px 12px; border-radius: 4px; background: #2f6fd6;
+                color: #fff; text-decoration: none; font-weight: 600; }
     </style>
   </head>
   <body>
+    <div id="back">
+      <!-- (opened from the page, e.g. the welcome card: closing this tab goes back to the
+           running simulation; else: open it) -->
+      <a href="./" onclick="if (window.opener) { window.close(); return false; }">← Back to webgym</a>
+    </div>
     <h1>webgym help</h1>
     <p>
       webgym is a reinforcement learning playground that runs entirely in your browser: the
@@ -117,7 +127,7 @@
       <dt>Show policies</dt><dd>How many policies you watch at once (1: only the orange one).</dd>
       <dt>Replay speed</dt><dd>Slow motion or fast forward.</dd>
       <dt>Camera follows</dt><dd>The environment controls the camera: it says which point the
-        view follows (the walkers' hull, the car, the water cannon's cart; while training the
+        view follows (the walkers' hull, the water cannon's cart; while training the
         leading agent). Off: a fixed view you pan and zoom yourself. Environments with a fixed
         scene (CartPole, the lander) don't move the camera, so the option is greyed out there.
         In your own env: return the point from <code>camera_target(i)</code>.</dd>
@@ -202,8 +212,6 @@
     <h2 id="tips">Tips</h2>
     <ul>
       <li>CartPole learns in seconds, LunarLander in a minute or so, the walkers take longer.</li>
-      <li>The Car pushes crates and gravel around, so its agents can't share a world: each one gets its
-        own (at most 32), you watch one car and the population sliders are off.</li>
       <li>URL options: <code>?env=Walker&amp;algo=es&amp;population=128&amp;seed=1</code>,
         <code>train=0</code> (don't start training).</li>
       <li>The first visit downloads python and the packages; later visits come from the

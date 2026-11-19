@@ -238,12 +238,14 @@ def test_non_batchable_env_disables_population(monkeypatch):
     assert {"population", "show_n"} <= disabled()
 
 
-def test_non_batchable_env_trains_in_separate_worlds():
-    """the car: one car in view, training with a population of separate worlds (at
-    most MAX_SEPARATE); the leader's world is drawn"""
-    from webgym.core import MAX_SEPARATE
+def test_non_batchable_env_trains_in_separate_worlds(monkeypatch):
+    """an env whose agents change the world (here CartPole, marked so): one agent in
+    view, training with a population of separate worlds (at most MAX_SEPARATE); the
+    leader's world is drawn"""
+    from webgym.core import ENVS, MAX_SEPARATE
 
-    app = make_app(env="Car", population=64)
+    monkeypatch.setattr(ENVS["CartPole"], "batchable", False)
+    app = make_app(env="CartPole", population=64)
     assert app.env.n == 1
     app.command("train")
     assert app.pop_env.n == MAX_SEPARATE

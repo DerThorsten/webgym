@@ -382,7 +382,7 @@ def make(name, n=1, **kwargs):
 
 class Separate:
     """n one-agent envs, each in its own world, with the batched API of one env with n
-    agents: for envs whose agents change the world (batchable = False, e.g. a car
+    agents: for envs whose agents change the world (batchable = False, e.g. an agent
     pushing boxes around). Slower (n world steps per step); drawn: the leader's world"""
 
     def __init__(self, cls, n, **kwargs):

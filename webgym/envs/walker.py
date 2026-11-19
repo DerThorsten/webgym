@@ -13,8 +13,9 @@ import itertools
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import Env, register_env
+from webgym.core import DECORATION_FILTER, Env, register_env
 
+TICK_COLOR = 0xA8B8B0  # (the ticks on the ground)
 # no progress (the hull did not get STALL_DISTANCE further right than ever before) for
 # STALL_SECONDS: the episode ends (no penalty), the population does not wait for it
 STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
@@ -54,7 +55,12 @@ class Legged(Env):
     view_center, view_zoom = (0.0, 2.0), 3.5
 
     def build_scenery(self):
-        self.scenery(b2d.box(200, 0.5, center=(190, -0.5)), friction=1.0)
+        ground = self.scenery(b2d.box(200, 0.5, center=(190, -0.5)), friction=1.0)
+        # ticks in the ground, every metre (every 5 m a longer one): you see the progress.
+        # Looks only: nothing collides with them
+        tick = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=TICK_COLOR))
+        for x in range(-10, 390):
+            ground.create_shape(tick, b2d.segment((x, 0), (x, -0.4 if x % 5 == 0 else -0.15)))
 
     def build_agent(self, i):
         hull = self.body((0, self.HIP_Y + self.HULL[1]), b2d.box(*self.HULL), density=5.0)

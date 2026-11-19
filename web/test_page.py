@@ -237,7 +237,8 @@ def main():
                         name,
                     )
                     page.wait_for_timeout(300)
-                page.click("button:text-is('Train')")
+                if page.is_visible("button:text-is('Train')"):  # (a new world trains by itself)
+                    page.click("button:text-is('Train')")
                 page.wait_for_timeout(args.stress * 1000)
                 print(f"stress {env}:", page.inner_text("#state").replace("\n", " | "))
                 page.click("button:text('Stop')")
@@ -267,16 +268,17 @@ def main():
                 section.screenshot(path=str(args.screenshot.with_name(args.screenshot.stem + "_network.png")))
             page.click("#tabs button:text('World')")
         # every env loads and runs in the browser (no errors)
-        for env in ("LunarLander", "Walker", "Crawler", "Car"):
+        for env in ("LunarLander", "Walker", "Crawler", "Ragdoll", "DoubleCartPole", "WaterCannon"):
             page.select_option("#controls-environment select >> nth=0", env)
             page.wait_for_timeout(800)
         # the pretrained walker that comes with the page (public/pretrained/): restorable;
         # all its algorithms are listed, the best first (PPO): a restore switches to it
         page.select_option("#controls-environment select >> nth=0", "Walker")
         page.click("#tabs button:text('Policy')")
-        # (Walker's: wait for its world, the list may still show the previous env's runs)
-        page.wait_for_function("document.getElementById('state').textContent.includes('none yet')", timeout=30_000)
+        # (Walker's: wait for its world, the list may still show the previous env's runs;
+        # a new world trains by itself: wait for that, a restore stops it)
         page.wait_for_function("document.getElementById('chips').textContent.includes('Walker')", timeout=30_000)
+        page.wait_for_function("document.getElementById('state').textContent.includes('running')", timeout=30_000)
         page.wait_for_timeout(500)
         pretrained = page.locator(".ckpt", has_text="pretrained")
         pretrained.first.wait_for(timeout=20_000)
@@ -286,14 +288,12 @@ def main():
                                timeout=20_000)
         print("pretrained walker:", state(page))
         page.click("#tabs button:text('World')")
-        page.select_option("#controls-environment select >> nth=0", "Car")
+        page.select_option("#controls-environment select >> nth=0", "Ragdoll")
         page.wait_for_timeout(800)
-        # the car (not batchable: one world per agent) trains too
-        page.wait_for_function("document.getElementById('state').textContent.includes('none yet')", timeout=30_000)
-        page.click("button:text-is('Train')")
+        # a world that is picked trains by itself
         page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration')",
-                               timeout=60_000)  # (the display watches the trained car policy)
-        print("car:", state(page))
+                               timeout=60_000)  # (the display watches the trained policy)
+        print("ragdoll:", state(page))
         page.click("button:text('Stop')")
         page.select_option("#controls-environment select >> nth=0", "CartPole")
         page.wait_for_timeout(800)
