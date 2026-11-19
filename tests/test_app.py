@@ -1,5 +1,4 @@
-"""The shared app without GL: pointer / key events, commands, training via the frame
-logic, resume, the leader."""
+"""The shared app without GL: pointer / key events, commands, training, resume."""
 
 import json
 
@@ -85,13 +84,10 @@ def test_without_auto_reset_the_env_goes_on():
 
 def test_train_stop_continue_new_run():
     """train; Stop keeps the state: Train continues the iterations and the history;
-    New run starts over; no dragging while training"""
+    New run starts over"""
     app = make_app()
     app.command("train")
     assert app.training and app.state()["mode"] == "train"
-    app.event("down", *screen_of(app, tuple(app.pop_env.cart.position[0])))
-    assert not app.mouse_drag.active  # pan only while training
-    app.event("up", 0, 0)
     while len(app.history) < 3:
         app._train_steps()
     app.command("stop")
@@ -240,8 +236,7 @@ def test_non_batchable_env_disables_population(monkeypatch):
 
 def test_non_batchable_env_trains_in_separate_worlds(monkeypatch):
     """an env whose agents change the world (here CartPole, marked so): one agent in
-    view, training with a population of separate worlds (at most MAX_SEPARATE); the
-    leader's world is drawn"""
+    view, training with a population of separate worlds (at most MAX_SEPARATE)"""
     from webgym.core import ENVS, MAX_SEPARATE
 
     monkeypatch.setattr(ENVS["CartPole"], "batchable", False)
@@ -251,8 +246,6 @@ def test_non_batchable_env_trains_in_separate_worlds(monkeypatch):
     assert app.pop_env.n == MAX_SEPARATE
     while not app.history:
         app._train_steps()
-        app._update_view()
-    assert app.pop_env.world is app.pop_env.envs[app.leader or 0].world
     app.command("stop")
     assert app.env.n == 1
 
@@ -284,21 +277,6 @@ def test_rain_forgets_the_drops_of_an_old_world():
     for _ in range(60):  # (the old drops' ids, gone by now, touched nothing of the new world)
         app._watch_step()
     assert app.env.world.counters.body_count >= hull_bodies
-
-
-def test_one_worker_pauses_training_to_watch():
-    """one worker (draws: a phone) draws what it trains: the Toys tab and auto reset off
-    stop training (the watching options act on the watched world); with two workers the
-    trainer (draws=False) goes on"""
-    for command, value in (("toy_mode", True), ("auto_reset", False)):
-        single = make_app()
-        single.command("train")
-        single.command(command, value)
-        assert not single.training, command
-        trainer = make_app(draws=False)
-        trainer.command("train")
-        trainer.command(command, value)
-        assert trainer.training, command
 
 
 def test_toys():
@@ -615,23 +593,6 @@ def test_population_change_keeps_training():
     assert [h["iteration"] for h in app.history][:4] == [1, 2, 3, 4]
 
 
-def test_leader_is_sticky():
-    """within an iteration the leader keeps its highlight until its episode ends (no
-    flicker); a new iteration (all agents reset) picks a new one"""
-    app = make_app(env="LunarLander", population=16)
-    app.command("train")
-    changes = 0
-    previous, iteration = None, 0
-    for _ in range(300):
-        app._train_steps(max_steps=1)
-        app._update_view()
-        if len(app.history) == iteration and previous is not None and app.leader != previous:
-            changes += 1
-            assert app.pop_env.done[previous]  # only when the old leader's episode ended
-        previous, iteration = app.leader, len(app.history)
-    assert changes > 0  # (leaders do end)
-
-
 def test_switching_envs_frees_worlds():
     """box2d has at most 128 worlds: switching envs / training many times must not leak"""
     app = make_app(population=64)
@@ -689,11 +650,9 @@ def test_neat_in_the_app():
 
 
 def test_view_logic_without_gl():
-    """the view update (leader, camera) runs in both modes; the walker is followed"""
-    app = make_app(env="Walker", population=8)
-    app._update_view()
-    app.command("train")
+    """the view update (camera) follows the watched walker"""
+    app = make_app(env="Walker")
     for _ in range(30):
-        app._train_steps()
+        app._watch_step()
         app._update_view()
-    assert app.leader is not None and np.isfinite(app.camera.center[0])
+    assert np.isfinite(app.camera.center[0])

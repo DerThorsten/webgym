@@ -1,17 +1,16 @@
 """The shared app: envs, training, drawing, interaction; identical natively and in
 the browser.
 
-Hosts (host_native.py, host_web.py) only provide a current GL context, call
-`frame(width, height)` once per animation frame, forward pointer input (and R) to
-`event(...)`, render `controls()` as widgets (values back via `command(name, value)`)
-and plot `history`.
+The browser runs two of them (host_web.py): the display worker's draws what you watch
+(`frame(width, height)` once per animation frame, pointer input (and R) via
+`event(...)`), the trainer's trains (`_train_steps`, never drawn) and sends its policy
+to the display (`load_policy`). Both render `controls()` as widgets (values back via
+`command(name, value)`) and plot `history`.
 
-Two modes:
-* watch: one env (n = 1) driven by the current policy (zero actions before any
-  training); drag its bodies with the pointer
-* train: the trainer's population (one batched env, n agents in one world) drawn as
-  translucent ghosts, the leader (best alive candidate) solid; the pointer only pans /
-  zooms. Stop keeps the trainer's state: Train continues, "New run" starts over.
+* watch: the env (n = show policies) driven by the current policy (zero actions before
+  any training), agent 0 solid, the others ghosts; drag its bodies with the pointer
+* train: the trainer's population (one batched env, n agents in one world). Stop keeps
+  the trainer's state: Train continues, "New run" starts over.
 """
 
 import importlib.util
@@ -37,7 +36,6 @@ GHOST_COLOR = 0x4FA3FF
 GHOST_ALPHA = 70
 TRAIN_STEPS = 256  # env steps per _train_steps call at most (training: always full speed)
 REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8]  # watch mode: x real time (slow motion .. fast)
-FRAME_BUDGET_S = 0.012  # training time per frame: the rest of a 60 Hz frame draws
 END_SECONDS = 1.0  # watch mode: the world goes on this long after an episode ended
 MAX_POPULATION = 256  # (one world per population: no box2d world limit)
 FOLLOW = 0.08  # "Camera follows": the share of the way to the target per frame (smooth)
@@ -226,7 +224,6 @@ class App:
         params = {k: v for k, v in self.hp[self.algo].items() if k not in algo.new_run}
         seed = self.seed + len(self.history)  # a continued run samples new candidates
         self.trainer = algo.train(self.pop_env, self.policy, seed=seed, state=self.train_state, **params)
-        self.leader = None
 
     def stop(self):
         """back to watch mode; the trainer's state is kept (Train continues)"""
@@ -365,14 +362,12 @@ class App:
              "value": self.auto_reset, "inline": True,
              "help": "Start a new watched episode when one ends. Off: the episode goes on, see "
                      "the agent recover; R starts a new one. (Training resets its own episodes "
-                     "either way. On phones, where the view shows the training, switching it "
-                     "off pauses training: ▶ continues.)"},
+                     "either way.)"},
             {"type": "slider", "name": "show_n", "label": "Show policies", "min": 1, "max": 16, "step": 1,
              "value": self.show_n, "disabled": not self.env.batchable,
              "help": "How many policies run at once in the view: the current one (solid) and as "
                      "ghosts the best candidates of the last iteration (CEM / ES) or the most "
-                     "recent policies (PPO / DQN). (Phones, while training: 1 shows the leading "
-                     "candidate alone, more the whole population.)"},
+                     "recent policies (PPO / DQN)."},
             {"type": "slider", "name": "replay_speed", "label": "Replay speed", "min": 0,
              "max": len(REPLAY_SPEEDS) - 1, "step": 1, "value": REPLAY_SPEEDS.index(self.replay_speed),
              "labels": [f"{s}x" for s in REPLAY_SPEEDS],
@@ -381,7 +376,7 @@ class App:
             {"type": "checkbox", "name": "follow", "label": "Camera follows", "value": self.follow,
              "disabled": not self.env.follows, "inline": True,
              "help": "The camera follows the agent the environment suggests (e.g. the walker; "
-                     "while training the highlighted leader). Off: a fixed view (pan with the "
+                     "the current policy). Off: a fixed view (pan with the "
                      "mouse, zoom with the wheel). Environments with a fixed scene offer none."},
             {"type": "checkbox", "name": "decorate", "label": "Decoration", "value": self.show_deco,
              "inline": True,
@@ -418,8 +413,7 @@ class App:
             {"type": "hint", "name": "toys_hint",
              "text": "Pick a tool below, then click into the world (a click on a body still grabs "
                      "it). Click the tool again to put it away. This tab turns auto reset off and "
-                     "shows one policy; R resets (and clears the toys). (On phones it pauses "
-                     "training: the toys act on the policy you watch.)"},
+                     "shows one policy; R resets (and clears the toys)."},
         ]
         for group in toys.GROUPS:  # (each a fold of the tab: its tools as buttons, its sliders)
             tools = [[name, label] for name, (label, _, in_group) in toys.TOOLS.items() if in_group == group]
@@ -557,8 +551,7 @@ class App:
             self.new_run()
             self.train()
         elif name == "reset":
-            if not self.training:
-                self.watch()
+            self.watch()
         elif name == "replay_speed":
             self.replay_speed = REPLAY_SPEEDS[int(value)]
         elif name == "show_n":
@@ -566,7 +559,7 @@ class App:
             self.watch()
         elif name == "decorate":
             self.show_deco = bool(value)
-            if self.env.decorated != self.decorated and not self.training:
+            if self.env.decorated != self.decorated:
                 self.watch()  # (builds the watched env anew, with / without decoration)
         elif name == "follow":
             self.follow = bool(value)
@@ -574,8 +567,6 @@ class App:
                 self.camera.center = b2d.Vec2(*self.env.view_center)
                 self.camera._matrix = None
         elif name == "auto_reset":
-            if not value:
-                self._pause_to_watch()
             self.auto_reset = bool(value)
             self.env.freeze_done = self.env.n > 1 and self.auto_reset
             if self.auto_reset and self.ended and self.end_timer is None:
@@ -635,14 +626,11 @@ class App:
     def frame(self, width, height):
         """one animation frame into the current GL context of size (width, height) px"""
         t0 = time.perf_counter()
-        if self.training:
-            self._train_steps(FRAME_BUDGET_S)
-        else:
-            # replay speed: steps per frame (0.25x: one step every 4th frame)
-            self._replay_due += self.replay_speed
-            while self._replay_due >= 1:
-                self._watch_step()
-                self._replay_due -= 1
+        # replay speed: steps per frame (0.25x: one step every 4th frame)
+        self._replay_due += self.replay_speed
+        while self._replay_due >= 1:
+            self._watch_step()
+            self._replay_due -= 1
         self._draw(width, height)
         self.frame_ms = 0.9 * self.frame_ms + 0.1 * 1e3 * (time.perf_counter() - t0)
 
@@ -661,10 +649,10 @@ class App:
         elif kind == "down":
             # a dynamic body under the pointer: always grabbed (dragged); else the chosen
             # toy (toys.py) is used there; without one: pan the view
-            body = None if self.training else self.mouse_drag.begin(pos)
+            body = self.mouse_drag.begin(pos)
             if body is not None:
                 body.awake = True
-            elif self.toy != "grab" and not self.training and toys.empty(self.env.world, pos):
+            elif self.toy != "grab" and toys.empty(self.env.world, pos):
                 blast = toys.TOOLS[self.toy][1](self.env.world, pos, self.toy_params)
                 if blast is not None:  # (an explosion: drawn for a moment)
                     self.blasts.append(blast)
@@ -717,7 +705,6 @@ class App:
                 self.top_params = top
                 self.train_state = item["state"]
                 self.policy_info = f"{self.algo}, iteration {item['iteration']}"
-                self.leader = None
 
     def _watch_step(self):
         """one env step with the current policy; when the episode ends, the
@@ -766,20 +753,12 @@ class App:
         """toys: no auto reset (the episode goes on, see how the agent copes) and one
         policy in view (the toys hit it, not a crowd of ghosts); no scores"""
         self.toys_on = True
-        self._pause_to_watch()
         self.auto_reset = False
         self.env.freeze_done = False
         self.end_timer = None  # (an ended episode: no countdown to the next one)
         if self.show_n != 1:
             self.show_n = 1
             self.watch()
-
-    def _pause_to_watch(self):
-        """one worker (a phone): it draws what it trains, the watching options (toys, auto
-        reset off) have nothing to act on: training stops (▶ continues it). With two
-        workers the trainer doesn't draw (draws=False) and goes on"""
-        if self.training and self.draws:
-            self.stop()
 
     def _watch_params(self):
         """(n, num_params): agent 0 the current policy, then the best candidates (CEM /
@@ -788,44 +767,31 @@ class App:
         return np.stack([rows[i % len(rows)] for i in range(self.env.n)])
 
     def _draw(self, width, height):
-        """the env (watch) or the population as ghosts with the leader solid (train)"""
+        """the watched env: agent 0 solid, the other policies as ghosts"""
         if self.debug_draw is None:
             self.debug_draw = GLDebugDraw(self.camera)
         self.camera.set_size(width, height)
         self._update_view()
         gl.glViewport(0, 0, width, height)
         self.debug_draw.begin_draw()
-        env = self.pop_env if self.training else self.env
-        if env.n > 1:  # ghosts, the leader solid
-            # (training, drawn here: one worker, e.g. a phone: "show policies" 1 = the
-            # leader alone, the other candidates invisible)
-            alpha = 0 if self.training and self.show_n == 1 else GHOST_ALPHA
+        if self.env.n > 1:  # ghosts, agent 0 solid
             self.debug_draw.draw_world(
-                env.world, color=GHOST_COLOR, alpha=alpha,
+                self.env.world, color=GHOST_COLOR, alpha=GHOST_ALPHA,
                 keep=(LEADER_COLOR, SCENERY_COLOR, PROP_COLOR, PARTICLE_COLOR, MARK_COLOR),
             )
         else:
-            self.debug_draw.draw_world(env.world)
+            self.debug_draw.draw_world(self.env.world)
         if self.blasts:  # (the Toys tab's explosions)
             self.blasts = toys.draw_blasts(self.debug_draw, self.blasts)
         self.debug_draw.end_draw()
 
     def _update_view(self):
-        """the leader: while training the best alive candidate, watching several
-        policies the current one (agent 0); with "Camera follows" the camera glides to
-        the point the env suggests for it (env.camera_target)"""
-        if not self.training and self.env.n > 1:
+        """the current policy (agent 0) highlighted; with "Camera follows" the camera
+        glides to the point the env suggests for it (env.camera_target)"""
+        if self.env.n > 1:
             self.env.set_leader(0)
-        if self.training:
-            env = self.pop_env
-            # the leader stays until its episode ends (no flicker), then the best alive
-            if self.leader is None or env.done[self.leader]:
-                alive = np.flatnonzero(~env.done)
-                self.leader = int(alive[np.argmax(env.episode_return[alive])]) if len(alive) else None
-            env.set_leader(self.leader)
         if self.follow:
-            env, agent = (self.pop_env, self.leader) if self.training else (self.env, 0)
-            target = env.camera_target(agent) if agent is not None else None
+            target = self.env.camera_target(0)
             if target is not None:
                 c = self.camera.center
                 self.camera.center = b2d.Vec2(c[0] + FOLLOW * (target[0] - c[0]), c[1] + FOLLOW * (target[1] - c[1]))

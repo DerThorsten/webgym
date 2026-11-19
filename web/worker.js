@@ -57,8 +57,8 @@ for _source in json.loads(str(pyjs.js.self.webgymSources)):
  * into `canvas`); `base`: the page's url (config.json, the archives and pyjs/ live there) */
 async function init(canvas, base, role, wasmModule, sources = []) {
   self.canvas = canvas; // host_web.py reads it via pyjs.js.canvas (null: no drawing)
-  // the URL query parameters (?env=LunarLander&algo=cem...) + the role ("single",
-  // "display", "trainer"; none: compute only) for host_web.start
+  // the URL query parameters (?env=LunarLander&algo=cem...) + the role ("display",
+  // "trainer", "helper") for host_web.start
   self.webgymOptions = JSON.stringify({ ...Object.fromEntries(new URL(base).searchParams), role });
   progress("startup", "starting python");
   const arch = pageArch(base);

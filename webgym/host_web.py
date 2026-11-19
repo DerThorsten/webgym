@@ -1,13 +1,13 @@
-"""Browser host (runs in a pyjs web worker), in one of three roles:
+"""Browser host (runs in a pyjs web worker), in one of these roles:
 
-* "single": everything in one worker (phones / tablets): WebGL2 on the OffscreenCanvas
-  the page transferred, frames from requestAnimationFrame, training sliced into frames
-* "display": the same, but it never trains: the trainer's latest policy (snapshots)
-  drives the watched env (replay in real time, play, drag)
+* "display": WebGL2 on the OffscreenCanvas the page transferred, frames from
+  requestAnimationFrame; it never trains: the trainer's latest policy (snapshots)
+  drives the watched env (replay in real time, drag, toys)
 * "trainer": no canvas: trains in chunks as fast as it can (between them it takes
   commands), sends snapshots of the policy, the history, checkpoints
+* "helper": runs a share of the trainer's population (HelperHost)
 
-worker.js sets `self.canvas` (the OffscreenCanvas, display / single) and
+worker.js sets `self.canvas` (the OffscreenCanvas, display) and
 `self.webgymOptions` (the page's URL options + the role) before starting this.
 """
 
@@ -88,8 +88,8 @@ class WebHost:
 
     def __init__(self, options):
         """`options`: the page's URL query parameters (env, algo, population, seed) and
-        "role" ("single" / "display" / "trainer")"""
-        self.role = options.get("role", "single")
+        "role" ("display" / "trainer")"""
+        self.role = options["role"]
         kwargs = {k: options[k] for k in ("env", "algo") if k in options}
         # (an env / algorithm the URL names, but webgym no longer has (renamed, removed):
         # the default, with a note in the log)
@@ -229,11 +229,9 @@ class WebHost:
             post({"type": "error", "error": traceback.format_exc()})
 
     def frame(self, time_ms):
-        """one animation frame; errors are reported, the loop goes on in watch mode"""
+        """one animation frame; errors are reported, the loop goes on"""
         try:
-            training = self.app.training
             self.app.frame(int(self.canvas.width), int(self.canvas.height))
-            self.after_update(training)
             self.frames += 1
             if self.frames % 15 == 0:
                 post({"type": "state", "state": self.app.state()})

@@ -84,7 +84,7 @@ Technical considerations:
 - `batchable = False` (no env now; was the Car: it pushed loose crates and gravel, `Env.prop`;
   tested with CartPole marked so): `make(name, n > 1)` returns
   `Separate`, n one-agent envs in their own worlds behind the batched API (at most
-  `MAX_SEPARATE` = 32); the view shows one agent; while training the leader's world is drawn.
+  `MAX_SEPARATE` = 32); the view shows one agent.
 - Decoration (looks only): `make(name, decorated=True)` builds it (e.g. the lander's flags,
   which collide with nothing, as in the classic lander) and `Env.decorate()` runs after each
   watched step (the lander's exhaust: pyb2d3 emitters, `pyb2d3.extensions.RadialEmitter`).
@@ -108,7 +108,7 @@ Technical considerations:
 - `webgym/app.py`: the shared `App` (watch / train modes, controls schema in two sections
   "environment" / "training", `command()`, `event()`, checkpoints, the network view, the code
   view + `set_code` = write file + reload module).
-- `webgym/host_web.py`: the browser host (roles "single", "display", "trainer"; async train
+- `webgym/host_web.py`: the browser host (roles "display", "trainer", "helper"; async train
   loop in 0.25 s chunks; autosave; snapshots of the trainer's policy for the display).
 - `webgym/policies.py` (numpy MLP, flat params; every trained policy is exported to it, so
   watching never needs torch), `checkpoints.py` (safetensors in pure numpy), `gl/` (drawing,
@@ -198,12 +198,12 @@ Technical considerations:
   layout + bytecode) in Cache Storage.
 - Architecture: wasm64 where the browser has memory64 (Chrome, Firefox), else wasm32 (Safari);
   `?arch=wasm32|wasm64` forces one. Both are tested.
-- Two workers on desktop (display: rendering + watch; trainer: trains, sends policy
-  snapshots), one on small devices (`?workers=1|2`). With one worker pytorch is not
-  installed in the background (it froze the watched world for seconds on phones): it
-  loads when an algorithm needs it, "please wait" over the world meanwhile. On phones the
+- Always two workers, phones too (display: rendering + watch, never trains; trainer:
+  trains, never draws, sends policy snapshots). The single-worker mode (role "single",
+  `?workers=1`, the App drawing the training population) was removed 2026-11-19: phones
+  are not handled differently. On phones the
   left panel scrolls as a whole (the tab row sticky), nothing pinned below the tabs.
-- Simulation helpers (desktop, CEM / ES only, `Algo.parallel`): more workers (role "helper",
+- Simulation helpers (CEM / ES only, `Algo.parallel`): more workers (role "helper",
   core packages only) run a share of the population (`webgym/helpers.py`: the trainer's
   `Pool` posts "evaluate" requests through the page, the helper answers "evaluated";
   `rollout` in `algos/cem.py` runs the local share, then yields "waiting" until the
@@ -211,7 +211,7 @@ Technical considerations:
   "Simulation workers" (0 .. cores - 2, default half, remembered; `?helpers=N`); started
   once the trainer is ready. Measured: Walker, 20 s: 20 iterations alone, 72 with 3.
 - Query params: `env`, `algo`, `population`, `seed`, `train=0` (no autostart; picking another world or a
-  setting in the page always starts training, after restoring its autosave), `workers`,
+  setting in the page always starts training, after restoring its autosave),
   `arch`, `dpr`, `tour=0`, `welcome=1`.
 - Crash handling: a wasm trap in a worker -> the page restarts it (autosave restored); more
   than 3 crashes a minute -> stop. Python exceptions are only reported.

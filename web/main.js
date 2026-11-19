@@ -1,9 +1,9 @@
 // The page (main thread): layout, progress bars, controls. Python runs in workers
 // (worker.js):
 // * the display worker: the simulation you watch / play, WebGL2 on an OffscreenCanvas
-// * the training worker (desktop): trains as fast as it can, no drawing; snapshots of
-//   its policy go to the display worker (replay in real time)
-// On phones / tablets (or ?workers=1) one worker does both (role "single").
+// * the training worker: trains as fast as it can, no drawing; snapshots of its policy
+//   go to the display worker (replay in real time)
+// * simulation helpers (CEM / ES): run shares of the trainer's population
 
 import { compileRuntime as compileWasm32 } from "@derthorsten/pyjs/wasm32";
 import { compileRuntime as compileWasm64 } from "@derthorsten/pyjs/wasm64";
@@ -28,14 +28,13 @@ const VISITED = (() => {
   }
 })();
 const SMALL_DEVICE = matchMedia("(pointer: coarse)").matches || (navigator.hardwareConcurrency || 2) <= 4;
-const TWO_WORKERS = (params.get("workers") ?? (SMALL_DEVICE ? "1" : "2")) === "2";
-let display = null; // the display worker (role "display" / "single")
-let trainer = null; // the training worker (role "trainer"; null with one worker)
+let display = null; // the display worker (role "display")
+let trainer = null; // the training worker (role "trainer")
 const toDisplay = (message, transfer) => display?.postMessage(message, transfer);
-const toTraining = (message) => (TWO_WORKERS ? trainer : display)?.postMessage(message);
+const toTraining = (message) => trainer?.postMessage(message);
 let lastSnapshot = null; // the trainer's latest policy (for a display that (re)starts)
 let autoTrain = params.get("train") !== "0"; // start training once the page is up
-let trainerState = null; // the trainer's state message (two workers)
+let trainerState = null; // the trainer's state message
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
 const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "show_n", "replay_speed", "follow", "decorate",
@@ -47,7 +46,6 @@ function command(name, value) {
   // another world (or its settings): it starts training at once, as on page load (its
   // autosave, if there is one, is restored first: that run continues)
   if (name === "env" || name.startsWith("setting.")) autoTrain = true;
-  if (!TWO_WORKERS) return toDisplay(message);
   if (DISPLAY_COMMANDS.has(name) || name.startsWith("toy.") || name === "env" || name.startsWith("setting.") || name === "code") toDisplay(message);
   toTraining(message);
 }
@@ -457,23 +455,19 @@ function showScore(s) {
     `<div class="small">best ${Math.round(s.best_score)} · last ${s.scores.map(Math.round).join(", ")}</div>`;
 }
 
-/** the state panel: the watched env (display) + the training (trainer, two workers) */
+/** the state panel: the watched env (display) + the training (trainer) */
 function showState() {
   const s = displayState;
   if (!s) return;
   const last = stats.at(-1);
-  const t = TWO_WORKERS ? trainerState : s;
+  const t = trainerState;
   const training = t?.mode === "train";
   stateEl.textContent =
-    `training  ${training ? `running, iteration ${t.iteration}` : "stopped"}` +
-    (TWO_WORKERS ? " (training worker)" : "") +
-    "\n" +
+    `training  ${training ? `running, iteration ${t.iteration}` : "stopped"} (training worker)\n` +
     `policy    ${s.policy}\n` +
-    (!training || TWO_WORKERS
-      ? `episode   #${s.episode}, return ${s.episode_return.toFixed(0)}` +
-        (s.episode_over ? (s.auto_reset ? " (over, restarting)" : " (over, keeps going)") : "") +
-        "\n"
-      : "") +
+    `episode   #${s.episode}, return ${s.episode_return.toFixed(0)}` +
+    (s.episode_over ? (s.auto_reset ? " (over, restarting)" : " (over, keeps going)") : "") +
+    "\n" +
     (last ? `mean/best ${last.mean_return.toFixed(0)} / ${last.best_return.toFixed(0)}\n` : "") +
     `frame     ${s.frame_ms.toFixed(1)} ms`;
   // the same, short, in the top bar
@@ -484,14 +478,14 @@ function showState() {
     (last ? chip(`mean <b>${last.mean_return.toFixed(0)}</b>`) + chip(`best <b>${last.best_return.toFixed(0)}</b>`, "best") : "") +
     (s.toys
       ? chip("watching: toys (no score)", "watch")
-      : chip(`watching: episode ${s.episode}, return <b>${s.episode_return.toFixed(0)}</b>`, "watch")); // (phones: no world / best / watch)
+      : chip(`watching: episode ${s.episode}, return <b>${s.episode_return.toFixed(0)}</b>`, "watch"));
 }
 let displayState = null;
 let worldKey = ""; // the env with its settings (e.g. "WaterCannon · objects 2"): a chip in the bar
 
-/** a message from a worker: `role` "display" (also "single") or "trainer" */
+/** a message from a worker: `role` "display" or "trainer" */
 function onMessage(role, { data }) {
-  const training = role === "trainer" || !TWO_WORKERS; // (the worker that trains)
+  const training = role === "trainer";
   if (data.type === "evaluate") {
     // the trainer's request for a simulation helper: part k goes to the k-th ready one
     readyHelpers()[data.part]?.postMessage(data);
@@ -517,10 +511,8 @@ function onMessage(role, { data }) {
     const firstVisit = !tourDone() && !navigator.webdriver && params.get("tour") !== "0";
     if (role !== "trainer" && (firstVisit || params.get("welcome") === "1")) setTimeout(welcome, 1000);
     // the big packages in the training worker, in the background, a bit later: the
-    // restore of the autosave goes first (the installs keep python busy). Not with one
-    // worker (phones): the install would freeze the world you watch for seconds; there
-    // pytorch loads when an algorithm needs it (need_package: "please wait" meanwhile)
-    if (training && TWO_WORKERS) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
+    // restore of the autosave goes first (the installs keep python busy)
+    if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
   } else if (data.type === "snapshot") {
     lastSnapshot = data.data;
     toDisplay({ type: "snapshot", data: data.data });
@@ -536,7 +528,7 @@ function onMessage(role, { data }) {
     }
     showState();
   } else if (!training) {
-    // the display worker of two: only its errors matter beyond this point
+    // the display worker: only its errors matter beyond this point
     if (data.type === "error") status(`error: ${data.error}`, true);
     else if (data.type === "fatal") restartAfterCrash(role, data.error);
   } else if (data.type === "controls") {
@@ -588,7 +580,7 @@ const checkpoints = setupPanel((message) => {
   if (message.byUser) autoStart++;
   toTraining(message);
 });
-let freshWorker = true; // the training (or single) worker just started
+let freshWorker = true; // the training worker just started
 let keepStatusUntil = 0; // the crash notice is not cleared by the restarted worker before
 const TRAP = /RuntimeError: (unreachable|memory access out of bounds|null function|indirect call)|Aborted\(|out of memory/i;
 // the pyjs runtime (wasm), fetched and compiled once here for all workers (also the
@@ -597,8 +589,8 @@ const ARCH = pageArch(location.href);
 const runtime = (ARCH === "wasm64" ? compileWasm64 : compileWasm32)({ assetsUrl: new URL("pyjs/", location.href).href, cdnFallback: false })
   .catch((e) => console.warn("pyjs runtime: not compiled in the page", e));
 
-/** a new worker with `role`: "display" / "single" (rendering into a new canvas) or
- * "trainer" (no canvas) */
+/** a new worker with `role`: "display" (rendering into a new canvas) or "trainer" (no
+ * canvas) */
 function startWorker(role) {
   const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   w.onmessage = (event) => onMessage(role, event);
@@ -607,11 +599,9 @@ function startWorker(role) {
     if (TRAP.test(e.message)) restartAfterCrash(role, e.message);
     else status(`worker error: ${e.message}`, true);
   };
-  if (role === "trainer" || !TWO_WORKERS) {
+  if (role === "trainer") {
     freshWorker = true;
     requested.clear(); // (a new worker loads the packages again, from the package cache)
-  }
-  if (role === "trainer") {
     trainer = w;
     Promise.all([runtime, editedSources()]).then(([wasmModule, sources]) =>
       w.postMessage({ type: "init", canvas: null, base: location.href, role, wasmModule, sources }));
@@ -631,7 +621,7 @@ function startWorker(role) {
 /** a worker crashed (`error`): restart it, unless it crashes too often */
 function restartAfterCrash(role, error) {
   console.error(`python crashed (${role}):`, error);
-  const training = role === "trainer" || !TWO_WORKERS;
+  const training = role === "trainer";
   // a package that was loading / being checked: probably the cause, skipped from now on
   for (const id of training ? loading.keys() : []) {
     if (id in PACKAGES) {
@@ -906,11 +896,10 @@ async function forgetEverything() {
 }
 
 checkRelease().then(() => {
-  startWorker(TWO_WORKERS ? "display" : "single");
-  if (TWO_WORKERS) startWorker("trainer");
+  startWorker("display");
+  startWorker("trainer");
 });
-if (TWO_WORKERS && MAX_HELPERS > 0) {
-  // (one worker on small devices: no helpers either)
+if (MAX_HELPERS > 0) {
   const slider = document.getElementById("helpers");
   let saved = null;
   try {

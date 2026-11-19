@@ -145,18 +145,14 @@ ensure_hex = b2d.ensure_hex_color
 
 def _recolored(block, dtype, color, alpha, keep=()):
     """a float32 copy of a BatchDebugDraw block, its packed RGBA8 colors replaced by
-    `color` (0xRRGGBB, None: keep) with `alpha` (None: keep; 0: left out, not drawn);
-    shapes drawn in one of the `keep` colors (0xRRGGBB, e.g. custom colors) stay as
-    they are"""
+    `color` (0xRRGGBB, None: keep) with `alpha` (None: keep); shapes drawn in one of
+    the `keep` colors (0xRRGGBB, e.g. custom colors) stay as they are"""
     out = np.array(block, dtype=np.float32, copy=True)
     if len(out) == 0 or (color is None and alpha is None):
         return out
     colors = out.view(dtype).reshape(-1)["color"]
     rgb = colors & 0x00FFFFFF
     change = ~np.isin(rgb, [make_rgba8(k, 0) & 0x00FFFFFF for k in keep])
-    if alpha == 0:  # (the blending ignores alpha 0: leave those out)
-        kept = out.view(dtype).reshape(-1)[~change]
-        return kept.view(np.float32).reshape((-1, *out.shape[1:]))
     if color is not None:
         colors[change] = (colors[change] & 0xFF000000) | (make_rgba8(color, 0) & 0x00FFFFFF)
     if alpha is not None:
