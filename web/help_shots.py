@@ -26,15 +26,17 @@ def main():
         page.wait_for_timeout(1500)
         page.screenshot(path=OUT / "overview.png")
         # training: the population (ghosts), the leader solid
-        page.click("button:text-is('Train')")
+        page.click("#quick-train[title='Train']")
         page.wait_for_timeout(12_000)
         page.screenshot(path=OUT / "training.png")
         page.locator("#plot-strip").screenshot(path=OUT / "progress.png")
-        page.click("button:text('Stop')")
+        page.click("#quick-train[title='Stop']")
         # watching the trained policy (solid) and the best candidates (ghosts, 8 of them):
         # all start alike, after a while they part
-        page.locator(".control", has_text="Show policies").locator("input").evaluate(
-            "(input) => { input.value = 8; input.dispatchEvent(new Event('change')); }")
+        for n in range(2, 9):  # (the + of "show policies", above the tabs)
+            page.click("#quick-policies .more")
+            page.wait_for_function(f"document.querySelector('#quick-policies b').textContent === '{n}'",
+                                   timeout=10_000)
         page.wait_for_timeout(6500)
         page.locator("#stage").screenshot(path=OUT / "watch.png")
         page.click("#tabs button:text('Policy')")  # (the network and the checkpoints)
@@ -114,7 +116,7 @@ def tool(page, fold, name):
 
 def reset(page):
     """a new episode (the button: R would go to a focused widget)"""
-    page.click("button:text('Reset episode')")
+    page.click("#quick-episode")
 
 
 def toys(browser, base):

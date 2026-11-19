@@ -49,7 +49,7 @@ def iteration(page):
 def check_checkpoints(page, url, errors):
     """autosave + named checkpoint survive a reload; Continue training goes on; New
     run starts training from scratch, the named one stays restorable"""
-    page.click("button:text('Stop')")  # (the training of the default checks)
+    page.click("#quick-train[title='Stop']")  # (the training of the default checks)
     # settled: training stopped, the last autosave (in the list) and the watched policy are
     # the same iteration
     page.wait_for_function(
@@ -77,23 +77,23 @@ def check_checkpoints(page, url, errors):
                          f"checkpoints: {page.text_content('#ckpt-list')}\nstatus: {page.inner_text('#status')}")
     print("restored after reload:", state(page))
     assert "my run" in page.inner_text("#ckpt-list")
-    page.click("button:text('Continue training')")
+    page.click("#quick-train[title='Continue training']")
     page.wait_for_function(
         f"(() => {{ const m = document.getElementById('state').textContent.match(/iteration (\\d+)/);"
         f" return m && Number(m[1]) > {trained}; }})()",
         timeout=30_000,
     )
-    page.click("button:text('Stop')")
+    page.click("#quick-train[title='Stop']")
     print("continued:", state(page))
     # New run: a fresh network, trained right away (the iterations start over)
-    page.click("button:text('New run')")
+    page.click("#quick-new")
     page.wait_for_function(
         f"(() => {{ const m = document.getElementById('state').textContent.match(/running, iteration (\\d+)/);"
         f" return m && Number(m[1]) < {trained} / 2; }})()",
         timeout=30_000,
     )
     print("new run:", state(page))
-    page.click("button:text('Stop')")
+    page.click("#quick-train[title='Stop']")
     page.wait_for_timeout(1000)
     page.locator(".ckpt", has_text="my run").locator("button:text('Restore')").click()
     page.wait_for_function(
@@ -139,14 +139,21 @@ def main():
         # explanations: a click on a control's name shows it, another click hides it
         # (click events, not pointer clicks: the controls may be rebuilt meanwhile, and the
         # popup of a first click must not block the second)
-        page.dispatch_event("[data-help] >> text=Show policies", "click")
+        page.click("#tabs button:text('Training')")
+        page.dispatch_event("[data-help] >> text=Population", "click")
         assert page.is_visible("#help-popup") and "ghosts" in page.inner_text("#help-popup")
-        page.dispatch_event("[data-help] >> text=Show policies", "click")
+        page.dispatch_event("[data-help] >> text=Population", "click")
         assert not page.is_visible("#help-popup")
+        page.click("#tabs button:text('World')")
+        # the steppers above the tabs: + / − change how many policies are shown
+        page.click("#quick-policies .more")
+        page.wait_for_function("document.querySelector('#quick-policies b').textContent === '2'", timeout=10_000)
+        page.click("#quick-policies .less")
+        page.wait_for_function("document.querySelector('#quick-policies b').textContent === '1'", timeout=10_000)
         # the tours (not by themselves in automated tests: the links), through to the end:
         # the quick one, then from its last step the detailed one
         page.click("#tour-link")
-        for _ in range(6):
+        for _ in range(7):
             assert page.is_visible("#tour-card") and page.is_visible("#tour-frame")
             page.click("#tour-card .next")
         page.click("#tour-card .more")  # (the last step: "Detailed tour")
@@ -185,7 +192,7 @@ def main():
         assert "# edited in the browser" not in page.evaluate("codeText()")
         page.click("#code-toggle")
         assert not errors, errors
-        page.click("button:text-is('Train')")
+        page.click("#quick-train[title='Train']")
         page.wait_for_function(
             "document.getElementById('state').textContent.includes('mean/best')", timeout=60_000
         )
@@ -194,10 +201,10 @@ def main():
         if args.converge:
             # seconds of training in the browser until the population's mean return
             # reaches `converge` (from a fresh run)
-            page.click("button:text('Stop')")
+            page.click("#quick-train[title='Stop']")
             page.wait_for_timeout(500)
             start = time.perf_counter()
-            page.click("button:text-is('Train')")
+            page.click("#quick-train[title='Train']")
             page.wait_for_function(
                 """(target) => {
                 const m = document.getElementById('state').textContent.match(/mean\\/best (-?\\d+)/);
@@ -237,28 +244,28 @@ def main():
                         name,
                     )
                     page.wait_for_timeout(300)
-                if page.is_visible("button:text-is('Train')"):  # (a new world trains by itself)
-                    page.click("button:text-is('Train')")
+                if page.is_visible("#quick-train[title='Train']"):  # (a new world trains by itself)
+                    page.click("#quick-train[title='Train']")
                 page.wait_for_timeout(args.stress * 1000)
                 print(f"stress {env}:", page.inner_text("#state").replace("\n", " | "))
-                page.click("button:text('Stop')")
+                page.click("#quick-train[title='Stop']")
         if args.packages:
             # pytorch loads in the background by itself (pinned, cached after the first
             # visit); its check ends up in the packages panel; then PPO (torch) trains
             page.wait_for_function("document.getElementById('package-pytorch')", timeout=900_000)
             print(page.text_content("#package-pytorch"))  # (collapsed section: text_content)
             assert "failed" not in page.text_content("#package-pytorch")
-            if page.is_visible("button:text('Stop')"):
-                page.click("button:text('Stop')")
+            if page.is_visible("#quick-train[title='Stop']"):
+                page.click("#quick-train[title='Stop']")
             page.click("#tabs button:text('Training')")
             page.select_option("#controls-training select >> nth=0", "ppo_torch")
             page.click("#tabs button:text('World')")
             page.wait_for_timeout(500)
-            page.click("button:text-is('Train')")
+            page.click("#quick-train[title='Train']")
             page.wait_for_function("/ppo_torch, iteration [2-9]/.test(document.getElementById('state').textContent)",
                                    timeout=300_000)
             print("PPO (torch):", page.inner_text("#state").replace("\n", " | "))
-            page.click("button:text('Stop')")
+            page.click("#quick-train[title='Stop']")
         if args.screenshot:
             page.screenshot(path=str(args.screenshot))
             page.click("#tabs button:text('Policy')")  # (the network view: its own picture)
@@ -294,7 +301,7 @@ def main():
         page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration')",
                                timeout=60_000)  # (the display watches the trained policy)
         print("ragdoll:", state(page))
-        page.click("button:text('Stop')")
+        page.click("#quick-train[title='Stop']")
         page.select_option("#controls-environment select >> nth=0", "CartPole")
         page.wait_for_timeout(800)
         # the plain page starts training by itself

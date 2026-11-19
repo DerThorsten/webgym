@@ -57,17 +57,21 @@
     <img src="help/overview.png" alt="the page" />
     <p>
       <b>Top bar</b> (always in view): the live numbers: the world, is it training, which
-      iteration, the population's mean and best return, the episode you watch. <b>Train</b> /
-      Stop, New run and Auto reset are in the panel, below the tabs (always in view). On the right: <b>&lt;/&gt; Code</b> (the python editor), the
+      iteration, the population's mean and best return, the episode you watch. On the right: <b>&lt;/&gt; Code</b> (the python editor), the
       <b>Tour</b> and this help.
     </p>
     <p>
-      <b>Left panel</b>, five tabs: <i>World</i> (pick the environment and its settings, e.g.
+      <b>Left panel</b>: on top two rows of icons (hover them for what they do). The first:
+      <b>▶</b> trains (<b>⏸</b> stops, ▶ again continues); the circling arrows start a new
+      run from scratch; the skip-back icon starts a new episode (or R); then three switches
+      (blue: on): the loop is auto reset, the crosshair camera follows, the top hat
+      decoration. The second: <b>− / +</b> how many policies you watch at once, and the
+      replay speed (slower / faster). See "Watching a policy" below.
+      Then five tabs: <i>World</i> (pick the environment and its settings, e.g.
       how many objects; what it is about), <i>Training</i> (time budget, the algorithm and
-      its parameters, population, simulation workers), <i>Toys</i> (things to throw into the
-      world), <i>Policy</i> (the network and the checkpoints), <i>Log</i> (state, packages,
-      messages). Below the tabs, always in view: Train / Stop, New run, Auto reset and how you
-      watch.
+      its parameters, population, simulation workers), <i>Policy</i> (the network and the
+      checkpoints), <i>Toys</i> (things to throw into the world), <i>Log</i> (state, packages,
+      messages).
       <b>Middle</b>: the world, the training progress below it (click its title to hide it).
       The <span class="blue">ⓘ</span> next to a control explains it (click it).
     </p>
@@ -108,8 +112,10 @@
       <dd>More workers (each its own python and box2d, on another CPU core) run a share of the
         population's episodes: CEM and ES train several times faster. Each costs memory;
         more than your CPU cores don't help.</dd>
-      <dt>Stop / Train / New run</dt>
-      <dd>Stop keeps the run: Train continues it. <b>New run</b> starts from scratch.</dd>
+      <dt>▶ / ⏸ / new run (above the tabs)</dt>
+      <dd>⏸ stops and keeps the run: ▶ continues it. <b>New run</b> (the circling arrows)
+        starts from scratch.
+        Picking another world starts training by itself.</dd>
     </dl>
 
     <h2 id="watching">Watching a policy</h2>
@@ -123,16 +129,17 @@
       while the training goes on.)
     </p>
     <dl>
-      <dt>Auto reset</dt><dd>A new episode starts when all agents are done.</dd>
-      <dt>Show policies</dt><dd>How many policies you watch at once (1: only the orange one).</dd>
-      <dt>Replay speed</dt><dd>Slow motion or fast forward.</dd>
-      <dt>Camera follows</dt><dd>The environment controls the camera: it says which point the
+      <dt>Auto reset (the loop above the tabs)</dt><dd>A new episode starts when all agents are
+        done. Off: the episode goes on after a fall; R starts a new one.</dd>
+      <dt>Show policies (− / + above the tabs)</dt><dd>How many policies you watch at once (1: only the orange one).</dd>
+      <dt>Replay speed (slower / faster above the tabs)</dt><dd>Slow motion or fast forward.</dd>
+      <dt>Camera follows (the crosshair above the tabs)</dt><dd>The environment controls the camera: it says which point the
         view follows (the walkers' hull, the water cannon's cart; while training the
         leading agent). Off: a fixed view you pan and zoom yourself. Environments with a fixed
         scene (CartPole, the lander) don't move the camera, so the option is greyed out there.
         In your own env: return the point from <code>camera_target(i)</code>.</dd>
-      <dt>Decoration</dt><dd>Looks only: the lander's flags and thrust particles. Never used in training.</dd>
-      <dt>Reset episode (R)</dt><dd>A new episode now.</dd>
+      <dt>Decoration (the top hat above the tabs)</dt><dd>Looks only: the lander's flags and thrust particles. Never used in training.</dd>
+      <dt>Reset episode (above the tabs, or R)</dt><dd>A new episode now.</dd>
     </dl>
 
     <h2 id="panels">Progress, network, checkpoints</h2>

@@ -116,9 +116,14 @@ Technical considerations:
 - Page layout (`web/index.html`): a top bar always in view (live numbers as chips, the first
   one the env key; Code, the "powered by emscripten-forge" badge (`public/emscripten-forge.svg`),
   Tour, Help, About (= `help.html#about`, About, About the author, Acknowledgments (QuantStack, Bloomberg), Credits; TODOs for the author),
-  GitHub), the left panel with five tabs (World: the env select,
-  its settings, its description (the module docstring, unwrapped), the watching options /
-  Training: algorithm, parameters, population, simulation workers / Toys (`webgym/toys.py`,
+  GitHub), the left panel: on top two rows of line icons (SVG, Feather style), the app's
+  controls of section "bar", drawn by `showQuick` in main.js (the only place they are):
+  `#quick` ▶/⏸ train / stop (its title = the app's button label), new run, | reset
+  episode, | switches auto reset, camera follows (disabled for fixed views), decoration
+  (a top hat), blue when on; `#quick-watch` steppers − / + for show policies and slower /
+  faster for replay speed. No panel below the tabs any more. Then five tabs, in this order (World: the env select,
+  its settings, its description (the module docstring, unwrapped) /
+  Training: algorithm, parameters, population, simulation workers / Policy (see below) / Toys (`webgym/toys.py`,
   controls section "toys", commands "toy" / "rain" to both workers: a click on a dynamic
   body always grabs it (mouse joint); a click into empty space (`toys.empty`) uses the
   chosen tool of `toys.TOOLS` (box, ball, plank, explosion, ramp, step, seesaw; all dynamic,
@@ -194,7 +199,10 @@ Technical considerations:
 - Architecture: wasm64 where the browser has memory64 (Chrome, Firefox), else wasm32 (Safari);
   `?arch=wasm32|wasm64` forces one. Both are tested.
 - Two workers on desktop (display: rendering + watch; trainer: trains, sends policy
-  snapshots), one on small devices (`?workers=1|2`).
+  snapshots), one on small devices (`?workers=1|2`). With one worker pytorch is not
+  installed in the background (it froze the watched world for seconds on phones): it
+  loads when an algorithm needs it, "please wait" over the world meanwhile. On phones the
+  left panel scrolls as a whole (the tab row sticky), nothing pinned below the tabs.
 - Simulation helpers (desktop, CEM / ES only, `Algo.parallel`): more workers (role "helper",
   core packages only) run a share of the population (`webgym/helpers.py`: the trainer's
   `Pool` posts "evaluate" requests through the page, the helper answers "evaluated";

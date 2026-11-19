@@ -348,7 +348,8 @@ class App:
 
     def controls(self):
         """the widgets the hosts show (generic: info / select / slider / checkbox / button),
-        each in a section: "bar" (above the watching panel: auto reset, Train / New run),
+        each in a section: "bar" (the page's icons above the tabs: Train / Stop, New run,
+        reset episode, the switches, how many policies, replay speed),
         "environment"
         (the world: the env, its settings, what is watched) or "training\""""
         resume = self.train_state is not None and not self.training
@@ -360,7 +361,6 @@ class App:
                "value": self.settings[name], "help": f"{explanation} A change starts a new run."}
               for name, (_, choices, explanation) in ENVS[self.env_name].settings.items()),
             {"type": "info", "name": "description", "text": self.env.description()},
-            {"type": "heading", "name": "watching", "text": "Watching"},
             {"type": "checkbox", "name": "auto_reset", "label": "Auto reset",
              "value": self.auto_reset, "inline": True,
              "help": "Start a new watched episode when one ends. Off: the episode goes on, see "
@@ -432,12 +432,11 @@ class App:
                 {"type": "slider", "name": f"toy.{name}", "label": name, "min": low, "max": high, "step": step,
                  "value": self.toy_params[name], "help": explanation, "group": group, "fold": True}
                 for name, (_, low, high, step, in_group, explanation) in toys.PARAMS.items() if in_group == group]
-        # always in view, above the watching panel: auto reset, the training's buttons
-        bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run")  # noqa: E731
-        # how you watch: a panel below the tabs, always in view
-        watching = ("watching", "show_n", "replay_speed", "follow", "decorate", "reset")
-        place = lambda c: "bar" if bar(c) else "watch" if c["name"] in watching else "environment"  # noqa: E731
-        return ([{**c, "section": place(c)} for c in env]
+        # always in view (the page's icons above the tabs): the training's buttons, reset
+        # episode, auto reset, camera follows, decoration; how many policies, replay speed
+        bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run", "reset", "follow", "decorate",  # noqa: E731
+                                      "show_n", "replay_speed")
+        return ([{**c, "section": "bar" if bar(c) else "environment"} for c in env]
                 + [{**c, "section": "bar" if bar(c) else "training"} for c in training]
                 + [{**c, "section": "toys"} for c in toy_controls])
 

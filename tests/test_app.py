@@ -378,13 +378,13 @@ def test_env_settings():
     app = make_app(env="WaterCannon")
     control = next(c for c in app.controls() if c["name"] == "setting.objects")
     assert control["type"] == "select" and control["options"] == [1, 2, 3] and control["value"] == 1
-    # (the World tab: the env and its settings; the top bar: auto reset, Train / New run)
+    # (the World tab: the env and its settings; the page's icons above the tabs: training,
+    # the switches, how you watch)
     sections = {c["name"]: c["section"] for c in app.controls()}
     assert sections["env"] == sections["setting.objects"] == "environment"
-    # (how you watch: a panel below the tabs, always in view)
-    assert {n for n, s in sections.items() if s == "watch"} == {"watching", "show_n", "replay_speed", "follow",
-                                                                "decorate", "reset"}
-    assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run"}
+    assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run", "reset", "follow",
+                                                              "decorate", "show_n", "replay_speed"}
+    assert "watch" not in sections.values()
     assert app.env_key == "WaterCannon · objects 1"
     app.command("train")
     while not app.history:

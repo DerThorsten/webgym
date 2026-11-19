@@ -24,14 +24,6 @@
       #forge img { height: 22px; width: 22px; border-radius: 4px; }
       #github-link { display: flex; color: #bbb; }
       #github-link:hover { color: #fff; }
-      #controls-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 0;
-                      border-bottom: 1px solid #333; }
-      #controls-bar .control { display: flex; align-items: center; gap: 6px; margin: 0; }
-      #controls-bar .control label { display: inline; font-size: 12px; }
-      #controls-bar .control:not(.checkbox) label > span:last-child { display: none; }
-      #controls-bar .control select { width: auto; }
-      #controls-bar button { margin: 0 4px 0 0; }
-      #controls-bar .control.inline { margin: 0; }
       #chips { display: flex; flex-wrap: wrap; gap: 6px; }
       .chip { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: #262626; color: #bbb; white-space: nowrap; }
       .chip b { color: #fff; font-weight: 600; }
@@ -46,12 +38,28 @@
       #status { padding: 4px 12px 6px; }
       #app { display: flex; flex: 1; min-height: 0; }
       #side { width: var(--side-width, 340px); flex: none; display: flex; flex-direction: column; box-sizing: border-box; background: #1b1b1b; }
+      /* the icons above the tabs: #quick (training, the switches), #quick-watch (how many
+         policies, replay speed: steppers); line icons, the same size */
+      #quick, #quick-watch { display: flex; flex: none; gap: 6px; align-items: center; padding: 8px 8px 0; }
+      #quick button, .stepper { margin: 0; width: 34px; height: 30px; padding: 0; display: grid; place-items: center;
+                      background: #2a2a2a; color: #ddd; border: 1px solid #3a3a3a; border-radius: 4px; cursor: pointer; }
+      #quick button:hover, .stepper button:hover { background: #333; color: #fff; }
+      #quick svg, .stepper svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2;
+                   stroke-linecap: round; stroke-linejoin: round; }
+      #quick .sep { width: 1px; height: 22px; background: #3a3a3a; margin: 0 2px; }
+      #quick-train { background: #2f6fd6 !important; border-color: #2f6fd6 !important; color: #fff !important; }
+      #quick-train svg { fill: currentColor; }
+      #quick-train.running { background: #444 !important; border-color: #555 !important; }
+      #quick button.on { background: #23395d; border-color: #2f6fd6; color: #8fb8ff; }  /* (a switch that is on) */
+      #quick button:disabled, .stepper button:disabled { opacity: 0.3; cursor: default; }
+      .stepper { display: flex; width: auto; cursor: default; }
+      .stepper button { margin: 0; padding: 0; width: 28px; height: 28px; display: grid; place-items: center;
+                        background: none; color: #ddd; border: 0; border-radius: 3px; cursor: pointer; }
+      .stepper .value { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 36px;
+                        padding: 0 2px; font-size: 13px; }
+      .stepper .value svg { width: 15px; height: 15px; }
+      .stepper.disabled { opacity: 0.4; }
       /* the panel's tabs */
-      #quick { display: flex; flex: none; gap: 4px; padding: 6px 8px 0; }
-      #quick button { margin: 0; width: 30px; height: 26px; padding: 0; font-size: 14px; line-height: 1; }
-      #quick-train { background: #2f6fd6; color: #fff; border: 0; border-radius: 3px; }
-      #quick-train.running { background: #444; }
-      #quick-new { font-size: 18px; }
       #tabs { display: flex; flex: none; border-bottom: 1px solid #2a2a2a; }
       #tabs button { flex: 1; margin: 0; padding: 8px 0; background: none; color: #999; border: 0;
                      border-bottom: 2px solid transparent; font: inherit; font-size: 13px; cursor: pointer; }
@@ -59,7 +67,6 @@
       #tabs button.active { color: #fff; border-bottom-color: #2f6fd6; }
       .tab { flex: 1; overflow: auto; padding: 4px 12px 12px; }
       .tab[hidden] { display: none; }
-      #watch-panel { flex: none; border-top: 1px solid #333; padding: 4px 12px 8px; background: #1b1b1b; }
       /* drag to resize the side panel */
       .resizer { width: 6px; flex: none; cursor: col-resize; background: #222; touch-action: none; }
       .resizer:hover, .resizer.dragging { background: #2f6fd6; }
@@ -179,8 +186,6 @@
         #bar { padding: 4px 8px; gap: 4px 6px; }
         #logo, #chips .chip.world, #chips .chip.best, #chips .chip.watch, #forge small { display: none; }
         #bar button { margin: 0; padding: 4px 8px; }
-        #controls-bar { gap: 4px 6px; }
-        #controls-bar .help { display: none; }
         #forge { padding-right: 8px; }
         #menu-toggle { display: block; }
         #links { display: none; }
@@ -190,6 +195,17 @@
         #code-panel { position: fixed; inset: 0; z-index: 14; width: auto; padding: 8px; }
         #code-close { display: block; float: right; margin: -4px 0 0; }
         .code-bar { flex-wrap: wrap; }
+        /* the panel scrolls as a whole (little room: nothing pinned below the tabs, the
+           tab's content first, then training's buttons and how you watch); the tab row
+           stays on top */
+        #side { overflow-y: auto; }
+        #quick, #quick-watch { gap: 8px; }
+        #quick button { width: 42px; height: 38px; }  /* (a fingertip) */
+        .stepper { height: 38px; }
+        .stepper button { width: 36px; height: 36px; }
+        #quick svg, .stepper svg { width: 21px; height: 21px; }
+        .tab { flex: none; overflow: visible; }
+        #tabs { position: sticky; top: 0; z-index: 2; background: #1b1b1b; }
       }
       /* phone, portrait: the world on top, the panel below it */
       @media (max-width: 700px) and (orientation: portrait) {
@@ -235,16 +251,46 @@
     <div id="app">
       <!-- the left panel: tabs (the chosen one is remembered) -->
       <div id="side">
-        <!-- the training's buttons, compact (the same as below the tabs) -->
+        <!-- always in view, above the tabs: training, the switches, how you watch (the app's
+             controls of section "bar", see showQuick in main.js); line icons in the style of
+             Feather, feathericons.com, MIT -->
         <div id="quick">
-          <button id="quick-train" title="Train">▶</button>
-          <button id="quick-new" title="New run: start over from scratch">↻</button>
+          <button id="quick-train" title="Train"></button>
+          <button id="quick-new" title="New run: start over from scratch">
+            <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10" /><polyline points="23 20 23 14 17 14" />
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" /></svg></button>
+          <span class="sep"></span>
+          <button id="quick-episode" title="Reset episode (R)">
+            <svg viewBox="0 0 24 24"><polygon points="19 20 9 12 19 4 19 20" /><line x1="5" y1="19" x2="5" y2="5" /></svg></button>
+          <span class="sep"></span>
+          <button id="quick-reset" title="Auto reset">
+            <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" />
+              <polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg></button>
+          <button id="quick-follow" title="Camera follows">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><line x1="22" y1="12" x2="17" y2="12" />
+              <line x1="7" y1="12" x2="2" y2="12" /><line x1="12" y1="7" x2="12" y2="2" />
+              <line x1="12" y1="22" x2="12" y2="17" /></svg></button>
+          <button id="quick-decorate" title="Decoration">
+            <svg viewBox="0 0 24 24"><path d="M2 17.5q10 4.5 20 0" /><path d="M7.5 18.6V4h9v14.6" /><path d="M7.5 13.5h9" /></svg></button>
+        </div>
+        <div id="quick-watch">
+          <div class="stepper" id="quick-policies" title="Show policies">
+            <button class="less"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" /></svg></button>
+            <span class="value"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg><b>1</b></span>
+            <button class="more"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button>
+          </div>
+          <div class="stepper" id="quick-speed" title="Replay speed">
+            <button class="less"><svg viewBox="0 0 24 24"><polygon points="11 19 2 12 11 5 11 19" /><polygon points="22 19 13 12 22 5 22 19" /></svg></button>
+            <span class="value"><b>1x</b></span>
+            <button class="more"><svg viewBox="0 0 24 24"><polygon points="13 19 22 12 13 5 13 19" /><polygon points="2 19 11 12 2 5 2 19" /></svg></button>
+          </div>
         </div>
         <div id="tabs">
           <button data-tab="world">World</button>
           <button data-tab="training">Training</button>
-          <button data-tab="toys">Toys</button>
           <button data-tab="policy">Policy</button>
+          <button data-tab="toys">Toys</button>
           <button data-tab="log">Log</button>
         </div>
         <div class="tab" id="tab-world">
@@ -281,11 +327,6 @@
           <div id="packages"></div>
           <h4>Log</h4>
           <div id="log"></div>
-        </div>
-        <!-- below the tabs, always in view: Train / Stop, New run, auto reset; how you watch -->
-        <div id="watch-panel">
-          <div id="controls-bar"></div>
-          <div class="controls" id="controls-watch"></div>
         </div>
       </div>
       <div id="resizer" class="resizer" title="drag to resize the panel"></div>

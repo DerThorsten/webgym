@@ -235,26 +235,63 @@ const openFolds = new Set(["Things to drop"]); // the folds that are open (kept 
 
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
-// the compact training buttons above the tabs: ▶ / ⏸ (train / stop, as the bar's button
-// says) and ⟲ (new run)
+// the app's controls of section "bar", as icons above the tabs: play / pause (train /
+// stop; the title says which: Train / Continue training / Stop), new run, reset episode,
+// the switches auto reset, camera follows, decoration (blue: on); below them the
+// steppers show policies and replay speed
 const quickTrain = document.getElementById("quick-train");
+const SWITCHES = { auto_reset: "quick-reset", follow: "quick-follow", decorate: "quick-decorate" };
+const PLAY = '<svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3" /></svg>';
+const PAUSE = '<svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>';
+quickTrain.innerHTML = PLAY;
 document.getElementById("quick-new").onclick = () => command("new_run");
+document.getElementById("quick-episode").onclick = () => command("reset");
 function showQuick(controls) {
   const button = controls.find((c) => c.name === "train" || c.name === "stop");
-  if (!button) return;
-  const running = button.name === "stop";
-  quickTrain.textContent = running ? "⏸" : "▶";
-  quickTrain.title = button.label; // (Train / Continue training / Stop)
-  quickTrain.classList.toggle("running", running);
-  quickTrain.onclick = () => command(button.name);
+  if (button) {
+    const running = button.name === "stop";
+    quickTrain.innerHTML = running ? PAUSE : PLAY;
+    quickTrain.title = button.label;
+    quickTrain.classList.toggle("running", running);
+    quickTrain.onclick = () => command(button.name);
+  }
+  for (const [name, id] of Object.entries(SWITCHES)) {
+    const c = controls.find((c) => c.name === name);
+    if (!c) continue;
+    const el = document.getElementById(id);
+    el.classList.toggle("on", Boolean(c.value) && !c.disabled);
+    el.disabled = Boolean(c.disabled); // (e.g. camera follows: a world with a fixed view)
+    el.title = `${c.label}: ${c.value ? "on" : "off"}. ${c.help}`;
+    el.onclick = () => command(name, !c.value);
+  }
+  // the steppers: − / + around the value (sliders of the app: min .. max, step; labels:
+  // the value's text, e.g. "2x")
+  for (const [name, id] of Object.entries(STEPPERS)) {
+    const c = controls.find((c) => c.name === name);
+    if (!c) continue;
+    const el = document.getElementById(id);
+    const text = c.labels ? c.labels[c.value] : String(c.value);
+    el.querySelector(".value b").textContent = text;
+    el.title = `${c.label}: ${text}. ${c.help}`;
+    el.classList.toggle("disabled", Boolean(c.disabled));
+    const step = (sign) => command(name, Math.min(c.max, Math.max(c.min, c.value + sign * c.step)));
+    const less = el.querySelector(".less");
+    const more = el.querySelector(".more");
+    less.disabled = Boolean(c.disabled) || c.value <= c.min;
+    more.disabled = Boolean(c.disabled) || c.value >= c.max;
+    less.onclick = () => step(-1);
+    more.onclick = () => step(1);
+  }
 }
+const STEPPERS = { show_n: "quick-policies", replay_speed: "quick-speed" };
 
 function showControls(controls) {
   showQuick(controls);
-  // each control in its section ("bar": Train / Stop, New run, auto reset above the watching panel, "environment", "training"), buttons
-  // at its end
+  // each control in its section ("environment", "training", "toys"; "bar": the icons
+  // above the tabs, see showQuick), buttons at its end
+  controls = controls.filter((c) => c.section !== "bar");
   const sections = new Map();
-  for (const name of ["bar", "environment", "training", "toys", "watch"]) {
+  for (const name of ["environment", "training", "toys"]) {
     const el = document.getElementById(`controls-${name}`);
     const buttons = document.createElement("div");
     el.replaceChildren(buttons);
@@ -480,8 +517,10 @@ function onMessage(role, { data }) {
     const firstVisit = !tourDone() && !navigator.webdriver && params.get("tour") !== "0";
     if (role !== "trainer" && (firstVisit || params.get("welcome") === "1")) setTimeout(welcome, 1000);
     // the big packages in the training worker, in the background, a bit later: the
-    // restore of the autosave goes first (the installs keep python busy)
-    if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
+    // restore of the autosave goes first (the installs keep python busy). Not with one
+    // worker (phones): the install would freeze the world you watch for seconds; there
+    // pytorch loads when an algorithm needs it (need_package: "please wait" meanwhile)
+    if (training && TWO_WORKERS) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
   } else if (data.type === "snapshot") {
     lastSnapshot = data.data;
     toDisplay({ type: "snapshot", data: data.data });
