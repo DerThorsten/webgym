@@ -65,23 +65,46 @@ with gravel and crates), WaterCannon (keep objects in the air with water).
 ## Your own environment
 
 A world is a short python class. CartPole, the template (`webgym/envs/cartpole.py`,
-shortened):
+without its docstring and DQN / time-budget extras):
 
 ```python
+import numpy as np
+import pyb2d3 as b2d
+
+from webgym.core import Env, register_env
+
+MAX_FORCE = 10.0  # N; the cart weighs 1 kg, the pole 0.1 kg (as the classic cart-pole)
+
+
 @register_env("CartPole")
 class CartPole(Env):
     obs_names = ("cart x", "cart velocity", "pole angle", "pole ang. vel.")
     action_names = ("force",)  # actions are always in [-1, 1]
     max_steps = 500
+    view_center, view_zoom = (0.0, 1.0), 3.0
 
-    def build_scenery(self):
+    def build_scenery(self):  # once: the static world
         self.ground = self.scenery(b2d.box(3.0, 0.05))
 
     def build_agent(self, i):  # ONE agent; webgym batches them: self.cart = all carts
-        cart = self.body((0, 0.3), b2d.box(0.25, 0.12), density=1 / 0.12)
-        pole = self.body((0, 0.92), b2d.box(0.025, 0.5), density=2.0)
-        ...  # a prismatic joint (the rail), a revolute joint (the hinge)
+        cart = self.body((0, 0.3), b2d.box(0.25, 0.12), density=1 / 0.12)  # (1 kg)
+        pole = self.body((0, 0.92), b2d.box(0.025, 0.5), density=2.0)  # (0.1 kg)
+        # the rail, with stops at its ends (the episode ends before, at |x| = 2.4)
+        self.world.create_prismatic_joint(
+            body_a=self.ground, body_b=cart,
+            local_frame_a=b2d.transform(p=(0, 0.3)), local_frame_b=b2d.transform(p=(0, 0)),
+            enable_limit=True, lower_translation=-2.75, upper_translation=2.75,
+        )
+        # the hinge: the pole's lower end on the top of the cart
+        self.world.create_revolute_joint(
+            body_a=cart, body_b=pole,
+            local_frame_a=b2d.transform(p=(0, 0.12)), local_frame_b=b2d.transform(p=(0, -0.5)),
+        )
         return {"cart": cart, "pole": pole}
+
+    def randomize(self, rng):  # the random start of an episode, all agents at once
+        self.cart.linear_velocity = np.column_stack([rng.uniform(-0.1, 0.1, self.n), np.zeros(self.n)])
+        self.pole.angular_velocity = rng.uniform(-0.1, 0.1, self.n)
 
     def act(self, actions):  # (n, 1)
         force = np.column_stack([actions[:, 0] * MAX_FORCE, np.zeros(self.n)])
@@ -96,7 +119,9 @@ class CartPole(Env):
         return np.ones(self.n), fallen
 ```
 
-The how-to is the docstring of `webgym/core.py`.
+Put the file into `webgym/envs/` (or edit one in the browser with *Code*); the comment at
+the top of [`webgym/core.py`](webgym/core.py) explains each method step by step, and how to
+give an env settings the user can choose.
 
 ## Development
 
