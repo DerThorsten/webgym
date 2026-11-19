@@ -547,7 +547,8 @@ function onMessage(role, { data }) {
     // ?train=0 starts watching
     if (autoTrain) {
       autoTrain = false;
-      restored.then(() => setTimeout(() => command("train"), 300));
+      const start = ++autoStart; // (a restore by the user meanwhile cancels it)
+      restored.then(() => setTimeout(() => start === autoStart && command("train"), 300));
     }
   } else if (data.type === "checkpoint" || data.type === "delete_checkpoint") checkpoints.onMessage(data);
   else if (data.type === "code") showCode(data.code);
@@ -581,7 +582,12 @@ function onMessage(role, { data }) {
 const MAX_CRASHES = 3;
 const crashes = [];
 // checkpoints (IndexedDB): a new training worker restores the autosave of its env + algo
-const checkpoints = setupPanel(toTraining);
+// (a checkpoint the user restores: a training about to start by itself doesn't)
+let autoStart = 0;
+const checkpoints = setupPanel((message) => {
+  if (message.byUser) autoStart++;
+  toTraining(message);
+});
 let freshWorker = true; // the training (or single) worker just started
 let keepStatusUntil = 0; // the crash notice is not cleared by the restarted worker before
 const TRAP = /RuntimeError: (unreachable|memory access out of bounds|null function|indirect call)|Aborted\(|out of memory/i;

@@ -267,6 +267,40 @@ def test_show_several_policies(env):
         app._watch_step()
 
 
+def test_rain_forgets_the_drops_of_an_old_world():
+    """rain, then the watched world is rebuilt: the old drops are forgotten (box2d body ids
+    don't name their world: an old id may point to a body of the new one, destroying it
+    crashed the page)"""
+    app = make_app(env="Walker")
+    app.command("rain", True)
+    app.command("toy.drop life", 0.3)
+    for _ in range(40):
+        app._watch_step()
+    app.command("show_n", 3)  # (a new world)
+    hull_bodies = app.env.world.counters.body_count
+    app._watch_step()
+    assert app.rain.world is app.env.world
+    assert all(body.is_valid for body, _ in app.rain.drops)
+    for _ in range(60):  # (the old drops' ids, gone by now, touched nothing of the new world)
+        app._watch_step()
+    assert app.env.world.counters.body_count >= hull_bodies
+
+
+def test_one_worker_pauses_training_to_watch():
+    """one worker (draws: a phone) draws what it trains: the Toys tab and auto reset off
+    stop training (the watching options act on the watched world); with two workers the
+    trainer (draws=False) goes on"""
+    for command, value in (("toy_mode", True), ("auto_reset", False)):
+        single = make_app()
+        single.command("train")
+        single.command(command, value)
+        assert not single.training, command
+        trainer = make_app(draws=False)
+        trainer.command("train")
+        trainer.command(command, value)
+        assert trainer.training, command
+
+
 def test_toys():
     """the Toys tab: a toy turns auto reset off and shows one policy; a click drops a box
     / a ball or sets off an explosion; rain adds drops; a reset clears them all"""

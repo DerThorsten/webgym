@@ -365,7 +365,8 @@ class App:
              "value": self.auto_reset, "inline": True,
              "help": "Start a new watched episode when one ends. Off: the episode goes on, see "
                      "the agent recover; R starts a new one. (Training resets its own episodes "
-                     "either way.)"},
+                     "either way. On phones, where the view shows the training, switching it "
+                     "off pauses training: ▶ continues.)"},
             {"type": "slider", "name": "show_n", "label": "Show policies", "min": 1, "max": 16, "step": 1,
              "value": self.show_n, "disabled": not self.env.batchable,
              "help": "How many policies run at once in the view: the current one (solid) and as "
@@ -417,7 +418,8 @@ class App:
             {"type": "hint", "name": "toys_hint",
              "text": "Pick a tool below, then click into the world (a click on a body still grabs "
                      "it). Click the tool again to put it away. This tab turns auto reset off and "
-                     "shows one policy; R resets (and clears the toys)."},
+                     "shows one policy; R resets (and clears the toys). (On phones it pauses "
+                     "training: the toys act on the policy you watch.)"},
         ]
         for group in toys.GROUPS:  # (each a fold of the tab: its tools as buttons, its sliders)
             tools = [[name, label] for name, (label, _, in_group) in toys.TOOLS.items() if in_group == group]
@@ -572,6 +574,8 @@ class App:
                 self.camera.center = b2d.Vec2(*self.env.view_center)
                 self.camera._matrix = None
         elif name == "auto_reset":
+            if not value:
+                self._pause_to_watch()
             self.auto_reset = bool(value)
             self.env.freeze_done = self.env.n > 1 and self.auto_reset
             if self.auto_reset and self.ended and self.end_timer is None:
@@ -762,12 +766,20 @@ class App:
         """toys: no auto reset (the episode goes on, see how the agent copes) and one
         policy in view (the toys hit it, not a crowd of ghosts); no scores"""
         self.toys_on = True
+        self._pause_to_watch()
         self.auto_reset = False
         self.env.freeze_done = False
         self.end_timer = None  # (an ended episode: no countdown to the next one)
         if self.show_n != 1:
             self.show_n = 1
             self.watch()
+
+    def _pause_to_watch(self):
+        """one worker (a phone): it draws what it trains, the watching options (toys, auto
+        reset off) have nothing to act on: training stops (▶ continues it). With two
+        workers the trainer doesn't draw (draws=False) and goes on"""
+        if self.training and self.draws:
+            self.stop()
 
     def _watch_params(self):
         """(n, num_params): agent 0 the current policy, then the best candidates (CEM /

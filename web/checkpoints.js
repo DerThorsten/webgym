@@ -88,7 +88,8 @@ export function setupPanel(send) {
       row.innerHTML = `<div><b></b><div class="meta">iteration ${r.iteration}${mean} · ${when}</div></div>`;
       row.querySelector("b").textContent = r.name;
       const restore = Object.assign(document.createElement("button"), { textContent: "Restore" });
-      restore.onclick = async () => send({ type: "restore", data: r.pretrained ? await pretrainedData(r.file) : r.data });
+      restore.onclick = async () =>
+        send({ type: "restore", data: r.pretrained ? await pretrainedData(r.file) : r.data, byUser: true });
       row.append(restore);
       if (!r.pretrained) {
         // (the pretrained ones can't be deleted: they come with the page)

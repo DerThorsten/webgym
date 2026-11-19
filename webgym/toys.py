@@ -169,11 +169,17 @@ class Rain:
 
     def __init__(self):
         self.drops = []  # [body, seconds left]
+        self.world = None  # (the world the drops are in)
         self.rng = np.random.default_rng()
 
     def step(self, world, left, right, top, dt, p):
         """new drops between x = left .. right at height `top` (p["rain rate"] per second,
         on average); old ones go"""
+        if world is not self.world:
+            # another world (the watched env was rebuilt): the old drops went with the old
+            # one. Forget them: box2d body ids don't name their world, an old id may point
+            # to a body of the new one (destroying it crashed the page)
+            self.world, self.drops = world, []
         for _ in range(self.rng.poisson(p["rain rate"] * dt)):
             x = float(self.rng.uniform(left, right))
             drop = thing(world, (x, top), b2d.circle(radius=p["drop size"]), p, p["drop weight"], RAIN_COLOR)
