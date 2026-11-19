@@ -6,9 +6,6 @@ foot contacts (14 values).
 action: 4 joint torques in [-1, 1] (hips, knees).
 reward: forward progress, minus a small effort cost; -100 when the hull hits
 the ground. Episodes last 10 s, or end when the walker makes no progress for 1.5 s.
-
-Keys (human controller): q / a = left hip, w / s = left knee,
-o / l = right hip, p / ; = right knee.
 """
 
 import itertools
@@ -53,7 +50,6 @@ class Legged(Env):
     MAX_SPEED = 20.0  # rad/s the motors drive towards
     LIMITS = {"hip": (-0.8, 1.1), "knee": (-1.5, 0.05)}
     FALL_Y, FALL_ANGLE = 0.55, 1.0  # the hull lower / tilted more: fallen (-100, end)
-    KEY_PAIRS = ()  # human controller: (plus, minus) key per joint
     max_steps = 600
     view_center, view_zoom = (0.0, 2.0), 3.5
 
@@ -112,10 +108,6 @@ class Legged(Env):
         stalled = self.steps - self.progress_step > STALL_SECONDS / self.dt
         return reward - 100 * fallen, fallen | stalled
 
-    def human_action(self, keys):
-        """two keys per joint (KEY_PAIRS, see the env's docstring)"""
-        return np.array([(plus in keys) - (minus in keys) for plus, minus in self.KEY_PAIRS], dtype=np.float32)
-
     def camera_target(self, i):
         """follow the hull to the right (the height stays: no bobbing)"""
         return float(self.hull.position[i, 0]), self.view_center[1]
@@ -126,5 +118,6 @@ class Walker(Legged):
     obs_names, action_names = legged_names(("L", "R"))
     # (for DQN: each joint at full torque, + or -: "+-+-" = hip L +, knee L -, ...)
     discrete_actions, discrete_names = bang_bang([[0], [1], [2], [3]], 4)
-    keys = "left leg: Q / A hip, W / S knee · right leg: O / L hip, P / ; knee"
-    KEY_PAIRS = (("q", "a"), ("w", "s"), ("o", "l"), ("p", ";"))
+    suggested = {"quick": {"cem": {}, "es": {}},
+                 "medium": {"cem": {}, "sac_torch": {}, "es": {}},
+                 "long": {"ppo_torch": {"hidden": 64}, "sac_torch": {"updates": 4}, "es": {}}}

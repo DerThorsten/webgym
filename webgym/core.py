@@ -31,8 +31,8 @@ Writing an env (see envs/cartpole.py, the shortest one):
         def reward(self):                # -> reward (n,), episode over (n,)
             return np.ones(self.n), np.abs(self.cart.angle) > 1
 
-Settings the user can choose (e.g. how many balls): `settings = {"balls": (1, (1, 2, 3),
-"explanation")}`; the env reads `self.balls`; obs_names / action_names may depend on them
+Settings the user can choose (e.g. how many objects): `settings = {"objects": (1, (1, 2, 3),
+"explanation")}`; the env reads `self.objects`; obs_names / action_names may depend on them
 (make them properties). See envs/water_cannon.py.
 """
 
@@ -84,7 +84,6 @@ class Env:
     # initial camera: world point at the view center, half height in world units
     view_center = (0.0, 0.0)
     view_zoom = 10.0
-    keys = ""  # the keys of the human controller (shown in the UI, see human_action)
     # True: n agents share one world without affecting each other (only static scenery);
     # False: the agents change the world (e.g. a dynamic parcours): one agent at a time
     # (the population / show-policies sliders are disabled)
@@ -97,6 +96,11 @@ class Env:
     # and checkpoints are kept per setting): {name: (default, choices, explanation)};
     # the env reads them as attributes (self.<name>), also in obs_names / action_names
     settings = {}
+    # which algorithms work well here, per time budget ("quick" ~1 min, "medium" ~5 min,
+    # "long" ~20 min of training in the browser), best first, each with parameters that
+    # differ from its defaults: {budget: {algo: {param: value}}}; the page picks the first
+    # one when you open the env or change the budget (rough guesses, not measured)
+    suggested = {}
 
     def __init__(self, n=1, decorated=False, **settings):
         for name, value in self.chosen(settings).items():
@@ -167,11 +171,6 @@ class Env:
         """-> (reward (n,), episode over (n,) bool) after a step"""
         raise NotImplementedError
 
-    def human_action(self, keys):
-        """the action of a human pressing `keys` (a set of names like "left", "up",
-        "space"): default zeros (no keyboard play)"""
-        return np.zeros(len(self.action_names), dtype=np.float32)
-
     def decorate(self):
         """decorated envs only, after each watched step: looks that follow the agents
         (e.g. thrust particles); default: nothing"""
@@ -208,8 +207,10 @@ class Env:
 
     def body(self, position, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, **body_settings):
         """a dynamic body of the agent being built, with one shape (more: self.shape);
-        `filter`: what it collides with (default: the scenery, not other agents)"""
-        body = self.world.create_dynamic_body(position=position, **body_settings)
+        `filter`: what it collides with (default: the scenery, not other agents). Agent
+        bodies never sleep: a joint motor doesn't wake a sleeping body, and an agent lying
+        still (fallen, auto reset off) must still move when its policy acts"""
+        body = self.world.create_dynamic_body(position=position, **{"enable_sleep": False, **body_settings})
         self._bodies.append(body)
         self._owner.append(self._agent)
         self.shape(body, geometry, density, friction, filter)
@@ -223,10 +224,10 @@ class Env:
         self._shapes[self._agent].append(shape)
         return shape
 
-    def sensor(self, body, geometry):
+    def sensor(self, body, geometry, filter=SENSOR_FILTER):
         """a sensor shape on an agent body: `sensor_capacity > 0` (batched: b2d.Shapes)
         while it overlaps the scenery, e.g. a foot touching the ground"""
-        shape_def = b2d.shape_def(is_sensor=True, enable_sensor_events=True, filter=SENSOR_FILTER)
+        shape_def = b2d.shape_def(is_sensor=True, enable_sensor_events=True, filter=filter)
         return body.create_shape(shape_def, geometry)
 
     # -- the API (used by the trainers and the app) ----------------------------------
@@ -330,7 +331,9 @@ class _SameForAll:
         def same(*args, size=None, **kwargs):
             if size is None and args and np.shape(args[-1]) in ((), (2,)) and _first(args[-1]) == self.n:
                 *args, size = args
-            if size is None or _first(size) != self.n:
+            if size is None:  # (also draws without a size, e.g. permutation)
+                return draw(*args, **kwargs)
+            if _first(size) != self.n:
                 return draw(*args, size=size, **kwargs)
             shape = (size,) if np.isscalar(size) else tuple(size)
             return np.repeat(draw(*args, size=(1, *shape[1:]), **kwargs), shape[0], axis=0)
@@ -360,7 +363,7 @@ MAX_SEPARATE = 32  # non-batchable envs: at most this many agents (one world eac
 
 
 def env_key(name, settings=None):
-    """the name of an env with its settings, e.g. "WaterCannon · balls 2" (runs and
+    """the name of an env with its settings, e.g. "WaterCannon · objects 2" (runs and
     checkpoints are kept per key); just the name for an env without settings"""
     values = ENVS[name].chosen(settings)
     return " · ".join([name, *(f"{k} {v}" for k, v in values.items())])

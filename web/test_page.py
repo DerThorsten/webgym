@@ -137,14 +137,16 @@ def main():
         page.wait_for_timeout(1000)
         print("watch:", page.inner_text("#state"))
         # explanations: a click on a control's name shows it, another click hides it
-        page.click("[data-help] >> text=Show policies")
+        # (click events, not pointer clicks: the controls may be rebuilt meanwhile, and the
+        # popup of a first click must not block the second)
+        page.dispatch_event("[data-help] >> text=Show policies", "click")
         assert page.is_visible("#help-popup") and "ghosts" in page.inner_text("#help-popup")
-        page.click("[data-help] >> text=Show policies")
+        page.dispatch_event("[data-help] >> text=Show policies", "click")
         assert not page.is_visible("#help-popup")
         # the tours (not by themselves in automated tests: the links), through to the end:
         # the quick one, then from its last step the detailed one
         page.click("#tour-link")
-        for _ in range(5):
+        for _ in range(6):
             assert page.is_visible("#tour-card") and page.is_visible("#tour-frame")
             page.click("#tour-card .next")
         page.click("#tour-card .more")  # (the last step: "Detailed tour")
@@ -159,32 +161,31 @@ def main():
         # is rebuilt with it in the worker(s), no error
         assert not page.is_visible("#code-panel")
         page.click("#code-toggle")
-        page.wait_for_function("document.getElementById('code').textContent.includes('register_env')", timeout=10_000)
-        page.click("#code .cm-content")
+        page.wait_for_function("document.getElementById('code').textContent.includes('register_env')", timeout=30_000)
+        page.click("#code .view-lines")  # (Monaco)
         page.keyboard.press("ControlOrMeta+End")
         page.keyboard.type("\n# edited in the browser\n")
         page.keyboard.press("ControlOrMeta+Enter")  # (= Apply)
         page.wait_for_timeout(1500)
-        assert "# edited in the browser" in page.inner_text("#code")  # (the file, sent back)
+        assert "# edited in the browser" in page.evaluate("codeText()")  # (the file, sent back)
         assert "applying the edited" in page.text_content("#log")  # (collapsed: no inner_text)
         page.wait_for_timeout(1000)
         assert not errors, errors
         # kept in this browser (IndexedDB): after a reload the workers start with the edit
         load(page, url, errors)
         page.click("#code-toggle")
-        page.wait_for_function("document.getElementById('code').textContent.includes('# edited in the browser')",
-                               timeout=10_000)
+        page.wait_for_function("codeText().includes('# edited in the browser')", timeout=30_000)
         assert "edited (kept in this browser)" in page.inner_text("#code-path")
         # Revert: the original comes back (the page reloads)
         page.once("dialog", lambda dialog: dialog.accept())
         with page.expect_console_message(lambda m: READY in m.text, timeout=120_000):
             page.click("#code-revert")
         page.click("#code-toggle")
-        page.wait_for_function("document.getElementById('code').textContent.includes('register_env')", timeout=10_000)
-        assert "# edited in the browser" not in page.inner_text("#code")
+        page.wait_for_function("codeText().includes('register_env')", timeout=30_000)
+        assert "# edited in the browser" not in page.evaluate("codeText()")
         page.click("#code-toggle")
         assert not errors, errors
-        page.click("button:text('Train')")
+        page.click("button:text-is('Train')")
         page.wait_for_function(
             "document.getElementById('state').textContent.includes('mean/best')", timeout=60_000
         )
@@ -196,7 +197,7 @@ def main():
             page.click("button:text('Stop')")
             page.wait_for_timeout(500)
             start = time.perf_counter()
-            page.click("button:text('Train')")
+            page.click("button:text-is('Train')")
             page.wait_for_function(
                 """(target) => {
                 const m = document.getElementById('state').textContent.match(/mean\\/best (-?\\d+)/);
@@ -236,7 +237,7 @@ def main():
                         name,
                     )
                     page.wait_for_timeout(300)
-                page.click("button:text('Train')")
+                page.click("button:text-is('Train')")
                 page.wait_for_timeout(args.stress * 1000)
                 print(f"stress {env}:", page.inner_text("#state").replace("\n", " | "))
                 page.click("button:text('Stop')")
@@ -252,7 +253,7 @@ def main():
             page.select_option("#controls-training select >> nth=0", "ppo_torch")
             page.click("#tabs button:text('World')")
             page.wait_for_timeout(500)
-            page.click("button:text('Train')")
+            page.click("button:text-is('Train')")
             page.wait_for_function("/ppo_torch, iteration [2-9]/.test(document.getElementById('state').textContent)",
                                    timeout=300_000)
             print("PPO (torch):", page.inner_text("#state").replace("\n", " | "))
@@ -272,10 +273,14 @@ def main():
         # the pretrained walker that comes with the page (public/pretrained/): restorable
         page.select_option("#controls-environment select >> nth=0", "Walker")
         page.click("#tabs button:text('Policy')")
+        # (Walker's: wait for its world, the list may still show the previous env's runs)
+        page.wait_for_function("document.getElementById('state').textContent.includes('none yet')", timeout=30_000)
+        page.wait_for_function("document.getElementById('chips').textContent.includes('Walker')", timeout=30_000)
+        page.wait_for_timeout(500)
         pretrained = page.locator(".ckpt", has_text="pretrained")
-        pretrained.wait_for(timeout=20_000)
-        pretrained.locator("button:text('Restore')").click()
-        page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration 300')",
+        pretrained.first.wait_for(timeout=20_000)
+        pretrained.first.locator("button:text('Restore')").click()
+        page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration')",
                                timeout=20_000)
         print("pretrained walker:", state(page))
         page.click("#tabs button:text('World')")
@@ -283,7 +288,7 @@ def main():
         page.wait_for_timeout(800)
         # the car (not batchable: one world per agent) trains too
         page.wait_for_function("document.getElementById('state').textContent.includes('none yet')", timeout=30_000)
-        page.click("button:text('Train')")
+        page.click("button:text-is('Train')")
         page.wait_for_function("document.getElementById('state').textContent.includes('cem, iteration')",
                                timeout=60_000)  # (the display watches the trained car policy)
         print("car:", state(page))

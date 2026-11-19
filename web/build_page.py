@@ -6,7 +6,8 @@
   packages that are not in the core). pyjs caches them in the browser after the first
   visit (installed layout + bytecode).
 * `webgym-<hash>.tar.gz`: the webgym sources, unpacked at /app.
-* config.json: {arch: {"core": [{url, sha256}], "pytorch": [...], "archives": [...]}}.
+* config.json: {arch: {"core": [{url, sha256}], "pytorch": [...], "archives": [...],
+  "release": pyproject.toml's version}}.
 
     python web/build_page.py              # then: cd web && npx vite
     python web/build_page.py --sources    # only the sources (the dev server, on a change)
@@ -19,6 +20,7 @@ import json
 import subprocess
 import sys
 import tarfile
+import tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -95,13 +97,18 @@ def build(sources_only=False):
             groups["archives"] = [{"url": archive, "path": "/app"}]
     else:
         config = locked_config(archive)
+    # the release (pyproject.toml's version): a new one asks browsers to delete their old
+    # saved data (web/main.js)
+    release = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["version"]
+    for groups in config.values():
+        groups["release"] = release
     (PUBLIC / "config.json.tmp").write_text(json.dumps(config, indent=2))
     (PUBLIC / "config.json.tmp").replace(PUBLIC / "config.json")
     for old in [*PUBLIC.glob("webgym-*.tar.gz"), *PUBLIC.glob("core-*.tar.gz")]:
         if old.name != archive:
             old.unlink()
     for arch, groups in config.items():
-        print(arch, ", ".join(f"{g}: {len(p)} packages" for g, p in groups.items() if g != "archives"))
+        print(arch, ", ".join(f"{g}: {len(p)} packages" for g, p in groups.items() if g not in ("archives", "release")))
     print(f"{archive}: {(PUBLIC / archive).stat().st_size / 1e3:.0f} kB")
 
 

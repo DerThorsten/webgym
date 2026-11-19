@@ -4,8 +4,6 @@ A cart on a rail (a prismatic joint) with a pole on a hinge (a revolute joint).
 obs: cart x, cart velocity, pole angle, pole angular velocity.
 action: the force on the cart. reward: 1 per step while the pole is up.
 The episode ends when the pole tilts more than 12 degrees or the cart leaves |x| < 2.4.
-
-Keys (human controller): left / right arrow push the cart.
 """
 
 import numpy as np
@@ -24,7 +22,9 @@ class CartPole(Env):
     discrete_names = ("push left", "push right")
     max_steps = 500
     view_center, view_zoom = (0.0, 1.0), 3.0
-    keys = "← / → push the cart"
+    suggested = {"quick": {"cem": {}, "neat": {}, "ppo_torch": {}},
+                 "medium": {"ppo_torch": {}, "cem": {}, "dqn_torch": {}},
+                 "long": {"ppo_torch": {}, "dqn_torch": {}, "sac_torch": {}}}
 
     def build_scenery(self):
         self.ground = self.scenery(b2d.box(3.0, 0.05))
@@ -60,6 +60,3 @@ class CartPole(Env):
     def reward(self):
         fallen = (np.abs(self.pole.angle) > 0.21) | (np.abs(self.cart.position[:, 0]) > 2.4)
         return np.ones(self.n), fallen
-
-    def human_action(self, keys):
-        return np.array([("right" in keys) - ("left" in keys)], dtype=np.float32)

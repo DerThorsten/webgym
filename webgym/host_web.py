@@ -271,7 +271,7 @@ class WebHost:
                 post({"type": "delete_checkpoint", "name": AUTOSAVE, "env": self.app.env_key,
                       "algo": self.app.algo})
             self.send_controls()
-            if self.role == "trainer" and (name in ("env", "algo", "new_run", "stop", "train")
+            if self.role == "trainer" and (name in ("env", "algo", "budget", "new_run", "stop", "train")
                                            or name.startswith("setting.")):
                 self.send_snapshot()  # (the display shows the current policy / env)
         except Exception:

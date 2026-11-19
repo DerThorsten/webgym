@@ -56,19 +56,12 @@ def test_pan_and_zoom():
     assert app.camera.zoom < zoom
 
 
-def test_human_controller_and_delayed_reset():
-    """human: the right arrow pushes the cart right; with auto reset (off while playing,
-    switched on again here) the next episode starts only after a pause"""
+def test_delayed_reset():
+    """with auto reset the next episode starts only after a pause"""
     app = make_app()
-    app.command("controller", "human")
-    assert not app.auto_reset
-    app.command("auto_reset", True)
-    app.event("keydown", key="right")
+    assert app.auto_reset
     while app.end_timer is None:
         app._watch_step()
-    assert cart_x(app) > 0.05
-    app.event("keyup", key="right")
-    assert app.keys == set()
     app._watch_step()
     assert app.ended and app.episodes == 1  # paused, no reset yet
     assert len(app.scores) == 1 and app.state()["scores"] == [round(app.scores[0], 1)]
@@ -79,23 +72,13 @@ def test_human_controller_and_delayed_reset():
 
 
 def test_without_auto_reset_the_env_goes_on():
-    """auto reset off: after the end the agent / human keeps control, no new episode;
-    R starts a new one"""
+    """auto reset off: after the end the agent keeps control, no new episode; R starts
+    a new one"""
     app = make_app()
     app.command("auto_reset", False)
     for _ in range(600):
         app._watch_step()
     assert app.ended and app.episodes == 1 and app.end_timer is None
-    app.command("controller", "human")
-    app.command("auto_reset", False)
-    for _ in range(100):
-        app._watch_step()
-    app.event("keydown", key="right")  # still controls the cart after the end
-    x = cart_x(app)
-    for _ in range(20):
-        app._watch_step()
-    assert cart_x(app) > x
-    app.event("keyup", key="right")
     app.event("keydown", key="r")  # R: a new episode
     assert not app.ended and app.env.steps == 0
 
@@ -175,7 +158,7 @@ def test_display_takes_snapshots():
 
 def test_show_n_best_policies():
     """watching shows the current policy + the trainer's best candidates (in the
-    snapshot); the score is the current policy's; a human plays alone"""
+    snapshot); the score is the current policy's"""
     trainer = make_app(population=16)
     trainer.command("train")
     while len(trainer.history) < 2:
@@ -191,9 +174,6 @@ def test_show_n_best_policies():
     while not display.ended:
         display._watch_step()
     assert len(display.scores) == 1 and display.scores[0] == display.env.episode_return[0]
-    display.command("controller", "human")
-    assert display.env.n == 1
-    display.command("controller", "agent")
     display.command("show_n", 3)
     assert display.env.n == 3
 
@@ -275,6 +255,107 @@ def test_non_batchable_env_trains_in_separate_worlds():
     assert app.env.n == 1
 
 
+@pytest.mark.parametrize("env", ["WaterCannon", "LunarLander", "Walker"])
+def test_show_several_policies(env):
+    """several policies watched side by side start alike (randomize with the same-start
+    rng: every kind of draw must work)"""
+    app = make_app(env=env)
+    app.command("show_n", 3)
+    for _ in range(5):
+        app._watch_step()
+
+
+def test_toys():
+    """the Toys tab: a toy turns auto reset off and shows one policy; a click drops a box
+    / a ball or sets off an explosion; rain adds drops; a reset clears them all"""
+    app = make_app(env="LunarLander")
+    app.command("show_n", 3)
+    app.command("toy_mode", True)  # (the page: the Toys tab was opened)
+    assert app.show_n == 1 and not app.auto_reset and app.env.n == 1
+    assert app.state()["toys"]  # (no scores: no time limit applies)
+    while not app.env.done[0]:
+        app._watch_step()
+    app._watch_step()
+    assert app.scores == []
+    app.command("toy_mode", False)  # (another tab: scores again)
+    assert not app.state()["toys"]
+    app.command("show_n", 3)
+    app.command("auto_reset", True)
+    app.command("toy", "box")  # (a toy: the same)
+    assert app.show_n == 1 and not app.auto_reset and app.env.n == 1
+    start = app.env.world.counters.body_count
+    app.event("down", 400, 100)
+    app.event("up", 400, 100)
+    app.command("toy", "ball")
+    app.event("down", 300, 100)
+    assert app.env.world.counters.body_count == start + 2
+    # a tool acts only in empty space: a click on the ground does nothing, a click on a
+    # body grabs it (the mouse joint), whatever tool is chosen
+    count = app.env.world.counters.body_count
+    ground = app.camera.convert_world_to_screen(b2d.Vec2(0.0, -0.5))
+    app.event("down", ground[0], ground[1])
+    app.event("up", ground[0], ground[1])
+    lander = app.camera.convert_world_to_screen(b2d.Vec2(*map(float, app.env.lander.position[0])))
+    app.event("down", lander[0], lander[1])
+    assert app.mouse_drag.active  # (grabbed: no box dropped)
+    app.event("up", lander[0], lander[1])
+    assert app.env.world.counters.body_count == count  # (nothing new: not on the ground, not on the lander)
+    app.command("toy", "explosion")
+    app.event("down", 400, 300)
+    assert len(app.blasts) == 1  # (drawn for a moment: rings and a flash)
+    app.command("rain", True)
+    for _ in range(10):
+        app._watch_step()
+    assert app.env.world.counters.body_count > start + 2
+    app.command("reset")  # (the world back at its start: the toys are gone)
+    assert app.env.world.counters.body_count == start
+    for _ in range(3):
+        app._watch_step()  # (rain goes on; its old drops are gone)
+    from webgym import toys as toy_module
+
+    toys = [c for c in app.controls() if c["section"] == "toys"]
+    assert {c["name"] for c in toys} == {"toy", "rain", "toys_hint", *(f"toy.{k}" for k in toy_module.PARAMS)}
+    app.command("toy.size", 1.2)  # (the sliders: a bigger, heavier box)
+    app.command("toy.weight", 3)
+    big = toy_module.thing(app.env.world, (0, 5), b2d.box(1.2, 1.2), app.toy_params)
+    assert big.mass == pytest.approx(3 * 2.4 * 2.4, rel=1e-3)
+    # the other tools: a plank, a ramp, a step and a seesaw (wedge + plank): all dynamic
+    for tool, x, bodies in (("plank", 100, 1), ("ramp", 300, 1), ("step", 500, 1), ("seesaw", 700, 2)):
+        count = app.env.world.counters.body_count
+        app.command("toy", tool)
+        app.event("down", x, 150)  # (each in empty space)
+        app.event("up", x, 150)
+        assert app.env.world.counters.body_count == count + bodies, tool
+    # weather: wind and gravity
+    app.command("toy.wind", 10)
+    app.command("toy.gravity", 0.5)
+    app._watch_step()
+    assert tuple(app.env.world.gravity) == pytest.approx((10, app.env.gravity[1] * 0.5))
+
+
+def test_watched_episodes_get_new_seeds():
+    """every watched episode starts anew (another random start)"""
+    app = make_app(env="Walker")
+    first = app.env.hull.linear_velocity.copy()
+    app.command("reset")
+    assert not np.array_equal(first, app.env.hull.linear_velocity)
+
+
+def test_suggested_algorithms():
+    """opening an env takes its suggestion for the time budget (algorithm + parameters);
+    an algorithm given explicitly (the URL's) is kept; the budget switches; ★ marks"""
+    app = make_app(env="LunarLander")
+    assert app.algo == "cem"
+    app.command("budget", "long")
+    assert app.algo == "ppo_torch" and app.hp["ppo_torch"]["hidden"] == 64
+    algo = next(c for c in app.controls() if c["name"] == "algo")
+    labels = dict(algo["options"])
+    assert labels["td3_torch"].startswith("★") and not labels["es"].startswith("★")
+    app.command("env", "Walker")  # (another env: its suggestion for the budget, with its parameters)
+    assert app.algo == "ppo_torch" and app.hp["ppo_torch"]["hidden"] == 64
+    assert make_app(env="LunarLander", algo="es").algo == "es"
+
+
 def test_checkpoint_of_an_unknown_env():
     """a checkpoint of an env webgym no longer has (renamed, removed): refused with a
     message (the page puts it in the log), the app goes on"""
@@ -289,35 +370,37 @@ def test_checkpoint_of_an_unknown_env():
 
 
 def test_env_settings():
-    """an env setting (the water cannon's balls) is a select in the page's World tab; a
-    change rebuilds the env (more balls: more observations) as a new run; checkpoints
+    """an env setting (the water cannon's objects) is a select in the page's World tab; a
+    change rebuilds the env (more objects: more observations) as a new run; checkpoints
     carry the settings and bring them back; the env key names them"""
     app = make_app(env="WaterCannon")
-    control = next(c for c in app.controls() if c["name"] == "setting.balls")
+    control = next(c for c in app.controls() if c["name"] == "setting.objects")
     assert control["type"] == "select" and control["options"] == [1, 2, 3] and control["value"] == 1
-    # (the World tab: the env and its settings; the top bar: who plays, auto reset, the
-    # keys, Train / New run)
+    # (the World tab: the env and its settings; the top bar: auto reset, Train / New run)
     sections = {c["name"]: c["section"] for c in app.controls()}
-    assert sections["env"] == sections["setting.balls"] == "environment"
-    assert {n for n, s in sections.items() if s == "bar"} == {"controller", "auto_reset", "keys", "train", "new_run"}
-    assert app.env_key == "WaterCannon · balls 1"
+    assert sections["env"] == sections["setting.objects"] == "environment"
+    # (how you watch: a panel below the tabs, always in view)
+    assert {n for n, s in sections.items() if s == "watch"} == {"watching", "show_n", "replay_speed", "follow",
+                                                                "decorate", "reset"}
+    assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run"}
+    assert app.env_key == "WaterCannon · objects 1"
     app.command("train")
     while not app.history:
         app._train_steps()
-    one_ball = app.checkpoint()
-    app.command("setting.balls", "2")  # (the page sends text)
-    assert app.settings == {"balls": 2} and app.env.balls == 2 and not app.history
-    assert len(app.env.obs_names) == 15 and app.policy.sizes[0] == 15  # (2 balls, 2 cannons)
-    assert app.env_key == "WaterCannon · balls 2"
+    one_object = app.checkpoint()
+    app.command("setting.objects", "2")  # (the page sends text)
+    assert app.settings == {"objects": 2} and app.env.objects == 2 and not app.history
+    assert len(app.env.obs_names) == 15 and app.policy.sizes[0] == 15  # (2 objects, 2 cannons)
+    assert app.env_key == "WaterCannon · objects 2"
     app.command("train")
     while not app.history:
         app._train_steps()
-    assert app.pop_env.balls == 2
-    app.restore(one_ball)  # (back to one ball, with its run)
-    assert app.settings == {"balls": 1} and app.history and app.policy.sizes[0] == 8
+    assert app.pop_env.objects == 2
+    app.restore(one_object)  # (back to one object, with its run)
+    assert app.settings == {"objects": 1} and app.history and app.policy.sizes[0] == 8
     display = make_app()
     display.load_policy(app.checkpoint())
-    assert display.env_key == "WaterCannon · balls 1"
+    assert display.env_key == "WaterCannon · objects 1"
     for _ in range(3):
         display._watch_step()
 
@@ -433,9 +516,8 @@ def test_camera_follows_the_walker():
     assert tuple(app.camera.center) == app.env.view_center
 
 
-def test_layers_and_play_yourself():
-    """'layers' x 'hidden' make the network (a new run); the controls show its shape;
-    the play-yourself checkbox switches to the keyboard and back"""
+def test_layers():
+    """'layers' x 'hidden' make the network (a new run); the controls show its shape"""
     app = make_app()
     assert app.policy.sizes == [4, 16, 16, 1]  # (CEM: two layers by default)
     app.command("hp.layers", 3)
@@ -450,11 +532,6 @@ def test_layers_and_play_yourself():
     fresh = make_app()  # (a restored run shows its network in the sliders)
     fresh.restore(app.checkpoint())
     assert fresh.hp["cem"]["layers"] == 3 and fresh.hp["cem"]["hidden"] == 8
-    app.command("controller", True)  # playing: auto reset off ...
-    assert app.controller == "human" and next(c for c in app.controls() if c["name"] == "controller")["value"]
-    assert not app.auto_reset
-    app.command("controller", False)  # ... and back on afterwards
-    assert app.controller == "agent" and app.auto_reset
 
 
 def test_replay_speed():
@@ -530,6 +607,49 @@ def test_switching_envs_frees_worlds():
     worlds = [b2d.World() for _ in range(b2d.MAX_WORLDS - 10)]  # (raises if they leaked)
     for w in worlds:
         w.destroy()
+
+
+def test_neat_in_the_app():
+    """NEAT: trains (also with simulation helpers), its network view is a graph whose
+    outputs are what the policy computes; checkpoint -> restore in a fresh app continues
+    the run; the display takes its snapshots"""
+    from webgym import helpers as h
+
+    answers = []
+    pool = h.Pool(lambda message: answers.append(h.evaluate(message)))
+    pool.count = 1
+    app = make_app(population=32, helpers=pool)
+    app.command("algo", "neat")
+    app.command("hp.add_node", 0.5)
+    assert app.policy.kind == "graph" and "hidden neurons" in app._network_hint()
+    app.command("train")
+    assert app.pop_env.n == 16
+    while len(app.history) < 6:
+        app._train_steps()
+        while answers:
+            pool.receive(answers.pop())
+    app.command("stop")
+    net = app.network()
+    assert net["graph"] and net["inputs"][2] == "pole angle" and net["outputs"] == ["force"]
+    output = next(n for n in net["nodes"] if n["key"] == "o0")
+    assert np.isclose(output["value"], app.policy(app.params, app.obs[:1])[0, 0], atol=1e-3)
+    assert all(0 <= a < len(net["nodes"]) and 0 <= b < len(net["nodes"]) for a, b, _ in net["edges"])
+    assert max(len(g["nodes"]) for g in app.train_state["genomes"]) > 1  # (neurons have grown)
+
+    fresh = make_app()
+    fresh.restore(app.checkpoint())
+    assert fresh.algo == "neat" and fresh.policy.kind == "graph" and fresh.hp["neat"]["max_hidden"] == 16
+    assert np.array_equal(fresh.params, app.params) and fresh.network()["edges"] == net["edges"]
+    fresh.command("train")
+    while len(fresh.history) < 8:
+        fresh._train_steps()
+    assert fresh.history[-1]["iteration"] == 8
+
+    display = make_app()
+    display.load_policy(app.checkpoint())
+    assert display.policy.kind == "graph" and np.array_equal(display.params, app.params)
+    display.load_policy(make_app(population=8).checkpoint())  # (back to an MLP)
+    assert display.policy.kind == "mlp"
 
 
 def test_view_logic_without_gl():

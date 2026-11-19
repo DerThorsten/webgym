@@ -24,15 +24,14 @@
       #forge img { height: 22px; width: 22px; border-radius: 4px; }
       #github-link { display: flex; color: #bbb; }
       #github-link:hover { color: #fff; }
-      #controls-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+      #controls-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 0;
+                      border-bottom: 1px solid #333; }
       #controls-bar .control { display: flex; align-items: center; gap: 6px; margin: 0; }
       #controls-bar .control label { display: inline; font-size: 12px; }
       #controls-bar .control:not(.checkbox) label > span:last-child { display: none; }
       #controls-bar .control select { width: auto; }
       #controls-bar button { margin: 0 4px 0 0; }
       #controls-bar .control.inline { margin: 0; }
-      #controls-bar .hint { margin: 0; }
-      #controls-bar .hint:not(.active) { display: none; }  /* (the keys: only while you play) */
       #chips { display: flex; flex-wrap: wrap; gap: 6px; }
       .chip { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: #262626; color: #bbb; white-space: nowrap; }
       .chip b { color: #fff; font-weight: 600; }
@@ -55,6 +54,7 @@
       #tabs button.active { color: #fff; border-bottom-color: #2f6fd6; }
       .tab { flex: 1; overflow: auto; padding: 4px 12px 12px; }
       .tab[hidden] { display: none; }
+      #watch-panel { flex: none; border-top: 1px solid #333; padding: 4px 12px 8px; background: #1b1b1b; }
       /* drag to resize the side panel */
       .resizer { width: 6px; flex: none; cursor: col-resize; background: #222; touch-action: none; }
       .resizer:hover, .resizer.dragging { background: #2f6fd6; }
@@ -93,6 +93,10 @@
       #loss-plot[hidden] { display: none; }
       .group { margin: 8px 0; padding: 4px 8px; background: #222; border-radius: 3px; }
       .group-title { font-size: 12px; color: #bbb; }
+      details.group > summary.group-title { cursor: pointer; padding: 2px 0; font-weight: 600; }
+      .control.tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+      .control.tools button { margin: 0; }
+      .control.tools button.active { background: #2f6fd6; color: #fff; border-color: #2f6fd6; }
       #state { font: 12px monospace; color: #8c8; white-space: pre; }
       #score { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); pointer-events: none;
                background: rgba(0, 0, 0, 0.6); color: #fff; padding: 10px 18px; border-radius: 6px; text-align: center; }
@@ -113,7 +117,6 @@
       #code-toggle { margin: 0; }
       #code-toggle.open { background: #2f6fd6; color: #fff; border: 0; border-radius: 3px; }
       #code { flex: 1; min-height: 0; overflow: hidden; border: 1px solid #333; font-size: 12px; }
-      #code .cm-editor { height: 100%; }
       #log { margin-top: 6px; max-height: 200px; overflow: auto; }
       .log { font: 11px monospace; color: #888; padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .log.error { color: #f66; }
@@ -142,23 +145,78 @@
       #tour-card .step { font-size: 11px; color: #999; margin-bottom: 4px; }
       #tour-card .buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
       #tour-card button { margin: 0; }
+      /* the first visit's welcome card (tour.js), centered over the dimmed page */
+      #welcome-back { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.6); }
+      #welcome { position: fixed; z-index: 21; left: 50%; top: 50%; transform: translate(-50%, -50%);
+                 width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto;
+                 box-sizing: border-box; background: #2a2f38; color: #eee; border: 1px solid #4a6fa5;
+                 border-radius: 8px; padding: 20px 24px; font-size: 14px; line-height: 1.5;
+                 box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7); }
+      #welcome h2 { margin: 0 0 10px; font-size: 20px; color: #fff; }
+      #welcome p { margin: 0 0 10px; }
+      #welcome .phone-note { background: #4a3b1c; border: 1px solid #a07a2c; border-radius: 4px; padding: 6px 10px;
+                             color: #f3d9a4; }
+      #welcome ul { margin: 0 0 4px; padding-left: 20px; }
+      #welcome a { color: #6a9fd8; }
+      #welcome .buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
+                          gap: 8px; margin-top: 16px; }
+      #welcome .buttons button { margin: 0; }
+      #welcome .buttons .skip { margin-right: auto; }
+      /* phones (portrait: narrow; landscape: low): a compact bar (Tour / Help / About /
+         GitHub in the ⋯ menu, two chips), the editor full screen */
+      #links { display: contents; }
+      #panel-toggle, #menu-toggle, #code-close { display: none; }
+      @media (max-width: 700px) and (orientation: portrait), (max-height: 500px) and (orientation: landscape) {
+        #top { position: relative; }
+        #bar { padding: 4px 8px; gap: 4px 6px; }
+        #logo, #chips .chip.world, #chips .chip.best, #chips .chip.watch, #forge small { display: none; }
+        #bar button { margin: 0; padding: 4px 8px; }
+        #controls-bar { gap: 4px 6px; }
+        #controls-bar .help { display: none; }
+        #forge { padding-right: 8px; }
+        #menu-toggle { display: block; }
+        #links { display: none; }
+        #bar.menu-open #links { display: flex; flex-direction: column; gap: 12px; position: absolute; z-index: 13; right: 8px;
+                                top: 100%; padding: 12px 16px; background: #222; border: 1px solid #3a3a3a; border-radius: 6px; }
+        .resizer { display: none; }
+        #code-panel { position: fixed; inset: 0; z-index: 14; width: auto; padding: 8px; }
+        #code-close { display: block; float: right; margin: -4px 0 0; }
+        .code-bar { flex-wrap: wrap; }
+      }
+      /* phone, portrait: the world on top, the panel below it */
+      @media (max-width: 700px) and (orientation: portrait) {
+        #app { flex-direction: column; }
+        #main { order: -1; flex: none; height: 55dvh; }
+        #side { width: auto; flex: 1; min-height: 0; border-top: 1px solid #2a2a2a; }
+      }
+      /* phone, landscape: the world large, the panel a drawer over it (☰ Panel) */
+      @media (max-height: 500px) and (orientation: landscape) {
+        #app { position: relative; }
+        #panel-toggle { display: block; }
+        #side { position: absolute; z-index: 12; top: 0; bottom: 0; left: 0; width: min(340px, 75vw);
+                box-shadow: 4px 0 16px rgba(0, 0, 0, 0.6); }
+        #app:not(.drawer-open) #side { display: none; }
+      }
     </style>
   </head>
   <body>
     <!-- the top bar: always in view (the env, Train, the live numbers) -->
     <div id="top">
       <div id="bar">
+        <button id="panel-toggle" title="Show / hide the panel">☰</button>
         <span id="logo">webgym</span>
-        <div id="controls-bar"></div>
         <div id="chips"></div>
         <span class="spacer"></span>
         <button id="code-toggle" title="The python code of the environment / algorithm (editor)">&lt;/&gt; Code</button>
+        <button id="menu-toggle" title="Tour, help, about">⋯</button>
+        <span id="links">
         <a id="tour-link" href="#" title="A short tour of the page">Tour</a>
         <a id="tour-detailed-link" href="#" title="A tour of every control of the page">Detailed tour</a>
         <a id="help-link" href="help.html" target="_blank" title="What is what: the help page">Help</a>
         <a id="about-link" href="help.html#about" target="_blank" title="What this is, why, and who made it possible">About</a>
         <a id="github-link" href="https://github.com/DerThorsten/webgym" target="_blank" rel="noopener" title="webgym on GitHub">
           <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-label="GitHub"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+        </span>
         <a id="forge" href="https://emscripten-forge.org" target="_blank" rel="noopener"
            title="python, numpy, box2d (pyb2d3) and pytorch, compiled to WebAssembly: all packages of this page come from emscripten-forge">
           <img src="emscripten-forge.svg" alt="" /><span><small>powered by</small><b>emscripten-forge</b></span></a>
@@ -172,6 +230,7 @@
         <div id="tabs">
           <button data-tab="world">World</button>
           <button data-tab="training">Training</button>
+          <button data-tab="toys">Toys</button>
           <button data-tab="policy">Policy</button>
           <button data-tab="log">Log</button>
         </div>
@@ -185,6 +244,9 @@
             <label><span data-help="More workers (each its own python and box2d, on another CPU core) run a share of the population's episodes: CEM and ES train faster. Each costs memory (~150 MB); more than your CPU cores don't help. Remembered in this browser.">Simulation workers <span class="help">ⓘ</span></span><span id="helpers-value"></span></label>
             <input type="range" id="helpers" min="0" step="1" />
           </div>
+        </div>
+        <div class="tab" id="tab-toys" hidden>
+          <div class="controls" id="controls-toys"></div>
         </div>
         <div class="tab" id="tab-policy" hidden>
           <div id="network-section" hidden>
@@ -207,6 +269,11 @@
           <h4>Log</h4>
           <div id="log"></div>
         </div>
+        <!-- below the tabs, always in view: Train / Stop, New run, auto reset; how you watch -->
+        <div id="watch-panel">
+          <div id="controls-bar"></div>
+          <div class="controls" id="controls-watch"></div>
+        </div>
       </div>
       <div id="resizer" class="resizer" title="drag to resize the panel"></div>
       <div id="main">
@@ -223,7 +290,8 @@
       <!-- the right panel: the python editor (closed by default) -->
       <div id="code-resizer" class="resizer" title="drag to resize the editor" hidden></div>
       <div id="code-panel" hidden>
-        <h4>Python code <span class="help" data-help="The python source of the environment and of the algorithm, running in your browser. Edit it and press Apply: the file is reloaded (an edited environment starts a new run, an edited algorithm takes over a running training). Reload the page to get the original back." title="Edit the python source of the environment / algorithm, then Apply">ⓘ</span></h4>
+        <h4>Python code <span class="help" data-help="The python source of the environment and of the algorithm, running in your browser. Edit it and press Apply: the file is reloaded (an edited environment starts a new run, an edited algorithm takes over a running training). Reload the page to get the original back." title="Edit the python source of the environment / algorithm, then Apply">ⓘ</span>
+          <button id="code-close" title="Close the editor">✕</button></h4>
         <div class="code-bar">
           <select id="code-kind"><option value="env">environment</option><option value="algo">algorithm</option></select>
           <button id="code-open" title="Open a .py file of this machine (then Apply it)">Open…</button>

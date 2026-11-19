@@ -5,7 +5,7 @@ can stop it any time) and a stats dict at the end of every iteration
 "losses": {name: value}, optional "top_params": the best candidates, best first, for
 the display}); stats["state"] passed back as `state` resumes training.
 "mean_params" are the flat weights of a webgym.policies.MLP (numpy), whatever
-framework trained them: watching a policy never needs torch.
+framework trained them: watching a policy never needs torch (NEAT: of a Graph).
 
 Each algorithm declares its parameters (shown in the UI): {name: (default, min, max,
 step)}; `new_run`: the ones that only apply to a new run (the network size);
@@ -32,6 +32,16 @@ class Algo:
     # True: one episode per candidate of a population: simulation helpers (more workers,
     # webgym/helpers.py) can run a share of it
     parallel: bool = False
+    # the policy it trains: "mlp" (webgym.policies.MLP) or "graph" (Graph: NEAT's networks
+    # of any shape, up to the parameter "max_hidden" hidden neurons)
+    network: str = "mlp"
+
+    def policy(self, env, params):
+        """the policy it trains for `env` with these parameters (the network's size)"""
+        from webgym.policies import policy_for
+
+        hidden = params.get("max_hidden" if self.network == "graph" else "hidden", 16)
+        return policy_for(env, self.discrete, hidden, params.get("layers", 1), self.network)
 
     def supports(self, env):
         """can it train this env (class or instance)?"""
@@ -82,6 +92,20 @@ HELP = {
     "batch": "Experiences per gradient step (sampled from the replay buffer).",
     "updates": "Gradient steps per environment step. The agents add many experiences "
                "per step: more updates learn faster from them, but cost time.",
+    "steps": "A2C: environment steps between two updates. Few: many small, noisy "
+             "updates; more: fewer, steadier ones.",
+    "noise": "TD3: spread of the random noise added to the actions while training "
+             "(exploration). The watched policy acts without it.",
+    "max_hidden": "NEAT: at most this many hidden neurons. Networks start without any and "
+                  "grow neurons by mutation (watch them appear in the Policy tab). Starts a "
+                  "new run.",
+    "add_node": "NEAT: the chance that a child gets a new neuron (splitting one of its "
+                "connections). Larger: networks grow faster.",
+    "add_conn": "NEAT: the chance that a child gets a new connection between two of its "
+                "neurons.",
+    "weight_power": "NEAT: size of the random weight changes of a child.",
+    "species": "NEAT: about this many species of similar networks. They compete mostly "
+               "among themselves: new structure gets time to tune its weights.",
 }
 # the network: hidden layers (default, min, max, step) and neurons per layer; evolution
 # (CEM / ES) searches all weights at once: one small layer; gradient methods: two layers
@@ -97,6 +121,13 @@ ALGOS = {
         parallel=True,
     ),
     "es": Algo("es", "Evolution strategies (numpy)", ES_PARAMS, parallel=True),
+    "neat": Algo(
+        "neat", "NEAT (numpy, growing networks)",
+        {"add_node": (0.1, 0.0, 0.5, 0.01), "add_conn": (0.3, 0.0, 1.0, 0.05),
+         "weight_power": (0.3, 0.05, 2.0, 0.05), "species": (5, 1, 20, 1),
+         "max_hidden": (16, 4, 64, 4)},
+        new_run=("max_hidden",), parallel=True, network="graph",
+    ),
     "ppo_torch": Algo(
         "ppo_torch", "PPO (pytorch)",
         {"lr": (0.003, 0.0001, 0.01, 0.0001), "gamma": (0.99, 0.9, 0.999, 0.001),
@@ -112,5 +143,31 @@ ALGOS = {
          "layers": (2, 1, 3, 1), "hidden": (64, 8, 256, 8)},
         requires="pytorch",
         discrete=True,
+    ),
+    "reinforce_torch": Algo(
+        "reinforce_torch", "REINFORCE (pytorch)",
+        {"lr": (0.003, 0.0001, 0.01, 0.0001), "gamma": (0.99, 0.9, 0.999, 0.001),
+         "layers": (2, 1, 3, 1), "hidden": (32, 4, 128, 4)},
+        requires="pytorch",
+    ),
+    "a2c_torch": Algo(
+        "a2c_torch", "A2C (pytorch)",
+        {"lr": (0.003, 0.0001, 0.01, 0.0001), "gamma": (0.99, 0.9, 0.999, 0.001),
+         "steps": (16, 1, 64, 1), "layers": (2, 1, 3, 1), "hidden": (32, 4, 128, 4)},
+        requires="pytorch",
+    ),
+    "sac_torch": Algo(
+        "sac_torch", "SAC (pytorch)",
+        {"lr": (0.0003, 0.0001, 0.01, 0.0001), "gamma": (0.99, 0.9, 0.999, 0.001),
+         "batch": (256, 32, 1024, 32), "updates": (2, 1, 16, 1),
+         "layers": (2, 1, 3, 1), "hidden": (64, 8, 256, 8)},
+        requires="pytorch",
+    ),
+    "td3_torch": Algo(
+        "td3_torch", "TD3 (pytorch)",
+        {"lr": (0.0003, 0.0001, 0.01, 0.0001), "gamma": (0.99, 0.9, 0.999, 0.001),
+         "noise": (0.1, 0.0, 1.0, 0.05), "batch": (256, 32, 1024, 32), "updates": (2, 1, 16, 1),
+         "layers": (2, 1, 3, 1), "hidden": (64, 8, 256, 8)},
+        requires="pytorch",
     ),
 }

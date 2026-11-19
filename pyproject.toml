@@ -1,6 +1,8 @@
 [project]
 name = "webgym"
-version = "0.1.0"
+# the release: bump it when the page's saved data (runs, checkpoints, code edits) no longer
+# fits; browsers that ran an older release are asked to delete theirs (web/main.js)
+version = "0.2.0"
 description = "Gymnasium-like box2d (pyb2d3) environments with live training, native and in the browser"
 requires-python = ">=3.14"
 dependencies = ["numpy", "pyb2d3>=1.2.0"]

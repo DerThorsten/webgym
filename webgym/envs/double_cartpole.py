@@ -6,8 +6,6 @@ one is caught.
 obs: cart x, cart velocity, per pole its angle (0: upright) and angular velocity.
 action: the force on the cart. reward: 1 per step while both poles are up.
 The episode ends when a pole tilts more than 20 degrees or the cart leaves |x| < 2.4.
-
-Keys (human controller): left / right arrow push the cart (good luck).
 """
 
 import numpy as np
@@ -27,7 +25,9 @@ class DoubleCartPole(Env):
     discrete_names = ("push left", "nudge left", "nudge right", "push right")
     max_steps = 500
     view_center, view_zoom = (0.0, 1.2), 3.0
-    keys = "← / → push the cart"
+    suggested = {"quick": {"cem": {}, "neat": {}},
+                 "medium": {"cem": {}, "ppo_torch": {}, "neat": {}},
+                 "long": {"ppo_torch": {}, "cem": {}}}
 
     def build_scenery(self):
         self.ground = self.scenery(b2d.box(3.0, 0.05))
@@ -69,6 +69,3 @@ class DoubleCartPole(Env):
         fallen = ((np.abs(self.lower.angle) > 0.35) | (np.abs(self.upper.angle) > 0.35)
                   | (np.abs(self.cart.position[:, 0]) > 2.4))
         return np.ones(self.n), fallen
-
-    def human_action(self, keys):
-        return np.array([("right" in keys) - ("left" in keys)], dtype=np.float32)

@@ -12,22 +12,23 @@ one).
 It can also jump (once a second, with a wheel on something): a kick leg under the
 chassis (a foot on a piston) shoots down against the ground, the ground pushes the car
 up: over a crate, a box, a gap.
-obs (14 values):
+obs (16 values):
 - angle: how far the chassis is tilted (radians, 0 = level, + = nose up),
 - ang. vel.: how fast it tilts (radians per second),
 - vel. x, vel. y: how fast it moves forward / up (m/s, divided by 5),
-- sees 5° .. -80°: what lies ahead. 9 rays start at the front of the chassis, fanned out
-  from a bit upward (5°) to steeply down (-80°), turning with the chassis; each
-  value is how far the first thing it hits (ground, a box, a crate, gravel) is, as a
-  share of 8 m: small before a box, larger when the ground falls away, 1 when it sees
-  nothing (into a gap, or over the edge),
+- sees 5° .. -60°: what lies ahead. 4 rays (its eyes) start at the front of the chassis,
+  fanned out from a bit upward (5°) to steeply down (-60°), turning with the chassis;
+  each value is how far the first thing it hits (ground, a box, a crate, gravel) is, as
+  a share of 8 m: small before a box, 1 when it sees nothing,
+- ground +1.5 m .. +6 m: the terrain ahead. 7 probes look straight down (not turning
+  with the car) every 0.75 m, 1.5 to 6 m ahead of it: the height of the ground there relative to
+  the chassis, in units of 2 m: about -0.3 on flat ground, higher before a box or the
+  ledge, about -2.5 over a gap (nothing below),
 - can jump: 1 when a jump is possible now (a wheel on something, recharged), else 0.
 action: [throttle (-1: full back .. 1: full forward), jump (> 0.5: jump, when it can)].
-(Decoration on: the rays are drawn, you see what the car sees.)
+(Decoration on: eyes (yellow) and probes (blue) are drawn, you see what the car sees.)
 reward: forward progress; +100 at the flag; -100 when it flips over or falls into a
 gap. Episodes end there, after 40 s, or when it makes no progress for 3 s.
-
-Keys (human controller): left / right = throttle, space = jump.
 """
 
 import math
@@ -39,18 +40,18 @@ from webgym.core import DECORATION_FILTER, SCENERY, Env, register_env
 
 GOAL = 105.0
 # the course (it can jump: the higher boxes can't be climbed, only jumped)
-GROUND = [(-5, 12, 0), (15, 26, 0), (35, 46, 0), (50, 58, 0), (58, 64, 1.5), (68, 84, 0), (88, 115, 0)]
+GROUND = [(-5, 12, 0), (14, 26, 0), (32, 46, 0), (48.5, 58, 0), (58, 64, 1.0), (66.5, 84, 0), (86.5, 115, 0)]
 # (from x, to x, height of the top): gaps / the pit between
-RAMP = (52, 58, 1.5)  # up to the ledge (from x, to x, height); after the ledge: a gap and a drop
+RAMP = (52, 58, 1.0)  # up to the ledge (from x, to x, height); after the ledge: a gap and a drop
 LOW_BAR = (71, 77, 1.55)  # a bar to drive under (from x, to x, its lower edge): don't jump there
-PIT = (26, 35, 1.4)  # the gravel pit: from x, to x, depth
+PIT = (26, 32, 0.8)  # the gravel pit: from x, to x, depth
 GRAVEL = 0.12  # the pebbles' size (radius)
 PEBBLES = [  # their shapes (mixed: round ones roll, edged ones lock into each other)
     b2d.circle(radius=GRAVEL),
     b2d.box(0.8 * GRAVEL, 0.8 * GRAVEL),
     b2d.polygon([(-GRAVEL, -0.8 * GRAVEL), (GRAVEL, -0.8 * GRAVEL), (0, GRAVEL)]),
 ]
-STEPS = [(8, 0.5), (22, 0.9), (40, 0.8), (93, 1.0), (99, 1.2)]  # (x, height) of the fixed boxes
+STEPS = [(8, 0.35), (22, 0.45), (40, 0.45), (93, 0.6), (99, 0.7)]  # (x, height) of the fixed boxes
 CRATES = [17, 19, 37, 79, 81, 90, 103]  # x of the loose crates
 WHEEL_RADIUS = 0.35
 # (x, height) of the wheels' axles below the chassis; the front wheel sits higher: it
@@ -59,13 +60,20 @@ WHEELS = [(-0.75, 0.3), (-0.25, 0.3), (0.25, 0.3), (0.85, 0.15)]
 # the car's eyes: rays from the front of the chassis, fanned out from a bit upward to
 # steeply down (degrees, relative to the chassis: they turn with it), each sees up to
 # RAY_RANGE m
-RAYS = np.array([5, -5, -15, -25, -35, -45, -55, -65, -80])
+EYES = np.array([5, -15, -35, -60])
 RAY_RANGE = 8.0
 EYE = (1.0, 0.15)  # where they start (on the chassis)
-MAX_SPEED, MAX_TORQUE = 30.0, 40.0  # of the wheel motors at full throttle
+# the ground probes: straight down (not turning with the car) at these distances ahead
+# (m), from PROBE_UP m above the chassis, PROBE_DEPTH m deep: the height of the ground
+# there (a box, the ledge, a gap)
+PROBES = 1.5 + 0.75 * np.arange(7)  # (1.5 .. 6 m; closer than the narrowest box, 0.8 m)
+PROBE_UP, PROBE_DEPTH = 0.9, 6.0
+PROBE_COLOR = 0x7FD1F2  # (decoration: the probes drawn)
+MAX_SPEED, MAX_TORQUE = 30.0, 30.0  # of the wheel motors at full throttle
+STEADY = 3.0  # the chassis' angular damping: it resists tipping over (a wheelie, a jump)
 # the jump (the kick leg under the chassis): how far the foot goes out, how fast, how
 # hard, for how long; then it recharges
-KICK_LENGTH, KICK_SPEED, KICK_FORCE, KICK_SECONDS = 0.6, 8.0, 800.0, 0.12
+KICK_LENGTH, KICK_SPEED, KICK_FORCE, KICK_SECONDS = 0.6, 8.0, 500.0, 0.12  # (~0.7 m high)
 JUMP_RECHARGE = 1.0  # s until the next jump
 RAY_COLOR = 0xF2D24B  # (decoration: the rays drawn)
 SEES = b2d.make_query_filter(category_bits=1, mask_bits=SCENERY)  # (the world, not the car itself)
@@ -73,14 +81,17 @@ SEES = b2d.make_query_filter(category_bits=1, mask_bits=SCENERY)  # (the world, 
 
 @register_env("Car")
 class Car(Env):
-    obs_names = ("angle", "ang. vel.", "vel. x", "vel. y", *(f"sees {d:g}°" for d in RAYS), "can jump")
+    obs_names = ("angle", "ang. vel.", "vel. x", "vel. y", *(f"sees {d:g}°" for d in EYES),
+                 *(f"ground +{dx:g} m" for dx in PROBES), "can jump")
     action_names = ("throttle", "jump")
     discrete_actions = np.array([[0, 0], [0.3, 0], [0.6, 0], [1, 0], [-0.5, 0], [0.6, 1], [1, 1]])
     discrete_names = ("roll", "slow", "medium", "full", "back", "medium + jump", "full + jump")
     batchable = False  # (the car moves the crates)
     max_steps = 2400
     view_center, view_zoom = (4.0, 2.5), 5.0
-    keys = "← / → throttle · space jump"
+    suggested = {"quick": {"cem": {}},
+                 "medium": {"cem": {}, "neat": {}},
+                 "long": {"cem": {}, "ppo_torch": {"hidden": 64}, "sac_torch": {}}}
 
     def build_scenery(self):
         for start, end, top in GROUND:  # (3 m deep: also the walls of the gravel pit)
@@ -107,7 +118,8 @@ class Car(Env):
 
     def build_agent(self, i):
         y = WHEEL_RADIUS + 0.3  # (the chassis' height: the rear wheels on the ground)
-        chassis = self.body((0, y), b2d.box(1.0, 0.25), density=8.0)  # (heavy: it doesn't flip at once)
+        chassis = self.body((0, y), b2d.box(1.0, 0.25), density=8.0,  # (heavy, damped: it doesn't flip at once)
+                            angular_damping=STEADY)
         self.shape(chassis, b2d.box(0.45, 0.15, center=(-0.1, 0.4)))  # the cabin
         axles, wheels, feet = [], [], []
         for x, below in WHEELS:
@@ -127,17 +139,19 @@ class Car(Env):
         # the kick leg: a foot plate under the chassis on a piston (a prismatic joint
         # pointing down). To jump, its motor shoots the foot against the ground: the ground
         # pushes the car up. Otherwise it pulls the foot in.
-        foot = self.body((0, y - 0.3), b2d.box(0.3, 0.05), density=2.0)
+        # (no friction: a kick while rolling would brake the bottom and tip the car forward)
+        foot = self.body((0, y - 0.3), b2d.box(0.3, 0.05), density=2.0, friction=0.0)
         down = b2d.make_rot(-math.pi / 2)  # (the piston's axis: the x axis of its frames, turned down)
         kicker = self.world.create_prismatic_joint(
             body_a=chassis, body_b=foot, local_frame_a=b2d.transform(p=(0, -0.3), q=down),
             local_frame_b=b2d.transform(p=(0, 0), q=down), enable_limit=True,
             lower_translation=0.0, upper_translation=KICK_LENGTH, enable_motor=True, max_motor_force=50.0,
         )
-        if self.decorated:  # the rays, as lines (looks only: nothing hits them, rays don't see them)
+        if self.decorated:  # eyes and probes, as lines (looks only: nothing hits them, rays don't see them)
             lines = self.world.create_static_body()
-            line_def = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=RAY_COLOR))
-            self.ray_lines += [lines.create_shape(line_def, b2d.segment((0, 0), (0, -0.01))) for _ in RAYS]
+            for color, count in ((RAY_COLOR, len(EYES)), (PROBE_COLOR, len(PROBES))):
+                line_def = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=color))
+                self.ray_lines += [lines.create_shape(line_def, b2d.segment((0, 0), (0, -0.01))) for _ in range(count)]
         return {"chassis": chassis, "axles": axles, "wheels": wheels, "feet": feet, "kicker": kicker}
 
     def randomize(self, rng):
@@ -149,14 +163,18 @@ class Car(Env):
         self.best_x, self.progress_step = self.prev_x.copy(), np.zeros(self.n, dtype=int)
         self.jumped_at = np.full(self.n, -JUMP_RECHARGE / self.dt)  # (step of the last jump)
 
+    def on_ground(self):
+        """(n,) bool: a wheel on something (its sensor)"""
+        return (self.feet.sensor_capacity.reshape(self.n, -1) > 0).any(axis=1)
+
     def can_jump(self):
-        """(n,) bool: a wheel on something (its sensor) and the jump recharged"""
-        on_ground = (self.feet.sensor_capacity.reshape(self.n, -1) > 0).any(axis=1)
-        return on_ground & (self.steps - self.jumped_at >= JUMP_RECHARGE / self.dt)
+        """(n,) bool: a wheel on something and the jump recharged"""
+        return self.on_ground() & (self.steps - self.jumped_at >= JUMP_RECHARGE / self.dt)
 
     def act(self, actions):
-        # the motors drive towards +- MAX_SPEED with a torque up to |throttle| * MAX_TORQUE
-        throttle = np.repeat(actions[:, 0], len(WHEELS))
+        # the motors drive towards +- MAX_SPEED with a torque up to |throttle| * MAX_TORQUE;
+        # in the air they rest (spinning the wheels up there would tip the car over)
+        throttle = np.repeat(actions[:, 0] * self.on_ground(), len(WHEELS))
         self.axles.target_motor_speed = -np.sign(throttle) * MAX_SPEED  # (- : roll right)
         self.axles.max_motor_torque = np.abs(throttle) * MAX_TORQUE
         # the jump: the kick leg's motor shoots the foot down for KICK_SECONDS (hard, fast),
@@ -169,30 +187,39 @@ class Car(Env):
 
     def observe(self):
         return [self.chassis.angle, self.chassis.angular_velocity / 2, self.chassis.linear_velocity / 5,
-                self._ground_ahead(), self.can_jump()]
+                *self._senses(), self.can_jump()]
 
-    def _ground_ahead(self):
-        """what the car sees: along each ray (from its front, turning with the chassis) how
-        far the first thing of the world is, 0 .. 1 of RAY_RANGE (1: nothing, e.g. a gap
-        below); the rays (start, end) are kept for the drawing"""
-        seen = np.ones((self.n, len(RAYS)))
+    def cast(self, i, start, way):
+        """how far along `way` (from `start`) car i sees the first thing of the world:
+        0 .. 1 of the way (1: nothing)"""
+        hit = self.world.cast_ray_closest(start, way, SEES)
+        return hit.fraction if hit.hit else 1.0
+
+    def _senses(self):
+        """what the cars see -> eyes (n, len(EYES)): along each eye ray (from the front,
+        turning with the chassis) how far the first thing is, 0 .. 1 of RAY_RANGE; ground
+        (n, len(PROBES)): the height of the ground ahead (probes straight down) relative to
+        the chassis, in units of 2 m (a gap: about -2.5). The rays are kept for drawing."""
+        eyes, ground = np.ones((self.n, len(EYES))), np.zeros((self.n, len(PROBES)))
         self.rays = []
         for i, ((x, y), angle) in enumerate(zip(self.chassis.position, self.chassis.angle)):
             c, s = np.cos(angle), np.sin(angle)
             start = (float(x + c * EYE[0] - s * EYE[1]), float(y + s * EYE[0] + c * EYE[1]))
-            for k, ray in enumerate(np.radians(RAYS) + angle):
+            for k, ray in enumerate(np.radians(EYES) + angle):
                 way = (RAY_RANGE * float(np.cos(ray)), RAY_RANGE * float(np.sin(ray)))
-                hit = self.world.cast_ray_closest(start, way, SEES)
-                if hit.hit:
-                    seen[i, k] = hit.fraction
-                end = (start[0] + seen[i, k] * way[0], start[1] + seen[i, k] * way[1])
-                self.rays.append((start, end))
-        return seen
+                eyes[i, k] = self.cast(i, start, way)
+                self.rays.append((start, (start[0] + eyes[i, k] * way[0], start[1] + eyes[i, k] * way[1])))
+            for k, dx in enumerate(PROBES):
+                top = (float(x + dx), float(y + PROBE_UP))
+                depth = self.cast(i, top, (0.0, -PROBE_DEPTH)) * PROBE_DEPTH
+                ground[i, k] = (PROBE_UP - depth) / 2
+                self.rays.append((top, (top[0], top[1] - depth)))
+        return eyes, ground
 
     def decorate(self):
-        """what the car sees: its rays as lines, from its eye to what they hit (cast
-        again here: after an episode the world goes on without observations)"""
-        self._ground_ahead()
+        """what the car sees: its eyes and probes as lines, to what they hit (cast again
+        here: after an episode the world goes on without observations)"""
+        self._senses()
         for line, (start, end) in zip(self.ray_lines, self.rays):
             line.segment = b2d.segment(start, end)
 
@@ -207,9 +234,6 @@ class Car(Env):
         self.progress_step = np.where(progressed, self.steps, self.progress_step)
         stalled = self.steps - self.progress_step > 3.0 / self.dt
         return reward - 100 * crashed + 100 * arrived, crashed | arrived | stalled
-
-    def human_action(self, keys):
-        return np.array([("right" in keys) - ("left" in keys), float("space" in keys)], dtype=np.float32)
 
     def camera_target(self, i):
         return float(self.chassis.position[i, 0]), self.view_center[1]

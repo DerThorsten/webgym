@@ -35,30 +35,40 @@
       <li><a href="#watching">Watching a policy</a></li>
       <li><a href="#panels">Progress, network, checkpoints</a></li>
       <li><a href="#code">Editing the python code</a></li>
-      <li><a href="#fun">Having fun with agents</a></li>
+      <li><a href="#fun">Having fun with agents</a> (and the Toys tab)</li>
       <li><a href="#tips">Tips</a></li>
       <li><a href="#about">About</a></li>
+      <li><a href="#author">About the author</a></li>
+      <li><a href="#acknowledgments">Acknowledgments</a></li>
       <li><a href="#credits">Credits</a></li>
     </ul>
 
     <h2 id="overview">The page</h2>
     <img src="help/overview.png" alt="the page" />
     <p>
-      <b>Top bar</b> (always in view): <b>Train</b> / Stop, New run, and the live numbers: the
-      world, is it training, which iteration, the population's mean and best return, the
-      episode you watch. On the right: <b>&lt;/&gt; Code</b> (the python editor), the
+      <b>Top bar</b> (always in view): the live numbers: the world, is it training, which
+      iteration, the population's mean and best return, the episode you watch. <b>Train</b> /
+      Stop, New run and Auto reset are in the panel, below the tabs (always in view). On the right: <b>&lt;/&gt; Code</b> (the python editor), the
       <b>Tour</b> and this help.
     </p>
     <p>
-      <b>Left panel</b>, four tabs: <i>World</i> (pick the environment and its settings, e.g.
-      how many balls; what it is about; how you watch it), <i>Training</i> (the algorithm and
-      its parameters, population, simulation workers), <i>Policy</i> (the network and the
-      checkpoints), <i>Log</i> (state, packages, messages).
+      <b>Left panel</b>, five tabs: <i>World</i> (pick the environment and its settings, e.g.
+      how many objects; what it is about), <i>Training</i> (time budget, the algorithm and
+      its parameters, population, simulation workers), <i>Toys</i> (things to throw into the
+      world), <i>Policy</i> (the network and the checkpoints), <i>Log</i> (state, packages,
+      messages). Below the tabs, always in view: Train / Stop, New run, Auto reset and how you
+      watch.
       <b>Middle</b>: the world, the training progress below it (click its title to hide it).
       The <span class="blue">ⓘ</span> next to a control explains it (click it).
     </p>
     <p>In the world: drag the background to pan, the mouse wheel zooms, drag a body to
-      push it around (while watching).</p>
+      push it around (while watching). On a touch screen one finger is the mouse, two
+      fingers pinch to zoom and pan.</p>
+    <p>
+      <b>On a phone</b>: upright, the world is on top and the tabs below it; sideways, the
+      world fills the screen and <b>☰</b> opens the tabs over it. Tour, Help, About and GitHub
+      are in the <b>⋯</b> menu; the code editor opens full screen (<b>✕</b> closes it).
+    </p>
 
     <h2 id="training">Training</h2>
     <img src="help/training.png" alt="training" />
@@ -69,12 +79,16 @@
       best one still alive), the <span class="blue">blue</span> ones are the others.
     </p>
     <dl>
+      <dt>Time budget</dt>
+      <dd>Quick (~1 min), medium (~5 min) or long (~20 min): picks the algorithm and settings
+        the environment suggests for that time (★ in the algorithm list). Rough guesses.</dd>
       <dt>Algorithm</dt>
-      <dd><b>CEM</b> and <b>ES</b> (numpy): evolution strategies; they try many random variations
-        of the policy and move towards the best ones. Fast and robust for small problems.
-        <b>PPO</b> and <b>DQN</b> (pytorch, loaded in the background the first time): gradient
-        based. DQN uses a few discrete actions (e.g. the lander: nothing / main engine / left /
-        right).</dd>
+      <dd><b>CEM</b>, <b>ES</b> and <b>NEAT</b> (numpy): evolutionary; they try many random
+        variations of the policy and keep the best ones (NEAT also grows the network itself).
+        Fast and robust for small problems.
+        <b>PPO</b>, <b>A2C</b>, <b>REINFORCE</b>, <b>SAC</b>, <b>TD3</b> and <b>DQN</b>
+        (pytorch, loaded in the background the first time): gradient based. DQN uses a few
+        discrete actions (e.g. the lander: nothing / main engine / left / right).</dd>
       <dt>Algorithm parameters</dt>
       <dd>Each has an ⓘ. <i>layers</i> and <i>hidden</i> set the size of the policy network
         (shown below as "Policy network 8 → 16 → 2"); changing them starts a new run.</dd>
@@ -99,7 +113,6 @@
       while the training goes on.)
     </p>
     <dl>
-      <dt>Play yourself</dt><dd>You are the controller (keys shown below it), alone in the world. Auto reset is off meanwhile.</dd>
       <dt>Auto reset</dt><dd>A new episode starts when all agents are done.</dd>
       <dt>Show policies</dt><dd>How many policies you watch at once (1: only the orange one).</dd>
       <dt>Replay speed</dt><dd>Slow motion or fast forward.</dd>
@@ -135,10 +148,11 @@
       <b>algorithm</b>. Edit it and press <b>Apply</b> (<kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd>):
       the python module is reloaded in the browser. An edited environment starts a new run, an
       edited algorithm takes over the training. <b>Open…</b> loads a <code>.py</code> file
-      from your machine, <b>Save…</b> writes one. A page reload brings the original back.
+      from your machine, <b>Save…</b> writes one. Your edits are kept in this browser (also
+      after a reload); <b>Revert</b> brings the original back.
     </p>
-    <p>Try: in the lander, change <code>gravity</code> or <code>CONE</code> (the width of the
-      thrust plume), or the reward in <code>_outcome</code>.</p>
+    <p>Try: in the lander, change <code>gravity</code> or <code>PAD</code> (the width of the
+      landing pad), or the reward in <code>reward</code>.</p>
 
     <h2 id="fun">Having fun with agents</h2>
     <p>
@@ -146,10 +160,10 @@
       with it? Try this with the walker:
     </p>
     <ol>
-      <li>World tab: pick <b>Walker</b>. Policy tab: <b>Restore</b> the <i>pretrained</i> run
-        (it comes with the page), or press <b>Train</b> and wait a minute, then <b>Stop</b>.</li>
-      <li>Show policies: <b>1</b> (only the policy, no ghosts), and in the top bar switch
-        <b>Auto reset</b> off: the episode goes on after a fall instead of starting over.</li>
+      <li>World tab: pick <b>Walker</b>. Policy tab: <b>Restore</b> a <i>pretrained</i> run
+        (they come with the page), or press <b>Train</b> and wait a few minutes, then <b>Stop</b>.</li>
+      <li>Open the <b>Toys</b> tab: it shows only the policy (no ghosts) and switches
+        <b>Auto reset</b> off, so the episode goes on after a fall instead of starting over.</li>
       <li>Let it walk.</li>
     </ol>
     <img src="help/walker_walks.png" alt="the walker walks" />
@@ -162,10 +176,25 @@
         itself, sometimes it kicks on its back.</li>
     </ol>
     <img src="help/walker_reacts.png" alt="the walker after the fall" />
+    <h3>The Toys tab</h3>
     <p>
-      More to try: push the lander sideways while it lands; play a world yourself (top bar,
-      <i>Play yourself</i>) and compare your score with the agent's; or edit the walker's
-      code (e.g. its gravity) and see whether the trained policy still walks.
+      Even more mischief: in the <b>Toys</b> tab you choose what a click into the world does:
+      drop a box, a ball or a plank, set off an explosion, or put a ramp, a step or a seesaw
+      on the ground in front of the agent. Or change the weather: rain, wind, gravity (the
+      walker on the moon!). The settings of each (size, weight, rain rate, ...) are in its
+      fold. A click on a body still grabs it. Opening the tab switches auto reset off and
+      shows one policy, without a score (no time limit applies); R (reset) clears the world
+      again.
+    </p>
+    <p>A ramp in the walker's way: it never saw a slope in training, does it make it up?</p>
+    <img src="help/toys_ramp.png" alt="the walker in front of a ramp" />
+    <p>An explosion right behind it:</p>
+    <img src="help/toys_explosion.png" alt="an explosion next to the walker" />
+    <p>The ragdoll, walking in the rain:</p>
+    <img src="help/toys_rain.png" alt="the ragdoll walks in the rain" />
+    <p>
+      More to try: push the lander sideways while it lands; give the lander wind; or edit the
+      walker's code (e.g. its gravity) and see whether the trained policy still walks.
     </p>
 
     <h2 id="tips">Tips</h2>
@@ -180,8 +209,7 @@
     </ul>
 
     <h2 id="about">About</h2>
-    <!-- TODO (the author): the final text -->
-    <p><b>TODO: draft.</b>
+    <p>
       Python in the browser is no longer a toy. <a href="https://emscripten-forge.org">emscripten-forge</a>
       is a conda channel of packages compiled to WebAssembly: python, numpy, box2d
       (<a href="https://github.com/DerThorsten/pyb2d3">pyb2d3</a>), pytorch and many more,
@@ -191,12 +219,45 @@
       and JavaScript.
     </p>
     <p>
-      Why: <b>TODO</b>. To show what runs in a browser today: a physics engine, a deep learning
-      framework and the code that trains it, live, on your machine, without a server and
-      without installing anything; and because the python is right there, you can read it,
-      change it, and see what happens.
+      Why? Above all for <b>education</b>. Python is the language people learn programming,
+      science and machine learning with, and the hardest part is often not the idea but the
+      setup: installing python and its packages on every machine of a class, a workshop or a
+      lecture hall. In the browser there is nothing to install. A link is enough, and it works
+      the same on every laptop, tablet or phone, with no server doing the computing for
+      thousands of students.
+    </p>
+    <p>
+      And it is interactive: here the reinforcement learning is not a plot at the end of a
+      script, you see the agents learn, live; the python is right there, you can read it,
+      change it, and see at once what happens. Along the way webgym shows what runs in a
+      browser today: a physics engine, a deep learning framework and the code that trains it,
+      on your own machine.
     </p>
     <p>The code: <a href="https://github.com/DerThorsten/webgym">github.com/DerThorsten/webgym</a>.</p>
+
+    <h2 id="author">About the author</h2>
+    <p>
+      Dr. Thorsten Beier holds a PhD in computer science; his research was on discrete
+      optimization, image analysis and bioinformatics. Today he is a senior scientific
+      software engineer and software architect at <a href="https://quantstack.net">QuantStack</a>.
+      He is the initial author and maintainer of
+      <a href="https://emscripten-forge.org">emscripten-forge</a>, which brings the scientific
+      python stack to WebAssembly, and of various other open source projects. Among them
+      he develops
+      <a href="https://github.com/emscripten-forge/pyjs">pyjs</a>, the runtime that runs these
+      packages in the browser, and <a href="https://github.com/DerThorsten/pyb2d3">pyb2d3</a>,
+      the python bindings of Box2D 3 used here. webgym is where they come together: a
+      playground to show what python in the browser can do.
+      On GitHub: <a href="https://github.com/DerThorsten">DerThorsten</a>.
+    </p>
+
+    <h2 id="acknowledgments">Acknowledgments</h2>
+    <ul>
+      <li><a href="https://quantstack.net">QuantStack</a>, my employer, for the work on
+        <a href="https://emscripten-forge.org">emscripten-forge</a>, which makes all of this possible .</li>
+      <li><a href="https://www.bloomberg.com">Bloomberg</a>, for their financial support of
+        <a href="https://emscripten-forge.org">emscripten-forge</a>.</li>
+    </ul>
 
     <h2 id="credits">Credits</h2>
     <!-- TODO (the author): complete the list -->
@@ -205,12 +266,16 @@
         <a href="https://github.com/emscripten-forge/pyjs">pyjs</a>: the packages and the runtime.</li>
       <li><a href="https://box2d.org">Box2D</a> by Erin Catto, via
         <a href="https://github.com/DerThorsten/pyb2d3">pyb2d3</a>.</li>
+      <li>Anutosh Bhat, for bringing pytorch to emscripten-forge: the reason PPO, SAC
+        &amp; co. train right here in your browser.</li>
       <li><a href="https://gymnasium.farama.org">Gymnasium</a> (Farama Foundation): the idea
         and the classic environments (CartPole, LunarLander, BipedalWalker).</li>
-      <li><a href="https://numpy.org">numpy</a>, <a href="https://pytorch.org">pytorch</a>,
+      <li><a href="https://numpy.org">numpy</a>, 
+        <a href="https://pytorch.org">pytorch</a>,
         <a href="https://pyopengl.sourceforge.net">PyOpenGL</a>,
-        <a href="https://codemirror.net">CodeMirror</a>, <a href="https://vite.dev">vite</a>.</li>
-      <li>TODO: people, funding.</li>
+        <a href="https://microsoft.github.io/monaco-editor/">Monaco</a>, 
+        <a href="https://vite.dev">vite</a>.
+      </li>
     </ul>
   </body>
 </html>

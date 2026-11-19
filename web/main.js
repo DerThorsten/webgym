@@ -13,11 +13,20 @@ import { createEditor, forgetFile, openFile, saveFile } from "./editor.js";
 import { removeEdit, saveEdit, storedEdits } from "./edits.js";
 import { drawNetwork } from "./network.js";
 import { plot } from "./plot.js";
-import { startTour, tourDone } from "./tour.js";
+import { startTour, tourDone, welcome } from "./tour.js";
 
 const stage = document.getElementById("stage");
 let canvas = document.getElementById("canvas"); // replaced on a worker restart
 const params = new URLSearchParams(location.search);
+// has this browser run webgym before (anything stored)? decided before the page stores its
+// own settings: a first visit gets no release warning (checkRelease)
+const VISITED = (() => {
+  try {
+    return Object.keys(localStorage).some((key) => key.startsWith("webgym"));
+  } catch {
+    return false;
+  }
+})();
 const SMALL_DEVICE = matchMedia("(pointer: coarse)").matches || (navigator.hardwareConcurrency || 2) <= 4;
 const TWO_WORKERS = (params.get("workers") ?? (SMALL_DEVICE ? "1" : "2")) === "2";
 let display = null; // the display worker (role "display" / "single")
@@ -29,13 +38,14 @@ let autoTrain = params.get("train") !== "0"; // start training once the page is 
 let trainerState = null; // the trainer's state message (two workers)
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
-const DISPLAY_COMMANDS = new Set(["controller", "auto_reset", "reset", "show_n", "replay_speed", "follow", "decorate"]);
+const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "show_n", "replay_speed", "follow", "decorate",
+  "toy", "rain", "toy_mode"]);
 
 /** a widget changed: route the command to the worker(s) concerned */
 function command(name, value) {
   const message = { type: "command", name, value };
   if (!TWO_WORKERS) return toDisplay(message);
-  if (DISPLAY_COMMANDS.has(name) || name === "env" || name.startsWith("setting.") || name === "code") toDisplay(message);
+  if (DISPLAY_COMMANDS.has(name) || name.startsWith("toy.") || name === "env" || name.startsWith("setting.") || name === "code") toDisplay(message);
   toTraining(message);
 }
 const statusEl = document.getElementById("status");
@@ -205,7 +215,7 @@ document.getElementById("code-save").onclick = async () => {
 
 
 /** a docstring's hard-wrapped lines as flowing text: paragraphs stay, and a line that
- * starts with a label ("obs:", "Keys (human controller):") or a list item ("- ") starts a
+ * starts with a label ("obs:", "reward:") or a list item ("- ") starts a
  * new line */
 const unwrap = (text) =>
   text
@@ -218,13 +228,15 @@ const unwrap = (text) =>
     )
     .join("\n\n");
 
+const openFolds = new Set(["Things to drop"]); // the folds that are open (kept on a rebuild)
+
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
 function showControls(controls) {
-  // each control in its section ("bar": the top bar, "environment", "training"), buttons
+  // each control in its section ("bar": Train / Stop, New run, auto reset above the watching panel, "environment", "training"), buttons
   // at its end
   const sections = new Map();
-  for (const name of ["bar", "environment", "training"]) {
+  for (const name of ["bar", "environment", "training", "toys", "watch"]) {
     const el = document.getElementById(`controls-${name}`);
     const buttons = document.createElement("div");
     el.replaceChildren(buttons);
@@ -238,8 +250,16 @@ function showControls(controls) {
     let parent = root;
     if (c.group) {
       if (!groups.has(c.group)) {
-        const box = Object.assign(document.createElement("div"), { className: "group" });
-        box.append(Object.assign(document.createElement("div"), { className: "group-title", textContent: c.group }));
+        let box;
+        if (c.fold) {
+          // (a fold: opens / closes with a click on its title, e.g. the Toys tab's groups)
+          box = Object.assign(document.createElement("details"), { className: "group", open: openFolds.has(c.group) });
+          box.append(Object.assign(document.createElement("summary"), { className: "group-title", textContent: c.group }));
+          box.ontoggle = () => (box.open ? openFolds.add(c.group) : openFolds.delete(c.group));
+        } else {
+          box = Object.assign(document.createElement("div"), { className: "group" });
+          box.append(Object.assign(document.createElement("div"), { className: "group-title", textContent: c.group }));
+        }
         root.append(box);
         groups.set(c.group, box);
       }
@@ -259,12 +279,29 @@ function showControls(controls) {
     }
     const el = document.createElement("div");
     el.className = "control";
+    el.dataset.name = c.name;
     if (c.type === "hint") {
       root.append(Object.assign(document.createElement("div"), { className: c.active ? "hint active" : "hint", textContent: c.text }));
       continue;
     }
     if (c.type === "heading") {
       root.append(Object.assign(document.createElement("h4"), { textContent: c.text }));
+      continue;
+    }
+    if (c.type === "tools") {
+      // (the Toys tab) a row of buttons, the chosen one highlighted; a click on it again:
+      // back to "grab" (the mouse drags bodies)
+      el.classList.add("tools");
+      for (const [value, text] of c.options) {
+        const b = Object.assign(document.createElement("button"), { textContent: text });
+        if (value === c.value) b.classList.add("active");
+        b.onclick = () => {
+          command(c.name, value === c.value ? "grab" : value);
+          b.blur();
+        };
+        el.append(b);
+      }
+      parent.append(el);
       continue;
     }
     if (c.type === "info") {
@@ -298,7 +335,7 @@ function showControls(controls) {
       const wrap = document.createElement("label");
       wrap.append(input, text);
       el.append(wrap);
-      root.append(el);
+      parent.append(el); // (in its group, if it has one)
       continue;
     }
     if (c.type === "select") {
@@ -310,7 +347,7 @@ function showControls(controls) {
       }
       input.onchange = () => {
         command(c.name, input.value);
-        input.blur(); // the arrow keys go to the env again
+        input.blur(); // (R resets again)
       };
     } else {
       input = Object.assign(document.createElement("input"), { type: "range", min: c.min, max: c.max, step: c.step, value: c.value });
@@ -357,7 +394,7 @@ new ResizeObserver(showHistory).observe(plotEl);
 /** watch mode, the episode is over: its score over the canvas (+ best, the last few) */
 function showScore(s) {
   const el = document.getElementById("score");
-  el.hidden = !(s.mode === "watch" && s.episode_over && s.scores.length);
+  el.hidden = !(s.mode === "watch" && s.episode_over && s.scores.length && !s.toys);
   if (el.hidden) return;
   const score = s.scores.at(-1);
   el.innerHTML =
@@ -389,11 +426,13 @@ function showState() {
   document.getElementById("chips").innerHTML =
     (worldKey ? chip(`<b>${worldKey}</b>`, "world") : "") +
     (training ? chip(`training · iteration <b>${t.iteration}</b>`, "running") : chip("not training")) +
-    (last ? chip(`mean <b>${last.mean_return.toFixed(0)}</b>`) + chip(`best <b>${last.best_return.toFixed(0)}</b>`) : "") +
-    chip(`watching: episode ${s.episode}, return <b>${s.episode_return.toFixed(0)}</b>`);
+    (last ? chip(`mean <b>${last.mean_return.toFixed(0)}</b>`) + chip(`best <b>${last.best_return.toFixed(0)}</b>`, "best") : "") +
+    (s.toys
+      ? chip("watching: toys (no score)", "watch")
+      : chip(`watching: episode ${s.episode}, return <b>${s.episode_return.toFixed(0)}</b>`, "watch")); // (phones: no world / best / watch)
 }
 let displayState = null;
-let worldKey = ""; // the env with its settings (e.g. "WaterCannon · balls 2"): a chip in the bar
+let worldKey = ""; // the env with its settings (e.g. "WaterCannon · objects 2"): a chip in the bar
 
 /** a message from a worker: `role` "display" (also "single") or "trainer" */
 function onMessage(role, { data }) {
@@ -417,9 +456,11 @@ function onMessage(role, { data }) {
   } else if (data.type === "ready") {
     if (role !== "trainer" && Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
     if (role === "display" && lastSnapshot) toDisplay({ type: "snapshot", data: lastSnapshot });
-    // the first visit: a short tour, once the page is up (not in automated tests: they
-    // would click into it; ?tour=0 skips it too)
-    if (role !== "trainer" && !tourDone() && !navigator.webdriver && params.get("tour") !== "0") setTimeout(startTour, 1500);
+    // the first visit: the welcome card (a tour, help or skip), once the page is up (not
+    // in automated tests: they would click into it; ?tour=0 skips it too; ?welcome=1
+    // shows it always)
+    const firstVisit = !tourDone() && !navigator.webdriver && params.get("tour") !== "0";
+    if (role !== "trainer" && (firstVisit || params.get("welcome") === "1")) setTimeout(welcome, 1000);
     // the big packages in the training worker, in the background, a bit later: the
     // restore of the autosave goes first (the installs keep python busy)
     if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
@@ -578,7 +619,7 @@ document.addEventListener("click", (e) => {
   const r = target.getBoundingClientRect();
   helpPopup.textContent = target.dataset.help;
   helpPopup.dataset.for = target.dataset.help;
-  helpPopup.style.left = `${Math.max(8, r.left)}px`;
+  helpPopup.style.left = `${Math.max(8, Math.min(r.left, innerWidth - 330))}px`; // (at most 300 px + padding wide)
   helpPopup.style.top = `${r.bottom + 4}px`;
   helpPopup.hidden = false;
 });
@@ -608,7 +649,14 @@ function showTab(name) {
   }
   remember(TAB, name);
 }
-for (const button of document.querySelectorAll("#tabs button")) button.onclick = () => showTab(button.dataset.tab);
+for (const button of document.querySelectorAll("#tabs button")) {
+  button.onclick = () => {
+    showTab(button.dataset.tab);
+    // (the Toys tab: playing with the world, so no auto reset, one policy in view, no
+    // scores; another tab: scores again)
+    command("toy_mode", button.dataset.tab === "toys");
+  };
+}
 showTab(document.getElementById(`tab-${remembered(TAB, "world")}`) ? remembered(TAB, "world") : "world");
 
 // the training progress under the world: open / closed (remembered; small devices:
@@ -641,6 +689,12 @@ codeToggle.addEventListener("click", () => {
   document.getElementById("code-resizer").hidden = panel.hidden;
   codeToggle.classList.toggle("open", !panel.hidden);
 });
+document.getElementById("code-close").onclick = () => codeToggle.click(); // (phones: full screen)
+// phones: the ⋯ menu (Tour, Help, ...) and, in landscape, the panel as a drawer (index.html)
+const bar = document.getElementById("bar");
+document.getElementById("menu-toggle").onclick = () => bar.classList.toggle("menu-open");
+document.getElementById("links").addEventListener("click", () => bar.classList.remove("menu-open"));
+document.getElementById("panel-toggle").onclick = () => document.getElementById("app").classList.toggle("drawer-open");
 
 /** drag `resizer` to set the CSS width variable `name` (px; remembered in this browser);
  * width(clientX) -> the panel's width at that pointer position */
@@ -714,8 +768,52 @@ function setHelpers(n) {
   document.getElementById("helpers-value").textContent = String(n);
 }
 
-startWorker(TWO_WORKERS ? "display" : "single");
-if (TWO_WORKERS) startWorker("trainer");
+// The release (pyproject.toml's version, in config.json): a browser that ran an older one
+// has saved data that may not fit any more (runs, checkpoints, code edits, cached
+// packages, settings). It is asked (a warning) and then deleted; "Cancel" keeps it and
+// asks again next time. A first visit has nothing to delete. Only webgym's own storage:
+// other pages of the same site keep theirs.
+const RELEASE = "webgym.release";
+
+async function checkRelease() {
+  try {
+    const config = await (await fetch(new URL("config.json", location.href), { cache: "no-cache" })).json();
+    const release = config[pageArch(location.href)].release;
+    const seen = localStorage.getItem(RELEASE);
+    if (!release || seen === release) return;
+    if (VISITED) {
+      const ok = confirm(
+        `webgym was updated (${seen ?? "an older version"} → ${release}).\n\n` +
+          "What this browser saved for the old version doesn't fit any more and will be deleted: " +
+          "your training runs and checkpoints, your code edits, the cached packages (downloaded " +
+          "again, once) and the page's settings.\n\nOK: delete and continue. Cancel: keep it for now " +
+          "(old runs may fail to load); you'll be asked again next time.",
+      );
+      if (!ok) return;
+      await forgetEverything();
+    }
+    localStorage.setItem(RELEASE, release);
+  } catch (error) {
+    console.warn("release check:", error); // (no storage, no config: go on)
+  }
+}
+
+/** delete what webgym stored in this browser (only webgym's) */
+async function forgetEverything() {
+  for (const name of ["webgym", "webgym-code"]) {
+    await new Promise((done) => {
+      const request = indexedDB.deleteDatabase(name);
+      request.onsuccess = request.onerror = request.onblocked = () => done();
+    });
+  }
+  if (self.caches) for (const key of await caches.keys()) if (key.startsWith("webgym")) await caches.delete(key);
+  for (const key of Object.keys(localStorage)) if (key.startsWith("webgym")) localStorage.removeItem(key);
+}
+
+checkRelease().then(() => {
+  startWorker(TWO_WORKERS ? "display" : "single");
+  if (TWO_WORKERS) startWorker("trainer");
+});
 if (TWO_WORKERS && MAX_HELPERS > 0) {
   // (one worker on small devices: no helpers either)
   const slider = document.getElementById("helpers");
@@ -742,38 +840,68 @@ if (TWO_WORKERS && MAX_HELPERS > 0) {
 // for test_page.py: a real wasm trap in the worker (checks the restart)
 window.webgymCrashTest = () => toDisplay({ type: "command", name: "__crash__" });
 
-// pointer input -> display worker (drawing-buffer px): drag bodies, pan, wheel zoom.
-// The listeners are on the stage: they survive the canvas being replaced on a restart
-const sendEvent = (kind, e, delta = 0) => toDisplay({ type: "event", kind, x: e.offsetX * scale, y: e.offsetY * scale, delta });
+// pointer input -> display worker (drawing-buffer px). The first pointer is the mouse:
+// drag a body, drag the background to pan, the wheel zooms. A second finger starts a
+// pinch: the first one's drag ends, the two zoom (about their midpoint) and pan, as
+// "pan" / "move" / "wheel" events. Further fingers, and the one left after a pinch,
+// are ignored until they lift. The listeners are on the stage: they survive the canvas
+// being replaced on a restart
+const send = (kind, x, y, delta = 0) => toDisplay({ type: "event", kind, x: x * scale, y: y * scale, delta });
+const pointers = new Map(); // pressed pointer id -> {x, y} (canvas CSS px)
+let primary = null; // the pointer that acts as the mouse
+let pinch = null; // the two pinching pointer ids
+const pinchAt = () => {
+  const [a, b] = pinch.map((id) => pointers.get(id));
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+};
 stage.style.touchAction = "none";
 stage.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || e.target !== canvas) return;
   canvas.setPointerCapture(e.pointerId);
-  sendEvent("down", e);
+  if (e.isPrimary) {
+    pointers.clear(); // (a new gesture: nothing left over from the last one)
+    primary = pinch = null;
+  }
+  pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+  if (pointers.size === 1) {
+    primary = e.pointerId;
+    send("down", e.offsetX, e.offsetY);
+  } else if (pointers.size === 2 && primary !== null && e.pointerType !== "mouse") {
+    pinch = [primary, e.pointerId];
+    primary = null;
+    send("leave", 0, 0);
+    const m = pinchAt();
+    send("pan", m.x, m.y);
+  }
 });
-stage.addEventListener("pointermove", (e) => e.buttons & 1 && sendEvent("move", e));
-stage.addEventListener("pointerup", (e) => sendEvent("up", e));
-stage.addEventListener("pointercancel", (e) => sendEvent("up", e));
-stage.addEventListener("pointerleave", (e) => sendEvent("leave", e));
-// keys -> worker (the human controller), unless the user types into a widget
-const KEY_NAMES = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", " ": "space" };
-const keyName = (e) => KEY_NAMES[e.key] ?? (e.key.length === 1 ? e.key.toLowerCase() : null);
-for (const kind of ["keydown", "keyup"]) {
-  window.addEventListener(kind, (e) => {
-    const key = keyName(e);
-    if (!key || e.repeat || e.target.closest?.("input, select, textarea, [contenteditable]")) return;
-    if (KEY_NAMES[e.key]) e.preventDefault(); // no scrolling with the arrows / space
-    toDisplay({ type: "event", kind, key });
-  });
-}
-window.addEventListener("blur", () => {
-  for (const key of Object.values(KEY_NAMES)) toDisplay({ type: "event", kind: "keyup", key });
+stage.addEventListener("pointermove", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  const before = pinch?.includes(e.pointerId) && pinchAt();
+  pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+  if (before) {
+    const m = pinchAt();
+    send("move", m.x, m.y); // (pan: the grabbed point follows the midpoint)
+    if (before.d > 1 && m.d > 1) send("wheel", m.x, m.y, Math.log(before.d / m.d) / Math.log(1.0015)); // (App.event's wheel zoom)
+  } else if (e.pointerId === primary) send("move", e.offsetX, e.offsetY);
+});
+const lift = (e) => {
+  if (!pointers.delete(e.pointerId)) return;
+  if (e.pointerId === primary || pinch?.includes(e.pointerId)) send("up", e.offsetX, e.offsetY);
+  if (e.pointerId === primary) primary = null;
+  if (pinch?.includes(e.pointerId)) pinch = null;
+};
+stage.addEventListener("pointerup", lift);
+stage.addEventListener("pointercancel", lift);
+// R: a new episode (unless the user types into a widget)
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "r" || e.repeat || e.target.closest?.("input, select, textarea, [contenteditable]")) return;
+  toDisplay({ type: "event", kind: "keydown", key: "r" });
 });
 stage.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
-    sendEvent("wheel", e, e.deltaMode === 1 ? 16 * e.deltaY : e.deltaY);
+    send("wheel", e.offsetX, e.offsetY, e.deltaMode === 1 ? 16 * e.deltaY : e.deltaY);
   },
   { passive: false },
 );

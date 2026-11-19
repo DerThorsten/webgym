@@ -1,31 +1,48 @@
-// The Code section's editor (CodeMirror 6, python) + opening / saving files of this
-// machine (File System Access API where there is one: Save writes back to the opened
-// file; else a file input / a download).
-import { basicSetup, EditorView } from "codemirror";
-import { indentWithTab } from "@codemirror/commands";
-import { Prec } from "@codemirror/state";
-import { keymap } from "@codemirror/view";
-import { python } from "@codemirror/lang-python";
-import { monokai } from "@uiw/codemirror-theme-monokai";
+// The Code section's editor (Monaco, python; loaded when the panel is first shown) +
+// opening / saving files of this machine (File System Access API where there is one:
+// Save writes back to the opened file; else a file input / a download).
+
+/** Monaco with python only (not all its languages): the core, the python colors, its worker */
+async function loadMonaco() {
+  const [monaco, , { default: EditorWorker }] = await Promise.all([
+    import("monaco-editor/esm/vs/editor/editor.api"),
+    import("monaco-editor/esm/vs/basic-languages/python/python.contribution"),
+    import("monaco-editor/esm/vs/editor/editor.worker?worker"),
+  ]);
+  self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
+  return monaco;
+}
 
 /** an editor in `parent`; onChange(text) after edits, onRun() on Ctrl/Cmd+Enter;
- * returns {get, set} */
+ * returns {get, set} (they work before Monaco is loaded: the text waits) */
 export function createEditor(parent, onChange, onRun) {
-  const view = new EditorView({
-    parent,
-    extensions: [
-      Prec.highest(keymap.of([{ key: "Mod-Enter", run: () => (onRun(), true) }])),
-      basicSetup,
-      keymap.of([indentWithTab]),
-      python(),
-      monokai,
-      EditorView.updateListener.of((u) => u.docChanged && onChange(view.state.doc.toString())),
-    ],
+  let text = "";
+  let view = null;
+  let quiet = false; // (set() itself is no edit)
+  const observer = new ResizeObserver(async () => {
+    if (view || !parent.clientWidth) return;
+    observer.disconnect();
+    const monaco = await loadMonaco();
+    view = monaco.editor.create(parent, {
+      value: text, language: "python", theme: "vs-dark", automaticLayout: true,
+      fontSize: 12, minimap: { enabled: false }, scrollBeyondLastLine: false, tabSize: 4,
+    });
+    view.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
+    view.onDidChangeModelContent(() => quiet || onChange(view.getValue()));
   });
-  return {
-    get: () => view.state.doc.toString(),
-    set: (text) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }),
+  observer.observe(parent);
+  const editor = {
+    get: () => (view ? view.getValue() : text),
+    set: (next) => {
+      text = next;
+      if (!view) return;
+      quiet = true;
+      view.setValue(next);
+      quiet = false;
+    },
   };
+  window.codeText = editor.get; // (the page test reads it: Monaco only draws the visible lines)
+  return editor;
 }
 
 const TYPES = [{ description: "Python", accept: { "text/x-python": [".py"] } }];

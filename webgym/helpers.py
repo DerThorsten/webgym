@@ -14,7 +14,7 @@ import time
 import numpy as np
 
 from webgym.core import make
-from webgym.policies import MLP
+from webgym.policies import from_sizes
 
 TIMEOUT = 60.0  # s: a helper that doesn't answer by then: its candidates count as failed
 
@@ -50,7 +50,8 @@ class Pool:
             request.parts[part] = rows
             self.post({
                 "type": "evaluate", "id": self.next_id, "part": part, **self.spec,
-                "sizes": list(policy.sizes), "tanh_out": policy.tanh_out, "seed": int(seed) + 1 + part,
+                "kind": policy.kind, "sizes": list(policy.sizes), "tanh_out": policy.tanh_out,
+                "seed": int(seed) + 1 + part,
                 "n": len(rows), "params": encode(params[rows]),
             })
         return request
@@ -97,8 +98,7 @@ def evaluate(message):
         for old in [k for k in _envs if k[:2] == key[:2]]:  # (another size: the old one goes)
             _envs.pop(old).close()
         _envs[key] = make(message["env"], n=message["n"], **message["settings"])
-    sizes = message["sizes"]
-    policy = MLP(sizes[0], sizes[-1], hidden=tuple(sizes[1:-1]), tanh_out=message["tanh_out"])
+    policy = from_sizes(message.get("kind", "mlp"), message["sizes"], message["tanh_out"])
     params = decode(message["params"], (message["n"], policy.num_params))
     episode = rollout(_envs[key], policy, params, message["seed"])
     try:

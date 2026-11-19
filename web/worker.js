@@ -67,6 +67,9 @@ async function init(canvas, base, role, wasmModule, sources = []) {
   pyjs = await (arch === "wasm64" ? initWasm64 : initWasm32)({
     assetsUrl: new URL("pyjs/", base).href,
     cdnFallback: false,
+    // (our own Cache Storage names, "webgym-packages(-bytecode)": a new release of the
+    // page can delete them without touching other pages of the same site, see main.js)
+    cache: "webgym-packages",
     wasmModule, // (compiled by the page once for all workers; none: compiled here)
     urls: config.core, // numpy, pyopengl, pyb2d3 (pinned)
     // (cache: the archive's name has its content hash, so pyjs caches it like a package:

@@ -70,12 +70,12 @@ def test_discrete_actions(name):
     env.step(actions[-1:])
 
 
-def test_water_cannon_one_gun_per_ball():
-    """with N balls the cart has N cannons, each with its own angle, pressure and spread:
+def test_water_cannon_one_gun_per_object():
+    """with N objects the cart has N cannons, each with its own angle, pressure and spread:
     1 + 3N actions; only the cannon that is given pressure sprays"""
-    env = make("WaterCannon", n=2, balls=3)
+    env = make("WaterCannon", n=2, objects=3)
     assert env.action_space.shape == (10,) and env.observation_space.shape == (6 + 6 + 1 + 9,)
-    assert len(env.barrel) == len(env.hinge) == 6 and len(env.ball) == 6
+    assert len(env.barrel) == len(env.hinge) == 6 and len(env.object) == 6
     env.reset(seed=0)
     actions = np.zeros((2, 10))
     actions[:, 3::3] = -1  # (narrow jets)
@@ -86,11 +86,11 @@ def test_water_cannon_one_gun_per_ball():
     assert drops[1] > 0 and drops[0] == drops[2] == 0 and sum(drops[3:]) == 0
 
 
-def test_water_hits_only_its_own_ball():
-    """water cannons in one world: each cart's water carries its own ball, not the
-    others' (collision groups); a ball without water falls as if alone"""
+def test_water_hits_only_its_own_object():
+    """water cannons in one world: each cart's water carries its own object, not the
+    others' (collision groups); an object without water falls as if alone"""
     env = make("WaterCannon", n=2)
-    env.same_start = True  # (both balls start alike)
+    env.same_start = True  # (both objects start alike)
     env.reset(seed=0)
     for _ in range(50):  # agent 0 sprays straight up, agent 1 does nothing
         env.step(np.array([[0.0, 0.0, 1.0, -1.0], [0.0, 0.0, 0.0, -1.0]]))
@@ -98,8 +98,22 @@ def test_water_hits_only_its_own_ball():
     alone.reset(seed=0)
     for _ in range(50):
         alone.step(np.array([[0.0, 0.0, 0.0, -1.0]]))
-    y = env.ball.position[:, 1]
-    assert y[0] > y[1] + 0.5 and abs(y[1] - alone.ball.position[0, 1]) < 1e-3
+    y = env.object.position[:, 1]
+    assert y[0] > y[1] + 0.5 and abs(y[1] - alone.object.position[0, 1]) < 1e-3
+
+
+def test_agents_never_sleep():
+    """a fallen agent lying still (watching without auto reset) must still react to its
+    motors: box2d would put its bodies to sleep, and motors don't wake them"""
+    env = make("Ragdoll", n=1)
+    env.freeze_done = False
+    env.reset(seed=0)
+    for _ in range(300):  # (5 s limp: it falls and lies still)
+        env.step(np.zeros((1, len(env.action_names))))
+    before = env.hull.position[0].copy()
+    for _ in range(60):
+        env.step(np.ones((1, len(env.action_names))))
+    assert np.linalg.norm(env.hull.position[0] - before) > 0.05
 
 
 def test_finished_agents_are_frozen():
@@ -114,6 +128,16 @@ def test_finished_agents_are_frozen():
     _, reward, terminated, truncated = env.step(np.zeros((3, 1), np.float32))
     assert (reward[first] == 0).all() and not terminated[first].any() and not truncated[first].any()
     assert np.array_equal(env.episode_return[first], returns)
+
+
+def test_untrained_ragdoll_falls():
+    """without a policy (zero actions: limp motors) every ragdoll collapses within 3 s:
+    the episode ends with the fall penalty"""
+    env = make("Ragdoll", n=4)
+    env.reset(seed=0)
+    for _ in range(180):
+        env.step(np.zeros((4, len(env.action_names)), np.float32))
+    assert env.done.all() and (env.episode_return < -90).all()
 
 
 def test_lander_flies_through_the_flags():

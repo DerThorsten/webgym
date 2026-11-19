@@ -26,6 +26,10 @@ jobs:
           cache: true
       - name: Tests
         run: pixi run test
+      - name: The pretrained runs (assets of the release "pretrained-<version>", see web/pretrain.py)
+        run: pixi run python web/pretrain.py --download
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Build the page
         run: pixi run web-build
       - uses: actions/upload-pages-artifact@v3

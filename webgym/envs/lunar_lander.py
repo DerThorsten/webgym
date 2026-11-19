@@ -8,8 +8,6 @@ action: [main engine (<= 0: off, 1: full), turn (-1 .. 1, + = left)].
 reward: getting closer to the pad, slower and upright, legs down; fuel costs;
 +100 for coming to rest on the legs, -100 for touching the ground with the hull
 or flying away.
-
-Keys (human controller): up = main engine, left / right = rotate.
 """
 
 import math
@@ -41,7 +39,9 @@ class LunarLander(Env):
     max_steps = 600
     gravity = (0, -5.0)
     view_center, view_zoom = (0.0, 5.0), 6.0
-    keys = "↑ main engine · ← / → rotate"
+    suggested = {"quick": {"cem": {}, "neat": {}},
+                 "medium": {"reinforce_torch": {}, "cem": {}, "neat": {}},
+                 "long": {"ppo_torch": {"hidden": 64}, "sac_torch": {}, "td3_torch": {}, "reinforce_torch": {}}}
 
     def build_scenery(self):
         # the surface: one 4-sided piece per stretch between two heights
@@ -121,9 +121,6 @@ class LunarLander(Env):
             for emitter, r in zip(getattr(self, name), rate):
                 emitter.rate = float(r)
                 emitter.step(self.dt)
-
-    def human_action(self, keys):
-        return np.array([float("up" in keys), ("left" in keys) - ("right" in keys)], dtype=np.float32)
 
 
 def exhaust(world, body, position, angle, color):

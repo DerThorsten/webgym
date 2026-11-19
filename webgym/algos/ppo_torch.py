@@ -44,8 +44,31 @@ def from_flat(net, flat):
             i += out_dim
 
 
+class RewardScale:
+    """divides the rewards by the running standard deviation of the discounted return (as
+    gymnasium's NormalizeReward, which the reference PPOs use): the critic learns values
+    of about the same size in every env (a lander's +-100 or a cart's +1 per step)"""
+
+    def __init__(self, gamma, var=1.0, count=1e-4):
+        self.gamma, self.var, self.count = gamma, var, count
+        self.mean, self.ret = 0.0, None
+
+    def __call__(self, reward, alive):
+        if self.ret is None or len(self.ret) != len(reward):
+            self.ret = np.zeros(len(reward))
+        self.ret = np.where(alive, self.ret * self.gamma + reward, 0.0)
+        x = self.ret[alive]
+        if len(x):  # (running mean / variance, Welford in batches)
+            n, delta = len(x), x.mean() - self.mean
+            total = self.count + n
+            self.var = (self.var * self.count + x.var() * n + delta**2 * self.count * n / total) / total
+            self.mean += delta * n / total
+            self.count = total
+        return reward / np.sqrt(self.var + 1e-8)
+
+
 def train(env, policy, iterations=1000, lr=3e-3, gamma=0.99, clip=0.2, epochs=4, seed=0, state=None,
-          lam=0.95, minibatch=2048):
+          lam=0.95, minibatch=2048, scale_rewards=True):
     """PPO on the batched env; `policy`: the numpy MLP whose layout the actor uses.
     Yields None per env step / minibatch, stats per iteration (with losses); `state`
     resumes (the weights; the optimizer starts fresh)."""
@@ -56,11 +79,14 @@ def train(env, policy, iterations=1000, lr=3e-3, gamma=0.99, clip=0.2, epochs=4,
     critic = mlp([sizes[0], *sizes[1:-1], 1], tanh_out=False)
     log_std = nn.Parameter(torch.full((sizes[-1],), -0.5))
     start = 0
+    scale = RewardScale(gamma)
     if state is not None:
         from_flat(actor, state["actor"])
         from_flat(critic, state["critic"])
         log_std.data = torch.as_tensor(state["log_std"], dtype=torch.float32)
         start = state["iteration"]
+        if "reward_var" in state:
+            scale = RewardScale(gamma, *np.ravel(state["reward_var"])[:2])
     # two optimizers: the critic's loss (squared returns, large when rewards add up over
     # long episodes) must not drown the actor's gradient in a shared clip
     actor_params = [*actor.parameters(), log_std]
@@ -80,6 +106,8 @@ def train(env, policy, iterations=1000, lr=3e-3, gamma=0.99, clip=0.2, epochs=4,
                 lp = torch.distributions.Normal(mean, std).log_prob(a).sum(-1)
                 v = critic(o).squeeze(-1)
             next_obs, reward, _, _ = env.step(a.numpy())
+            if scale_rewards:  # (for learning only: the returns reported stay the env's)
+                reward = scale(reward, alive)
             O.append(o), A.append(a), LP.append(lp), V.append(v)
             R.append(torch.as_tensor(reward, dtype=torch.float32)), M.append(torch.as_tensor(alive))
             obs = next_obs
@@ -134,5 +162,6 @@ def train(env, policy, iterations=1000, lr=3e-3, gamma=0.99, clip=0.2, epochs=4,
             "mean_params": to_flat(actor),
             "losses": {k: v / max(count, 1) for k, v in losses.items()},
             "state": {"iteration": t, "actor": to_flat(actor), "critic": to_flat(critic),
-                      "log_std": log_std.detach().double().numpy()},
+                      "log_std": log_std.detach().double().numpy(),
+                      "reward_var": np.array([scale.var, scale.count])},
         }

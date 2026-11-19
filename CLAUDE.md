@@ -51,23 +51,35 @@ Technical considerations:
 - Envs (`webgym/envs/`, registered with `@register_env`): CartPole, LunarLander, Walker,
   Crawler, Car (was Tank; an unknown env / algo in the URL falls back to the default with
   a log note, a checkpoint of one is refused), DoubleCartPole (CartPole with a second pole on
-  top; replaced the swing-up Pendulum), WaterCannon (the CarDesigner was dropped 2026-11-19: open loop, one design
+  top; replaced the swing-up Pendulum), Ragdoll (pyb2d3's ragdoll as a walker, `Legged`
+  subclass; feet on ankles, every one of its 11 joints a motor (action) and observed, plus
+  the heels' heights; limp motors at action 0, so it falls untrained), WaterCannon (the CarDesigner was dropped 2026-11-19: open loop, one design
   action, nothing to watch live; it didn't fit). **Users read and edit these files** (Code panel): keep them short and plain.
   An env builds ONE agent (`build_agent(i)` returns its parts by name; `Env` turns each into
   a batch over all agents: `self.cart` = `b2d.Bodies`, `self.joints` = `b2d.RevoluteJoints`,
   lists of k per agent -> n * k entries), then works batched: `randomize(rng)`, `act`,
   `observe()` (a list of columns), `reward()`. Spaces follow from `obs_names` /
   `action_names` (actions always in [-1, 1]). The how-to is the docstring of `core.py`;
-  CartPole is the template. Walker and Crawler share `Legged` (`envs/walker.py`; joint motors
-  via `RevoluteJoints`, feet sensors). Every env advertises discrete actions for DQN
-  (`discrete_actions` + names; the walkers: bang-bang per joint / joint pair). Also `keys` +
-  `human_action` (keyboard play), `camera_target` ("Camera follows").
+  CartPole is the template. Walker, Crawler and Ragdoll share `Legged` (`envs/walker.py`;
+  joint motors via `RevoluteJoints`, feet sensors). Flat ground (bumpy terrain for the walkers was tried and removed 2026-11-19). Agent bodies
+  never sleep (`core.body`: motors don't wake bodies). Watched episodes: a new seed each. Every env advertises discrete actions for DQN
+  (`discrete_actions` + names; the walkers: bang-bang per joint / joint pair). Also
+  `camera_target` ("Camera follows"). No keyboard play (removed 2026-11-19; R = reset stays).
+- `Env.suggested` = {budget: {algo: params}} for "quick" / "medium" / "long" (~1 / 5 / 20 min),
+  best first; guesstimates, not measured. The "Time budget" select (Training tab) and opening
+  an env pick the first one with its params (`App.suggest`); ★ marks them in the algorithm
+  select; an algo given explicitly (URL `?algo=`) is kept.
 - Env settings (`Env.settings = {name: (default, choices, help)}`, e.g. the WaterCannon's
-  `balls`): selects in the Environment section; a change rebuilds the env as a new run;
+  `objects`): selects in the Environment section; a change rebuilds the env as a new run;
   obs / action names may depend on them (properties). Runs and checkpoints are kept per
-  env key ("WaterCannon · balls 2", `core.env_key`; checkpoints carry `settings`; the page's
+  env key ("WaterCannon · objects 2", `core.env_key`; checkpoints carry `settings`; the page's
   IndexedDB uses the key). A checkpoint whose policy doesn't fit the env (other sizes) is
   refused with a message.
+- A batchable car (own crates + gravel per car via collision groups, filter joints between
+  the car's parts, rays via `world.cast_ray` skipping other groups) was tried and dropped
+  2026-11-19: no faster than separate worlds (0.6x driving: every ray meets all cars'
+  pebbles). One world vs separate worlds, agent-steps/s, 32 agents: CartPole 24x,
+  DoubleCartPole 25x, LunarLander 14x, Walker 11x, WaterCannon 6x, Crawler 2.4x.
 - `batchable = False` (Car: it pushes loose crates and gravel, `Env.prop`): `make(name, n > 1)` returns
   `Separate`, n one-agent envs in their own worlds behind the batched API (at most
   `MAX_SEPARATE` = 32); the view shows one agent; while training the leader's world is drawn.
@@ -99,29 +111,68 @@ Technical considerations:
 - `webgym/policies.py` (numpy MLP, flat params; every trained policy is exported to it, so
   watching never needs torch), `checkpoints.py` (safetensors in pure numpy), `gl/` (drawing,
   copied from pyb2d3's sandbox), `cli.py` (`python -m webgym.cli CartPole --algo cem`).
-- Page layout (`web/index.html`): a top bar always in view (Train / Stop / New run:
-  controls with `"section": "bar"` in `App.controls()`; live numbers as chips, the first
+- Page layout (`web/index.html`): a top bar always in view (live numbers as chips, the first
   one the env key; Code, the "powered by emscripten-forge" badge (`public/emscripten-forge.svg`),
-  Tour, Help, About (= `help.html#about`, About + Credits: drafts with TODOs for the author),
-  GitHub), the left panel with four tabs (World: the env select,
+  Tour, Help, About (= `help.html#about`, About, About the author, Acknowledgments (QuantStack, Bloomberg), Credits; TODOs for the author),
+  GitHub), the left panel with five tabs (World: the env select,
   its settings, its description (the module docstring, unwrapped), the watching options /
-  Training: algorithm, parameters, population, simulation workers / Policy: network +
+  Training: algorithm, parameters, population, simulation workers / Toys (`webgym/toys.py`,
+  controls section "toys", commands "toy" / "rain" to both workers: a click on a dynamic
+  body always grabs it (mouse joint); a click into empty space (`toys.empty`) uses the
+  chosen tool of `toys.TOOLS` (box, ball, plank, explosion, ramp, step, seesaw; all dynamic,
+  ramps & co. heavy ("heaviness") on the ground below the click), chosen with buttons (control type
+  "tools") in the folds, a click on the active one puts it away ("grab"); weather (rain, wind = gravity tilted sideways,
+  gravity scale, set on the watched world every step); sliders from `toys.PARAMS` in
+  folds per `toys.GROUPS` (controls with "group" + "fold": `<details>` in main.js, open
+  state kept in `openFolds`; commands "toy.<name>"); an
+  explosion is drawn as growing rings + a flash (`toys.draw_blasts`, as pyb2d3's tank
+  sample); opening the tab (command "toy_mode") or a toy turns auto reset off and shows
+  one policy; R clears them: the snapshot reset drops later bodies) / Policy: network +
   checkpoints / Log: state, packages, log; the tab is remembered), the world with the training progress plot in a strip below it (closable,
-  remembered). First visit: a short tour (`web/tour.js`; not under automation,
-  `navigator.webdriver`; `?tour=0`; the Tour link restarts it).
+  remembered). First visit: a welcome card (`web/tour.js` `welcome()`: what it is, then
+  Quick tour / Detailed tour / Help page / Skip; on phones a note "made for the
+  desktop, may still work"; not under automation,
+  `navigator.webdriver`; `?tour=0` skips it, `?welcome=1` always shows it; the Tour links
+  start the tours again).
+- Phones (CSS media queries in `index.html`: portrait `max-width: 700px`, landscape
+  `max-height: 500px`): a compact bar (no logo; chips: training + mean;
+  Tour / Help / About / GitHub in the ⋯ menu `#links`; the badge stays), the editor full
+  screen (✕). Portrait: the world on top (55dvh), the tabs below. Landscape: the world
+  fills the screen, the panel is a drawer (☰, `#app.drawer-open`; the tour opens it for
+  its steps). Touch (`main.js`): one finger = the mouse; a second finger cancels its drag
+  and pinches: "pan" (App.event: pan from here, never grabs a body) + "move" at the
+  midpoint, "wheel" with the distance ratio (zoom about the midpoint).
+- The release = `pyproject.toml`'s version (now 0.2.0), written into config.json
+  (`release`, per arch) by build_page.py. Bump it when saved data no longer fits: a browser
+  that ran another release (or webgym before releases existed: it has `webgym*` keys) gets a
+  confirm() warning, OK deletes webgym's own storage only (IndexedDB "webgym" +
+  "webgym-code", Cache Storage "webgym-packages*" (pyjs `cache: "webgym-packages"`),
+  localStorage `webgym*`), Cancel keeps it and asks again. A first visit: no dialog.
 - Edited code (the code panel) is kept in this browser (`web/edits.js`, IndexedDB
   "webgym-code", per file path + webgym version = the sources archive's hash): every worker
   start (display, trainer, helpers) writes the stored files over the originals before
   importing webgym (`worker.js`, skips files that don't compile); Revert forgets an edit.
-- Pretrained runs: `python -m webgym.cli Walker --iterations 300 --save
-  web/public/pretrained/Walker-cem.safetensors` (trains with the headless App: a page
-  checkpoint); `build_page.py` writes `public/pretrained/index.json` from the files'
-  metadata; the Policy tab lists them as "pretrained" (restore only) for their env key +
-  algo. Shipped: Walker / CEM, 300 iterations (mean 148, best 227).
+- Pretrained runs: `pixi run -e ml python web/pretrain.py` trains one run per env and
+  suggested algorithm (`webgym.cli --save --minutes`: the env's suggested params, the
+  checkpoint of the best mean iteration) into `web/public/pretrained/` (not in git:
+  `--upload` puts them on the GitHub release `pretrained-<version>`, `--download` gets
+  them; the Pages workflow downloads before building). `build_page.py` writes
+  `public/pretrained/index.json`; the Policy tab lists them as "pretrained" (restore
+  only, fetched on click) for their env key + algo. 29 runs (2026-11-19; limits per run:
+  numpy 6 min, pytorch 12 min, the trainer ends after 1000 iterations; not shipped: Car /
+  NEAT and Car / SAC, negative on fresh tracks). `--upload` doesn't remove assets that are
+  gone locally: `gh release delete-asset`. After an env changes, retrain its runs and
+  check them all: `pixi run -e ml python web/check_pretrained.py` (restores each as the
+  page does, replays its policy on the current env vs its training mean).
+  Help screenshots: `pixi run -e web-test python web/help_shots.py` (uses the pretrained
+  PPO walker / ragdoll; the Toys scenes: ramp, explosion, rain).
+- PPO and A2C scale the rewards (`ppo_torch.RewardScale`, as gymnasium's NormalizeReward
+  in CleanRL / RL-Zoo): without it PPO failed on LunarLander (mean -88 vs 277 with it);
+  about neutral on the other envs (3 min each, one seed). Default lr 0.003 (0.001 slower).
 - `web/`: `index.html`, `main.js` (UI, two workers, compiles the pyjs runtime once with
   `compileRuntime` and passes it to the workers, crash restart), `worker.js` (pyjs init with
   pinned packages, message bridge), `arch.js` (wasm32 / wasm64 choice), `checkpoints.js`
-  (IndexedDB, per env + algo, autosave + named saves), `editor.js` (CodeMirror 6 + local file
+  (IndexedDB, per env + algo, autosave + named saves), `editor.js` (Monaco, python only, loaded when the Code panel first shows; `window.codeText()` for tests; + local file
   open / save), `network.js`, `plot.js`, `build_page.py`, `test_page.py`, bench page.
 
 ### Browser specifics (pyjs 5.1)
@@ -149,7 +200,7 @@ Technical considerations:
   "Simulation workers" (0 .. cores - 2, default half, remembered; `?helpers=N`); started
   once the trainer is ready. Measured: Walker, 20 s: 20 iterations alone, 72 with 3.
 - Query params: `env`, `algo`, `population`, `seed`, `train=0` (no autostart), `workers`,
-  `arch`, `dpr`.
+  `arch`, `dpr`, `tour=0`, `welcome=1`.
 - Crash handling: a wasm trap in a worker -> the page restarts it (autosave restored); more
   than 3 crashes a minute -> stop. Python exceptions are only reported.
 - Measured (headless chromium, wasm64): page running after ~3.2 s cold, ~0.9 s on reload

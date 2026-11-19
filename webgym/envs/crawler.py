@@ -7,9 +7,6 @@ the 4 foot contacts (24 values).
 action: 8 joint torques in [-1, 1].
 reward: forward progress, minus a small effort cost; -100 when it flips over.
 Episodes last 10 s, or end when it makes no progress for 1.5 s.
-
-Keys (human controller, both legs of a pair together): q / a = back hips,
-w / s = back knees, o / l = front hips, p / ; = front knees.
 """
 
 from webgym.core import register_env
@@ -31,5 +28,6 @@ class Crawler(Legged):
     FALL_Y, FALL_ANGLE = 0.25, 1.5  # (only flipping over ends it)
     view_center = (0.0, 1.5)
     view_zoom = 2.5
-    keys = "back hips Q / A, back knees W / S · front hips O / L, front knees P / ;"
-    KEY_PAIRS = (("q", "a"), ("w", "s")) * 2 + (("o", "l"), ("p", ";")) * 2
+    suggested = {"quick": {"cem": {}, "es": {}},
+                 "medium": {"es": {}, "cem": {}, "sac_torch": {"updates": 4}},
+                 "long": {"ppo_torch": {"hidden": 64}, "sac_torch": {"updates": 4}, "es": {}}}

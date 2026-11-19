@@ -2,13 +2,13 @@
 the browser.
 
 Hosts (host_native.py, host_web.py) only provide a current GL context, call
-`frame(width, height)` once per animation frame, forward pointer / key input to
+`frame(width, height)` once per animation frame, forward pointer input (and R) to
 `event(...)`, render `controls()` as widgets (values back via `command(name, value)`)
 and plot `history`.
 
 Two modes:
 * watch: one env (n = 1) driven by the current policy (zero actions before any
-  training) or by a human (keyboard); drag its bodies with the pointer
+  training); drag its bodies with the pointer
 * train: the trainer's population (one batched env, n agents in one world) drawn as
   translucent ghosts, the leader (best alive candidate) solid; the pointer only pans /
   zooms. Stop keeps the trainer's state: Train continues, "New run" starts over.
@@ -25,11 +25,11 @@ from OpenGL import GL as gl
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym import checkpoints
+from webgym import checkpoints, toys
 from webgym.algos import ALGOS, HELP
 from webgym.core import ENVS, LEADER_COLOR, PARTICLE_COLOR, PROP_COLOR, SCENERY_COLOR, env_key, make
 from webgym.gl.debug_draw_gl import Camera, GLDebugDraw
-from webgym.policies import MLP, policy_for
+from webgym.policies import from_sizes
 
 import webgym.envs  # noqa: F401 (registers the built-in envs)
 
@@ -55,8 +55,12 @@ class NeedPackage(Exception):
 class App:
     """see the module docstring"""
 
-    def __init__(self, env="CartPole", algo="cem", population=64, seed=0, draws=True, helpers=None):
-        self.algo = algo
+    def __init__(self, env="CartPole", algo=None, population=64, seed=0, draws=True, helpers=None):
+        # the algorithm: as given (e.g. the URL's), else the env's suggestion for the time
+        # budget (Env.suggested; "quick" / "medium" / "long")
+        self.algo = algo or "cem"
+        self.budget = "quick"
+        self._keep_algo = algo is not None  # (for the first env only)
         # simulation helpers (webgym.helpers.Pool, the training worker; None: none): run a
         # share of a CEM / ES population in more workers
         self.helpers = helpers
@@ -69,13 +73,12 @@ class App:
         self.hp = {name: a.defaults() for name, a in ALGOS.items()}  # parameters per algorithm
         self.population = min(population, MAX_POPULATION)
         self.seed = seed
+        self.watched = 0  # watched episodes so far (each gets its own seed)
         # watch mode: env steps per frame (x real time); `_replay_due`: steps owed
         self.replay_speed = 1
         self._replay_due = 0.0
-        self.controller = "agent"  # watch mode: "agent" (the policy) or "human" (keyboard)
-        self.keys = set()  # keys held down (human controller)
         # watch mode: a new episode when one ends; off: the env goes on after the end
-        # (see the agent / yourself recover), "reset" / R starts a new one
+        # (see the agent recover), "reset" / R starts a new one
         self.auto_reset = True
         self._auto_reset_before = True  # (playing yourself turns it off; restored after)
         # watch mode: how many policies run at once: the current one (solid) + the best
@@ -83,6 +86,14 @@ class App:
         self.show_n = 1  # (more: the "Show policies" slider)
         # the camera follows the point the env suggests (e.g. the walker); off: fixed view
         self.follow = True
+        # watch mode: what a click into the world does ("grab": drag bodies; "box" /
+        # "ball": drop one; "explosion"), and rain (webgym/toys.py; None: no rain)
+        self.toy = "grab"
+        self.rain = None
+        # toy mode (the Toys tab open, or a toy used): no scores (no time limit applies)
+        self.toys_on = False
+        self.toy_params = toys.defaults()  # (their sliders: size, weight, rain rate, ...)
+        self.blasts = []  # explosions still drawn (toys.draw_blasts)
         self.camera = Camera()
         self.debug_draw = None  # created on the first frame (needs the GL context)
         self.panning = None  # world point under the pointer while panning
@@ -102,7 +113,7 @@ class App:
 
     @property
     def env_key(self):
-        """the env with its settings, e.g. "WaterCannon · balls 2": runs and checkpoints
+        """the env with its settings, e.g. "WaterCannon · objects 2": runs and checkpoints
         are kept per key"""
         return env_key(self.env_name, self.settings)
 
@@ -121,11 +132,15 @@ class App:
         if self.env is not None:
             self.mouse_drag.end()
             self.env.close()
+        another_env = name != getattr(self, "env_name", None)
         self.env_name = name
         if settings is not None:
             self.env_settings[name] = ENVS[name].chosen(settings)
         # (watch() makes it with the agents it shows)
         self.env = make(name, decorated=self.decorated, **self.settings)
+        if another_env and not self._keep_algo:
+            self.suggest()
+        self._keep_algo = False
         if not ALGOS[self.algo].supports(self.env):
             self.algo = "cem"  # (e.g. DQN, but this env has no discrete actions)
         self.camera.center = b2d.Vec2(*self.env.view_center)
@@ -133,12 +148,27 @@ class App:
         self.camera._matrix = None
         self.new_run()
 
+    def suggestions(self):
+        """the env's suggestions for the time budget that can train it: {algo: params}"""
+        listed = type(self.env).suggested.get(self.budget, {})
+        return {name: params for name, params in listed.items() if name in ALGOS and ALGOS[name].supports(self.env)}
+
+    def suggest(self, algo=None):
+        """take the env's suggestion: its best algorithm for the time budget (or `algo`,
+        if it is suggested) with the suggested parameters"""
+        suggested = self.suggestions()
+        if algo is None:
+            algo = next(iter(suggested), self.algo)
+        if algo in suggested:
+            defaults = ALGOS[algo].defaults()
+            self.hp[algo] = {**defaults, **{k: v for k, v in suggested[algo].items() if k in defaults}}
+        self.algo = algo
+
     def new_run(self):
         """forget the policy, the trainer's state and the history"""
         self.stop()
         # (discrete: Q-values of the env's discrete actions, acting with argmax)
-        hp = self.hp[self.algo]
-        self.policy = policy_for(self.env, ALGOS[self.algo].discrete, hp.get("hidden", 16), hp.get("layers", 1))
+        self.policy = ALGOS[self.algo].policy(self.env, self.hp[self.algo])
         self.params = None  # the watched policy's parameters (None: zero actions)
         self.top_params = None  # (k, num_params): more policies to show, best / newest first
         self.recent = []  # the last policies (for algorithms without top_params)
@@ -150,11 +180,11 @@ class App:
         self.watch()
 
     def watch(self):
-        """watch mode: the current policy and show_n - 1 more (or a human: alone) drive
-        the agents of the watched env"""
+        """watch mode: the current policy and show_n - 1 more drive the agents of the
+        watched env"""
         if self.mouse_drag is not None:
             self.mouse_drag.end()
-        n = 1 if self.controller == "human" or not ENVS[self.env_name].batchable else self.show_n
+        n = self.show_n if ENVS[self.env_name].batchable else 1
         if self.env.n != n or self.env.decorated != self.decorated:
             self.env.close()
             self.env = make(self.env_name, n=n, decorated=self.decorated, **self.settings)
@@ -162,7 +192,9 @@ class App:
         # disappear (with auto reset)
         self.env.freeze_done = n > 1 and self.auto_reset
         self.env.same_start = True  # (all you watch start alike: a fair comparison)
-        self.obs = self.env.reset(seed=self.seed)
+        # (a new seed each watched episode: another start, as in training)
+        self.watched += 1
+        self.obs = self.env.reset(seed=self.seed + self.watched)
         self.episode_return = 0.0
         self.end_timer = None  # seconds until the next episode (after all ended)
         self.ended = False  # all agents' episodes ended
@@ -254,9 +286,9 @@ class App:
         self._env_of(meta)
         self._check_fits(meta)
         self.algo = meta["algo"]
-        sizes = meta["policy_sizes"]
-        if sizes != self.policy.sizes or self.policy.tanh_out == ALGOS[self.algo].discrete:
-            self.policy = MLP(sizes[0], sizes[-1], hidden=tuple(sizes[1:-1]), tanh_out=not ALGOS[self.algo].discrete)
+        sizes, algo = meta["policy_sizes"], ALGOS[self.algo]
+        if sizes != self.policy.sizes or self.policy.tanh_out == algo.discrete or self.policy.kind != algo.network:
+            self.policy = from_sizes(algo.network, sizes, tanh_out=not algo.discrete)
         self.params = tensors.get("policy")
         self.top_params = tensors.get("top")
         self.policy_info = meta["policy_info"]
@@ -294,11 +326,14 @@ class App:
         self.algo = meta["algo"]
         self.hp[self.algo].update(meta.get("params", {}))
         self.population = int(meta["population"])
-        sizes = meta["policy_sizes"]
+        sizes, algo = meta["policy_sizes"], ALGOS[self.algo]
         # the network sliders show the restored network (also for checkpoints from before
         # the "layers" parameter)
-        self.hp[self.algo].update(layers=len(sizes) - 2, hidden=sizes[1])
-        self.policy = MLP(sizes[0], sizes[-1], hidden=tuple(sizes[1:-1]), tanh_out=not ALGOS[self.algo].discrete)
+        if algo.network == "graph":
+            self.hp[self.algo].update(max_hidden=sizes[1])
+        else:
+            self.hp[self.algo].update(layers=len(sizes) - 2, hidden=sizes[1])
+        self.policy = from_sizes(algo.network, sizes, tanh_out=not algo.discrete)
         self.params = tensors.get("policy")
         self.top_params = tensors.get("top")
         state = meta["state"]
@@ -313,8 +348,8 @@ class App:
 
     def controls(self):
         """the widgets the hosts show (generic: info / select / slider / checkbox / button),
-        each in a section: "bar" (the page's top bar: play yourself, auto reset, Train /
-        New run), "environment"
+        each in a section: "bar" (above the watching panel: auto reset, Train / New run),
+        "environment"
         (the world: the env, its settings, what is watched) or "training\""""
         resume = self.train_state is not None and not self.training
         env = [
@@ -326,24 +361,16 @@ class App:
               for name, (_, choices, explanation) in ENVS[self.env_name].settings.items()),
             {"type": "info", "name": "description", "text": self.env.description()},
             {"type": "heading", "name": "watching", "text": "Watching"},
-            {"type": "checkbox", "name": "controller", "label": "Play yourself (keyboard)",
-             "value": self.controller == "human", "inline": True,
-             "help": "You control the env with the keyboard instead of the trained policy; "
-                     "training (if it runs) goes on in the background. Turns auto reset off "
-                     "while you play (back on when you stop). (On phones, with one worker, "
-                     "the view shows the training while it runs: play when it is stopped.)"},
             {"type": "checkbox", "name": "auto_reset", "label": "Auto reset",
              "value": self.auto_reset, "inline": True,
              "help": "Start a new watched episode when one ends. Off: the episode goes on, see "
-                     "the agent (or yourself) recover; R starts a new one. (Training resets its "
-                     "own episodes either way.)"},
-            {"type": "hint", "name": "keys", "active": self.controller == "human",
-             "text": f"Keys: {self.env.keys} · R reset"},
+                     "the agent recover; R starts a new one. (Training resets its own episodes "
+                     "either way.)"},
             {"type": "slider", "name": "show_n", "label": "Show policies", "min": 1, "max": 16, "step": 1,
              "value": self.show_n, "disabled": not self.env.batchable,
              "help": "How many policies run at once in the view: the current one (solid) and as "
                      "ghosts the best candidates of the last iteration (CEM / ES) or the most "
-                     "recent policies (PPO / DQN). With the human controller only you."},
+                     "recent policies (PPO / DQN)."},
             {"type": "slider", "name": "replay_speed", "label": "Replay speed", "min": 0,
              "max": len(REPLAY_SPEEDS) - 1, "step": 1, "value": REPLAY_SPEEDS.index(self.replay_speed),
              "labels": [f"{s}x" for s in REPLAY_SPEEDS],
@@ -360,16 +387,22 @@ class App:
                      "flags and thrust particles. Off: just the physics."},
             {"type": "button", "name": "reset", "label": "Reset episode (R)"},
         ]
+        suggested = self.suggestions()
         training = [
+            {"type": "select", "name": "budget", "label": "Time budget",
+             "options": [["quick", "Quick (~1 min)"], ["medium", "Medium (~5 min)"], ["long", "Long (~20 min)"]],
+             "value": self.budget,
+             "help": "How long you want to train: picks the algorithm (and its settings) that "
+                     "this environment suggests for that time (★ in the list). Rough guesses."},
             {"type": "select", "name": "algo", "label": "Algorithm",
-             "options": [[name, a.label] for name, a in ALGOS.items() if a.supports(self.env)],
+             "options": [[name, ("★ " if name in suggested else "") + a.label]
+                         for name, a in ALGOS.items() if a.supports(self.env)],
              "value": self.algo,
-             "help": "How the agent learns. Discrete-action algorithms (DQN) are offered for "
-                     "envs that also have a few discrete actions."},
+             "help": "How the agent learns. ★: suggested for this environment and time budget. "
+                     "Discrete-action algorithms (DQN) are offered for envs that also have a "
+                     "few discrete actions."},
             *self._param_controls(),
-            {"type": "hint", "name": "network",
-             "text": f"Policy network {' → '.join(map(str, self.policy.sizes))} · "
-                     f"{self.policy.num_params:,} weights"},
+            {"type": "hint", "name": "network", "text": self._network_hint()},
             {"type": "slider", "name": "population", "label": "Population", "min": 8, "max": MAX_POPULATION,
              "step": 8, "value": self.population, "disabled": not self.env.batchable,
              "help": "How many agents learn at once (one world, drawn as ghosts): candidates "
@@ -378,11 +411,43 @@ class App:
              "label": "Stop" if self.training else ("Continue training" if resume else "Train")},
             {"type": "button", "name": "new_run", "label": "New run"},
         ]
-        # the top bar (always in view): who plays (you / the agent), auto reset, the keys
-        # (while you play), the training's buttons
-        bar = lambda c: c["name"] in ("controller", "auto_reset", "keys", "train", "stop", "new_run")  # noqa: E731
-        return ([{**c, "section": "bar" if bar(c) else "environment"} for c in env]
-                + [{**c, "section": "bar" if bar(c) else "training"} for c in training])
+        # the Toys tab: things to add to the world you watch (webgym/toys.py)
+        toy_controls = [
+            {"type": "hint", "name": "toys_hint",
+             "text": "Pick a tool below, then click into the world (a click on a body still grabs "
+                     "it). Click the tool again to put it away. This tab turns auto reset off and "
+                     "shows one policy; R resets (and clears the toys)."},
+        ]
+        for group in toys.GROUPS:  # (each a fold of the tab: its tools as buttons, its sliders)
+            tools = [[name, label] for name, (label, _, in_group) in toys.TOOLS.items() if in_group == group]
+            if tools:  # (a click into the world uses the chosen one; again: back to grabbing)
+                toy_controls.append({"type": "tools", "name": "toy", "value": self.toy, "options": tools,
+                                     "group": group, "fold": True})
+            if group == "Weather":
+                toy_controls.append(
+                    {"type": "checkbox", "name": "rain", "label": "Rain", "value": self.rain is not None,
+                     "inline": True, "group": group, "fold": True,
+                     "help": "Drops fall from above the view onto the agent and the world."})
+            toy_controls += [
+                {"type": "slider", "name": f"toy.{name}", "label": name, "min": low, "max": high, "step": step,
+                 "value": self.toy_params[name], "help": explanation, "group": group, "fold": True}
+                for name, (_, low, high, step, in_group, explanation) in toys.PARAMS.items() if in_group == group]
+        # always in view, above the watching panel: auto reset, the training's buttons
+        bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run")  # noqa: E731
+        # how you watch: a panel below the tabs, always in view
+        watching = ("watching", "show_n", "replay_speed", "follow", "decorate", "reset")
+        place = lambda c: "bar" if bar(c) else "watch" if c["name"] in watching else "environment"  # noqa: E731
+        return ([{**c, "section": place(c)} for c in env]
+                + [{**c, "section": "bar" if bar(c) else "training"} for c in training]
+                + [{**c, "section": "toys"} for c in toy_controls])
+
+    def _network_hint(self):
+        """the policy network's size, in words"""
+        sizes = self.policy.sizes
+        if self.policy.kind == "graph":
+            return (f"Policy network {sizes[0]} inputs → up to {sizes[1]} hidden neurons (grown by "
+                    f"NEAT) → {sizes[-1]} outputs")
+        return f"Policy network {' → '.join(map(str, sizes))} · {self.policy.num_params:,} weights"
 
     def code(self):
         """the python source of the current env and algorithm: {kind: {"path", "text"}}"""
@@ -442,26 +507,35 @@ class App:
             setting = name[len("setting.") :]
             choice = next(c for c in ENVS[self.env_name].settings[setting][1] if str(c) == str(value))
             self.set_env(self.env_name, {**self.settings, setting: choice})
-        elif name == "controller":  # (the checkbox: True = you play; or "human" / "agent")
-            human = value in (True, "human")
-            if human and self.controller != "human":  # playing: no auto reset (restored after)
-                self._auto_reset_before, self.auto_reset = self.auto_reset, False
-            elif not human and self.controller == "human":
-                self.auto_reset = self._auto_reset_before
-            self.controller = "human" if human else "agent"
-            self.scores = []  # (scores of another player)
-            self.new_best = False
-            self.watch()
-        elif name == "algo":
-            if not ALGOS[value].supports(self.env):
+        elif name in ("algo", "budget"):
+            if name == "algo" and not ALGOS[value].supports(self.env):
                 raise ValueError(f"{value} does not support {self.env_name}")
             training = self.training
-            self.algo = value
+            if name == "budget":  # the env's suggestion for that time
+                self.budget = value
+                self.suggest()
+            else:  # (a suggested one: with the suggested parameters)
+                self.suggest(value)
+            value = self.algo
             self.new_run()  # another algorithm: its own state
             # it was training: the new algorithm trains right away (unless it needs a
             # package that isn't loaded yet: Train then waits for it as usual)
             if training and ALGOS[value].available():
                 self.train()
+        elif name.startswith("toy."):  # a toy's setting (toys.PARAMS)
+            self.toy_params[name[len("toy."):]] = float(value)
+        elif name == "toy_mode":  # (the Toys tab was opened; False: left)
+            if value is False:
+                self.toys_on = False
+            else:
+                self._toy_mode()
+        elif name in ("toy", "rain"):  # (the Toys tab)
+            if name == "toy":
+                self.toy = value
+            else:
+                self.rain = toys.Rain() if value else None
+            if self.toy != "grab" or self.rain is not None:
+                self._toy_mode()
         elif name == "population":
             # the trainer's state does not depend on the population size: training goes
             # on with the new size (from the next iteration on)
@@ -511,12 +585,13 @@ class App:
         return {
             "mode": "train" if self.training else "watch",
             "env": self.env_name,
-            "policy": "you (keyboard)" if self.controller == "human" else self.policy_info,
+            "policy": self.policy_info,
             "episode": self.episodes,
             "episode_over": self.ended,
             "auto_reset": self.auto_reset,
             "episode_return": self.episode_return,
             # the finished episodes' scores (watch mode): the last few and the best
+            "toys": self.toys_on,  # (the page shows no scores / return then)
             "scores": [round(s, 1) for s in self.scores[-5:]],
             "best_score": round(max(self.scores), 1) if self.scores else None,
             "new_best": self.new_best,
@@ -529,9 +604,12 @@ class App:
         """the watched policy's network for the view: layer sizes, weights (rounded),
         the activations of every layer for agent 0's current observation, the input /
         output names; None without a policy"""
-        if self.params is None or self.controller == "human":
+        if self.params is None:
             return None
         x = np.asarray(self.obs[0], dtype=np.float64)
+        if self.policy.kind == "graph":  # (NEAT: nodes and connections of any shape)
+            return {**self.policy.view(self.params, x), "inputs": list(self.env.obs_names),
+                    "outputs": list(self.env.action_names), "argmax": False}
         activations, weights = [x], []
         layers = self.policy.unflatten(np.asarray(self.params)[None])
         for k, (w, b) in enumerate(layers):
@@ -566,21 +644,26 @@ class App:
 
     def event(self, kind, x=0.0, y=0.0, delta=0.0, key=""):
         """input: pointer in drawing-buffer pixels (origin top left), kind "down" /
-        "move" / "up" / "leave" / "wheel" (delta: wheel px, + = zoom out); keys:
-        "keydown" / "keyup" with `key` ("left", "right", "up", "down", "space", letters)"""
-        if kind == "keydown":
-            self.keys.add(key)
-            if key == "r":
+        "move" / "up" / "leave" / "wheel" (delta: wheel px, + = zoom out) / "pan" (like
+        "down" on the background: the page's two-finger pinch); "keydown" with `key` "r":
+        a new episode"""
+        if kind in ("keydown", "keyup"):
+            if kind == "keydown" and key == "r":
                 self.command("reset")
             return
-        if kind == "keyup":
-            self.keys.discard(key)
-            return
         pos = self.camera.convert_screen_to_world(b2d.Vec2(x, y))
-        if kind == "down":
+        if kind == "pan":  # (two fingers: pan from here, never grab a body)
+            self.panning = pos
+        elif kind == "down":
+            # a dynamic body under the pointer: always grabbed (dragged); else the chosen
+            # toy (toys.py) is used there; without one: pan the view
             body = None if self.training else self.mouse_drag.begin(pos)
             if body is not None:
                 body.awake = True
+            elif self.toy != "grab" and not self.training and toys.empty(self.env.world, pos):
+                blast = toys.TOOLS[self.toy][1](self.env.world, pos, self.toy_params)
+                if blast is not None:  # (an explosion: drawn for a moment)
+                    self.blasts.append(blast)
             else:
                 self.panning = pos
         elif kind == "move":
@@ -633,7 +716,7 @@ class App:
                 self.leader = None
 
     def _watch_step(self):
-        """one env step with the current policy / the human; when the episode ends, the
+        """one env step with the current policy; when the episode ends, the
         world goes on (no actions) for END_SECONDS before the next episode (auto reset)
         or the agent keeps control (no auto reset)"""
         if self.end_timer is not None:
@@ -648,20 +731,24 @@ class App:
                 self.episodes = episodes
             return
         n = self.env.n
-        if self.controller == "human":
-            action = self.env.human_action(self.keys)[None]
-        elif self.params is None:
+        if self.params is None:
             action = np.zeros((n, *self.env.action_space.shape), dtype=np.float32)
         elif not self.policy.tanh_out:  # Q-values: the best discrete action
             action = self.env.discrete_actions[np.argmax(self.policy(self._watch_params(), self.obs), axis=1)]
         else:
             action = self.policy(self._watch_params(), self.obs)
         self.mouse_drag.step(self.env.dt)
+        toys.weather(self.env.world, self.env.gravity, self.toy_params)  # (wind, gravity)
+        if self.rain is not None:  # (drops from just above the view, across its width)
+            corner = self.camera.convert_screen_to_world(b2d.Vec2(0, 0))
+            other = self.camera.convert_screen_to_world(b2d.Vec2(self.camera.width, 0))
+            self.rain.step(self.env.world, corner[0], other[0], corner[1] + 0.5, self.env.dt, self.toy_params)
         self.obs, reward, terminated, truncated = self.env.step(action)
         if self.env.decorated:  # (looks only: the watched env, never a training one)
             self.env.decorate()
         self.episode_return = float(self.env.episode_return[0])
-        if self.env.done[0] and not self.scored:  # the score: the current policy's
+        # the score: the current policy's (none with toys: no time limit, no fair score)
+        if self.env.done[0] and not self.scored and not self.toys_on:
             self.scored = True
             # a new best: better than every earlier score (not a tie, not the first)
             self.new_best = bool(self.scores) and self.episode_return > max(self.scores)
@@ -670,6 +757,17 @@ class App:
             self.ended = True
             if self.auto_reset:
                 self.end_timer = END_SECONDS
+
+    def _toy_mode(self):
+        """toys: no auto reset (the episode goes on, see how the agent copes) and one
+        policy in view (the toys hit it, not a crowd of ghosts); no scores"""
+        self.toys_on = True
+        self.auto_reset = False
+        self.env.freeze_done = False
+        self.end_timer = None  # (an ended episode: no countdown to the next one)
+        if self.show_n != 1:
+            self.show_n = 1
+            self.watch()
 
     def _watch_params(self):
         """(n, num_params): agent 0 the current policy, then the best candidates (CEM /
@@ -692,6 +790,8 @@ class App:
             )
         else:
             self.debug_draw.draw_world(env.world)
+        if self.blasts:  # (the Toys tab's explosions)
+            self.blasts = toys.draw_blasts(self.debug_draw, self.blasts)
         self.debug_draw.end_draw()
 
     def _update_view(self):

@@ -6,10 +6,8 @@
     "postinstall": "pyjs copy-assets public/pyjs"
   },
   "dependencies": {
-    "@codemirror/lang-python": "6.1.6",
     "@derthorsten/pyjs": "5.2.0",
-    "@uiw/codemirror-theme-monokai": "4.25.12",
-    "codemirror": "6.0.1"
+    "monaco-editor": "0.52.2"
   },
   "devDependencies": {
     "vite": "6.3.5"
