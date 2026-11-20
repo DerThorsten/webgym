@@ -14,7 +14,7 @@ import numpy as np
 import pyb2d3 as b2d
 
 from webgym.core import register_env
-from webgym.envs.walker import Legged, bang_bang
+from webgym.envs.walker import Legged
 
 KINDS = ("hip", "knee", "ankle", "shoulder", "elbow")  # per side, then the neck
 JOINTS = (*(f"{kind} L" for kind in KINDS), *(f"{kind} R" for kind in KINDS), "neck")
@@ -28,8 +28,8 @@ class Ragdoll(Legged):
     obs_names = ("torso angle", "torso ang. vel.", "vel. x", "vel. y", *JOINTS,
                  *(f"{joint} speed" for joint in JOINTS), "foot L", "foot R", "heel L", "heel R")
     action_names = JOINTS
-    # (for DQN: hips and knees at full torque, + or -; the other joints rest)
-    discrete_actions, discrete_names = bang_bang([[0], [1], [5], [6]], len(JOINTS))
+    # (no discrete actions, no DQN: 11 joints in a few full-torque groups are too coarse
+    # to walk; DQN learned nothing in 3 min)
     # N m at full action, per kind of joint
     TORQUE = {"hip": 15.0, "knee": 15.0, "ankle": 8.0, "shoulder": 8.0, "elbow": 5.0, "neck": 3.0}
     # joint limits (angle of the lower part relative to the upper one; + = forward)

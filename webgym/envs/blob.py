@@ -6,7 +6,8 @@ from a ball to the one opposite. The policy sets the length of the five springs 
 Squeezing the ring one way and stretching it the other tips it over, it rolls, hops or
 crawls, whatever works. Drag it around with the mouse, it is soft.
 obs: the balls' positions relative to the ring's middle, the middle's velocity, each
-ball touching the ground.
+ball touching the ground, the lowest ball's height (in ball radii: 1 touching the
+ground, more in the air) and the balls' mean height (0 at rest, + higher).
 action: per spring across its length (-1: short .. 1: long).
 reward: forward progress of the ring's middle, a bonus for every moment in the air (no
 ball touching the ground, so jumps pay), minus a small effort cost.
@@ -19,7 +20,7 @@ import numpy as np
 import pyb2d3 as b2d
 
 from webgym.core import AGENT, SCENERY, Env, register_env
-from webgym.envs.walker import STALL_DISTANCE, STALL_SECONDS, ground_with_ticks
+from webgym.envs.walker import STALL_DISTANCE, STALL_SECONDS, bang_bang, ground_with_ticks
 
 BALLS = 10
 ACROSS = BALLS // 2  # the springs across the ring (the actions)
@@ -38,12 +39,10 @@ AIR_BONUS = 0.2  # reward per step with no ball on the ground (rolling well: ~0.
 @register_env("Blob")
 class Blob(Env):
     obs_names = (*(f"ball {k + 1} {c}" for k in range(BALLS) for c in ("x", "y")), "vel. x", "vel. y",
-                 *(f"ball {k + 1} down" for k in range(BALLS)))
+                 *(f"ball {k + 1} down" for k in range(BALLS)), "lowest height", "mean height")
     action_names = tuple(f"across {k + 1}" for k in range(ACROSS))
-    # (for DQN: all springs across long / short, or every other one short)
-    every_other = np.where(np.arange(ACROSS) % 2 == 0, 1.0, -1.0)
-    discrete_actions = np.array([np.ones(ACROSS), -np.ones(ACROSS), every_other, -every_other])
-    discrete_names = ("all long", "all short", "1, 3, 5 long", "2, 4 long")
+    # (for DQN: every spring across long (+) or short (-), all 32 combinations: "+-+-+")
+    discrete_actions, discrete_names = bang_bang([[k] for k in range(ACROSS)], ACROSS)
     max_steps = 600
     view_center, view_zoom = (0.0, 1.5), 3.0
     suggested = {"quick": {"cem": {}, "es": {}},
@@ -105,7 +104,9 @@ class Blob(Env):
         n = self.n
         rel = self.balls.position.reshape(n, BALLS, 2) - self._middle()[:, None]
         down = self.down.sensor_capacity.reshape(n, BALLS) > 0
-        return [rel.reshape(n, -1), self._middle_velocity() / 5, down]
+        y = self.balls.position.reshape(n, BALLS, 2)[:, :, 1]  # (the ground is at 0)
+        return [rel.reshape(n, -1), self._middle_velocity() / 5, down,
+                y.min(axis=1) / BALL, y.mean(axis=1) - (RADIUS + BALL)]  # (a round ring at rest: 0)
 
     def reward(self):
         x = self._middle()[:, 0]

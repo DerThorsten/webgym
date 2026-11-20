@@ -84,7 +84,9 @@ Technical considerations:
   snapshot takes over with the next watched episode (`App._pending`; an episode = one
   policy, the "watching: iteration N" chip); the trainer sends a snapshot on every
   algo / hp / env command. `Env.max_return` (known best, e.g. CartPole 500; None:
-  unknown): "mean x / 500", "perfect!". Env settings also from the URL (`?poles=4`). Every env advertises discrete actions for DQN
+  unknown): "mean x / 500", "perfect!". Env settings also from the URL (`?poles=4`). Most envs advertise discrete actions for DQN (not
+  the Drone, the Ragdoll and the WaterCannon: DQN learned nothing / too little there, 2026-11-20; it does on
+  the Blob, all 32 combinations of its 5 springs)
   (`discrete_actions` + names; the walkers: bang-bang per joint / joint pair). Also
   `camera_target` ("Camera follows"). No keyboard play (removed 2026-11-19; R = reset stays).
 - `Env.suggested` = {budget: {algo: params}} for "quick" / "medium" / "long" (~1 / 5 / 20 min),

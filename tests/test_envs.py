@@ -61,8 +61,14 @@ def test_agents_are_independent(name):
 
 @pytest.mark.parametrize("name", NAMES)
 def test_discrete_actions(name):
-    """every env also works with a few discrete actions (DQN): valid actions + names"""
+    """an env with a few discrete actions (for DQN): valid actions + names; without (None,
+    e.g. the Drone, the Ragdoll): DQN doesn't offer itself for it"""
+    from webgym.algos import ALGOS
+
     env = make(name)
+    if env.discrete_actions is None:
+        assert not ALGOS["dqn_torch"].supports(env)
+        return
     actions = np.asarray(env.discrete_actions)
     assert actions.shape[1:] == env.action_space.shape and len(env.discrete_names) == len(actions)
     assert np.abs(actions).max() <= 1

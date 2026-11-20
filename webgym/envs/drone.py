@@ -35,9 +35,8 @@ class Drone(Env):
     obs_names = ("gate dx", "gate dy", "next gate dx", "next gate dy", "vel. x", "vel. y", "tilt sin", "tilt cos",
                  "spin")
     action_names = ("left rotor", "right rotor")
-    # (for DQN: both on, both strong, more left (turns right), more right)
-    discrete_actions = np.array([[0.0, 0.0], [0.5, 0.5], [0.3, -0.3], [-0.3, 0.3]])
-    discrete_names = ("hover", "climb", "tilt right", "tilt left")
+    # (no discrete actions, no DQN: flying needs fine thrust; with 4 fixed settings DQN
+    # learned nothing in 3 min)
     max_steps = 1200
     view_center, view_zoom = (0.0, 4.5), 5.0
     # (PPO: mean 420 in 1 min natively; CEM: 60 in 2 min)

@@ -77,16 +77,8 @@ class WaterCannon(Env):
     def action_names(self):
         return ("drive", *numbered(GUN_ACTIONS, self.balls))
 
-    @property
-    def discrete_actions(self):
-        """(for DQN) all cannons alike: drive, or spray in one of a few ways"""
-        guns = lambda angle, pressure, spread: [angle, pressure, spread] * self.balls  # noqa: E731
-        return np.array([[0, *guns(0, 0, -1)], [1, *guns(0, 0, -1)], [-1, *guns(0, 0, -1)],
-                         [0, *guns(-0.5, 1, -1)], [0, *guns(0, 1, -1)], [0, *guns(0.5, 1, -1)],
-                         [0, *guns(0, 0.5, -1)], [0, *guns(0, 1, 1)]])
-
-    discrete_names = ("nothing", "drive right", "drive left", "jet left", "jet up", "jet right",
-                      "jet up, low", "shower up")
+    # (no discrete actions, no DQN: driving, aiming and dosing the water together need more
+    # than a few fixed settings)
 
     @property
     def guns_x(self):
