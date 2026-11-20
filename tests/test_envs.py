@@ -131,10 +131,10 @@ def test_agents_never_sleep():
     env.reset(seed=0)
     for _ in range(300):  # (5 s limp: it falls and lies still)
         env.step(np.zeros((1, len(env.action_names))))
-    before = env.hull.position[0].copy()
+    before = env.torso.position[0].copy()
     for _ in range(60):
         env.step(np.ones((1, len(env.action_names))))
-    assert np.linalg.norm(env.hull.position[0] - before) > 0.05
+    assert np.linalg.norm(env.torso.position[0] - before) > 0.05
 
 
 def test_finished_agents_are_frozen():

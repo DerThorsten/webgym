@@ -16,8 +16,7 @@ after the last gate, or when it gets no closer to its gate for 3 s (hovering in 
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import DARK_COLOR, SENSOR_FILTER, Env, register_env
-from webgym.envs.walker import draw_ruler_numbers, ground_with_ticks
+from webgym.core import DARK_COLOR, SENSOR_FILTER, Env, draw_ruler_numbers, register_env, ruler
 
 GATES = 10
 GATE_GAP = 6.0  # m between gates
@@ -46,7 +45,7 @@ class Drone(Env):
                  "long": {"ppo_torch": {"hidden": 64}, "sac_torch": {}, "cem": {}}}
 
     def build_scenery(self):
-        ground_with_ticks(self)  # (a ruler: you see how far it flew)
+        ruler(self)  # (the ground: a ruler, you see how far it flew)
         for x, y in zip(GATE_X, GATE_Y):  # each gate: a post from the ground, one hanging from above
             low, high = y - OPENING / 2, y + OPENING / 2
             self.scenery(b2d.box(0.1, low / 2, center=(x, low / 2)))

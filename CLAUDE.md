@@ -56,8 +56,8 @@ Technical considerations:
   TripleCartPole; 4 / 5 poles get a little hinge friction between the poles,
   `HINGE_FRICTION` per pole count, as little as works (body angular damping barely
   helped); suggested per pole count (`suggested` is a property): CEM up to 4, PPO for 5;
-  pretrained per pole count, `pretrain.py SETTINGS`), Ragdoll (pyb2d3's ragdoll as a walker, `Legged`
-  subclass; feet on ankles, every one of its 11 joints a motor (action) and observed, plus
+  pretrained per pole count, `pretrain.py SETTINGS`), Ragdoll (pyb2d3's ragdoll as a walker; its main
+  body `torso`; feet on ankles, every one of its 11 joints a motor (action) and observed, plus
   the heels' heights; limp motors at action 0, so it falls untrained), WaterCannon (the CarDesigner was dropped 2026-11-19: open loop, one design
   action, nothing to watch live; it didn't fit), Blob (2026-11-20: a ring of 10 balls on
   springs, own collision group per blob, 5 actuated springs across, rolling losses
@@ -75,8 +75,11 @@ Technical considerations:
   lists of k per agent -> n * k entries), then works batched: `randomize(rng)`, `act`,
   `observe()` (a list of columns), `reward()`. Spaces follow from `obs_names` /
   `action_names` (actions always in [-1, 1]). The how-to is the docstring of `core.py`;
-  CartPole is the template. Walker, Crawler and Ragdoll share `Legged` (`envs/walker.py`;
-  joint motors via `RevoluteJoints`, feet sensors). Flat ground (bumpy terrain for the walkers was tried and removed 2026-11-19). Agent bodies
+  CartPole is the template. **Every env file is self-contained** (decided 2026-11-20: the
+  Code panel shows only that file): no env imports another env, no env base classes (the
+  `Legged` base of Walker / Crawler / Ragdoll was removed; each repeats its ~15 lines of
+  reward / stall rule). Shared helpers are plain functions in `core.py`: `ruler`,
+  `draw_ruler_numbers`, `bang_bang`. Joint motors via `RevoluteJoints`, feet sensors. Flat ground (bumpy terrain for the walkers was tried and removed 2026-11-19). Agent bodies
   never sleep (`core.body`: motors don't wake bodies). Watched episodes: a new seed each; the next starts
   when agent 0's ends (the ghosts don't hold it back); another run
   (new run, other algorithm / network, a restore: `App.run` in the snapshot) starts a new
@@ -214,7 +217,7 @@ Technical considerations:
   with the spray's spread); the ghosts' drops: plain faint balls. The look (2026-11-20):
   solid fills, darker outlines, a sky gradient (shaders), `color=` per body, ghosts drawn
   first (`Env.show_ghosts`, `draw_world(show=/hide=)`), sensors hidden, the walkers' ground
-  a ruler with numbered metres (`walker.ground_with_ticks(env, start, end, depth)`,
+  a ruler with numbered metres (`core.ruler(env, start, end, depth)`,
   `draw_ruler_numbers(debug_draw, start, end)`; also the Blob, the Drone and the cart
   poles: there 6 m, -3..3, as the old ground).
   `--upload` doesn't remove assets that are

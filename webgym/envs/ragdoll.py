@@ -13,37 +13,43 @@ low or tilted). Episodes last 10 s, or end when it makes no progress for 1.5 s.
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import DARK_COLOR, LIGHT_COLOR, register_env
-from webgym.envs.walker import Legged
+from webgym.core import DARK_COLOR, LIGHT_COLOR, Env, draw_ruler_numbers, register_env, ruler
 
 KINDS = ("hip", "knee", "ankle", "shoulder", "elbow")  # per side, then the neck
 JOINTS = (*(f"{kind} L" for kind in KINDS), *(f"{kind} R" for kind in KINDS), "neck")
+# N m at full action, per kind of joint
+TORQUE = {"hip": 15.0, "knee": 15.0, "ankle": 8.0, "shoulder": 8.0, "elbow": 5.0, "neck": 3.0}
+MAX_SPEED = 20.0  # rad/s the motors drive towards
+# joint limits (angle of the lower part relative to the upper one; + = forward)
+LIMITS = {"hip": (-0.6, 1.3), "knee": (-1.5, 0.0), "ankle": (-0.5, 0.5),
+          "shoulder": (-1.0, 2.0), "elbow": (0.0, 1.5), "neck": (-0.3, 0.3)}
+FALL_Y, FALL_ANGLE = 0.55, 1.0  # the torso lower (standing: 0.68) / tilted more: fallen
+# no progress (the torso did not get STALL_DISTANCE further right than ever before) for
+# STALL_SECONDS: the episode ends (no penalty), the population does not wait for it
+STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
 # the feet: wider than box2d's ragdoll (easier to stand on), toes to the right
 FOOT = b2d.polygon([(-0.06, -0.19), (0.16, -0.19), (0.16, -0.165), (-0.06, -0.14)], radius=0.015)
 HEEL = np.array([-0.06, -0.205])  # (the foot's lowest back point, in the foot's frame)
 
 
 @register_env("Ragdoll")
-class Ragdoll(Legged):
+class Ragdoll(Env):
     obs_names = ("torso angle", "torso ang. vel.", "vel. x", "vel. y", *JOINTS,
                  *(f"{joint} speed" for joint in JOINTS), "foot L", "foot R", "heel L", "heel R")
     action_names = JOINTS
     # (no discrete actions, no DQN: 11 joints in a few full-torque groups are too coarse
     # to walk; DQN learned nothing in 3 min)
-    # N m at full action, per kind of joint
-    TORQUE = {"hip": 15.0, "knee": 15.0, "ankle": 8.0, "shoulder": 8.0, "elbow": 5.0, "neck": 3.0}
-    # joint limits (angle of the lower part relative to the upper one; + = forward)
-    LIMITS = {"hip": (-0.6, 1.3), "knee": (-1.5, 0.0), "ankle": (-0.5, 0.5),
-              "shoulder": (-1.0, 2.0), "elbow": (0.0, 1.5), "neck": (-0.3, 0.3)}
-    FALL_Y, FALL_ANGLE = 0.55, 1.0  # the torso lower (standing: 0.68) / tilted more: fallen
+    max_steps = 600
     view_center, view_zoom = (0.0, 1.0), 2.0
     suggested = {"quick": {"cem": {}},
                  "medium": {"cem": {}, "ppo_torch": {"hidden": 64}},
                  "long": {"ppo_torch": {"hidden": 64}, "cem": {}}}
 
+    def build_scenery(self):
+        ruler(self)  # (the ground: a ruler, you see how far it walked)
+
     def build_agent(self, i):
-        # heights in m above the ground (about 1.35 m tall); "hull" is the torso (the
-        # name Legged uses for the main body)
+        # heights in m above the ground (about 1.35 m tall)
         torso = self.body((0, 0.68), b2d.capsule((0, 0), (0, 0.37), 0.1), density=10.0, color=DARK_COLOR)
         head = self.body((0, 1.2), b2d.capsule((0, -0.04), (0, 0.04), 0.075), density=10.0, color=LIGHT_COLOR)
         joints, feet, soles = [], [], []
@@ -61,21 +67,55 @@ class Ragdoll(Legged):
                        self.pin(shin, foot, 0.05, "ankle"), self.pin(torso, upper, 1.08, "shoulder"),
                        self.pin(upper, lower, 0.83, "elbow")]
         joints.append(self.pin(torso, head, 1.13, "neck"))
-        return {"hull": torso, "joints": joints, "feet": feet, "soles": soles}
+        return {"torso": torso, "joints": joints, "feet": feet, "soles": soles}
+
+    def pin(self, a, b, y, kind):
+        """a joint of kind (LIMITS) between bodies a and b at height y, with a motor"""
+        lower, upper = LIMITS[kind]
+        return self.world.create_revolute_joint(
+            body_a=a, body_b=b,
+            local_frame_a=b2d.transform(p=a.local_point((0, y))), local_frame_b=b2d.transform(p=b.local_point((0, y))),
+            enable_limit=True, lower_angle=lower, upper_angle=upper, enable_motor=True,
+        )
+
+    def randomize(self, rng):
+        self.torso.linear_velocity = np.column_stack([rng.uniform(-0.2, 0.2, self.n), np.zeros(self.n)])
+        self.effort = np.zeros(self.n)
+        self.prev_x = self.torso.position[:, 0]
+        self.best_x = self.prev_x.copy()  # progress: the farthest x so far
+        self.progress_step = np.zeros(self.n, dtype=int)  # step of the last progress
+
+    def act(self, actions):
+        # each motor pushes towards +- MAX_SPEED with a torque up to |action| times its
+        # TORQUE; limp at action 0 (no holding torque): untrained, it collapses
+        torque = np.array([TORQUE[name.split()[0]] for name in JOINTS])
+        self.joints.target_motor_speed = (np.sign(actions) * MAX_SPEED).ravel()
+        self.joints.max_motor_torque = (np.abs(actions) * torque).ravel()
+        self.effort = np.square(actions).sum(axis=1)
 
     def observe(self):
+        n = self.n
         # the heels: the foot bodies' HEEL point in the world (the ground is at y = 0)
         y, angle = self.soles.position[:, 1], self.soles.angle
         heel = y + np.sin(angle) * HEEL[0] + np.cos(angle) * HEEL[1]
-        return [*super().observe(), heel.reshape(self.n, -1)]
+        return [self.torso.angle, self.torso.angular_velocity / 2, self.torso.linear_velocity / 3,
+                self.joints.current_angle.reshape(n, -1), self.joints.current_speed.reshape(n, -1) / 6,
+                self.feet.sensor_capacity.reshape(n, -1) > 0, heel.reshape(n, -1)]
 
-    def pin(self, a, b, y, kind):
-        """a joint of kind (LIMITS) between bodies a and b at height y"""
-        return self.joint(a, b, a.local_point((0, y)), b.local_point((0, y)), kind)
+    def reward(self):
+        x, y = self.torso.position.T
+        reward = 10 * (x - self.prev_x) - 0.005 * self.effort
+        self.prev_x = x
+        fallen = (y < FALL_Y) | (np.abs(self.torso.angle) > FALL_ANGLE)
+        progressed = x > self.best_x + STALL_DISTANCE
+        self.best_x = np.where(progressed, x, self.best_x)
+        self.progress_step = np.where(progressed, self.steps, self.progress_step)
+        stalled = self.steps - self.progress_step > STALL_SECONDS / self.dt
+        return reward - 100 * fallen, fallen | stalled
 
-    def act(self, actions):
-        # like Legged, but limp at action 0 (no holding torque): untrained, it collapses
-        torque = np.array([self.TORQUE[name.split()[0]] for name in JOINTS])
-        self.joints.target_motor_speed = (np.sign(actions) * self.MAX_SPEED).ravel()
-        self.joints.max_motor_torque = (np.abs(actions) * torque).ravel()
-        self.effort = np.square(actions).sum(axis=1)
+    def camera_target(self, i):
+        """follow the torso to the right (the height stays: no bobbing)"""
+        return float(self.torso.position[i, 0]), self.view_center[1]
+
+    def draw(self, debug_draw):
+        draw_ruler_numbers(debug_draw)

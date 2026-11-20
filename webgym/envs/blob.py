@@ -19,8 +19,7 @@ import math
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import AGENT, SCENERY, Env, register_env
-from webgym.envs.walker import STALL_DISTANCE, STALL_SECONDS, bang_bang, draw_ruler_numbers, ground_with_ticks
+from webgym.core import AGENT, SCENERY, Env, bang_bang, draw_ruler_numbers, register_env, ruler
 
 BALLS = 10
 ACROSS = BALLS // 2  # the springs across the ring (the actions)
@@ -34,6 +33,9 @@ RIM_SPRING = (16.0, 0.5)  # of the ring: neighbours, and the next but one (it ke
 FRICTION, ROLLING, DAMPING = 1.5, 0.2, 2.0  # friction, rolling resistance, angular damping
 LINE_COLOR, GHOST_LINE_COLOR = 0xF0C080, 0x4FA3FF  # the springs (looks: lines between the balls)
 AIR_BONUS = 0.2  # reward per step with no ball on the ground (rolling well: ~0.3 per step)
+# no progress (the blob did not get STALL_DISTANCE further right than ever before) for
+# STALL_SECONDS: the episode ends (no penalty)
+STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
 
 
 @register_env("Blob")
@@ -50,7 +52,7 @@ class Blob(Env):
                  "long": {"ppo_torch": {"hidden": 64}, "cem": {}}}
 
     def build_scenery(self):
-        ground_with_ticks(self)
+        ruler(self)
         # the springs, as pairs of balls (of one blob): drawn as lines
         self.pairs = [(k, (k + step) % BALLS) for step in (1, 2) for k in range(BALLS)]
         self.pairs += [(k, k + ACROSS) for k in range(ACROSS)]

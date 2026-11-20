@@ -36,6 +36,7 @@ Settings the user can choose (e.g. how many balls): `settings = {"balls": (1, (1
 (make them properties). See envs/water_cannon.py.
 """
 
+import itertools
 import sys
 
 import numpy as np
@@ -320,6 +321,59 @@ class Env:
         """free the box2d world now (box2d has at most b2d.MAX_WORLDS = 128 worlds at a
         time; don't wait for the garbage collector)"""
         self.world.destroy()
+
+
+# -- helpers for envs: a ruler as the ground, discrete actions ---------------------------
+
+RULER_COLOR, RULER_MARKS = 0xE6CF8E, 0x3B3326  # (a wooden ruler, dark marks)
+
+
+def ruler(env, start=-10, end=390, depth=1.0):
+    """flat ground from x = start to end (m), `depth` deep, a ruler: a mark every 10 cm,
+    longer ones every 50 cm and every metre (numbered: draw_ruler_numbers in the env's
+    draw). The marks are looks only: nothing collides with them. Returns the ground body
+    (its top at y = 0)"""
+    ground = env.scenery(b2d.box((end - start) / 2, depth / 2, center=((start + end) / 2, -depth / 2)),
+                         friction=1.0, color=RULER_COLOR)
+    mark = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=RULER_MARKS))
+    for k in range(start * 10, end * 10 + 1):  # (in cm / 10)
+        length = 0.25 if k % 10 == 0 else 0.15 if k % 5 == 0 else 0.08
+        ground.create_shape(mark, b2d.segment((k / 10, 0), (k / 10, -length)))
+    return ground
+
+
+# the digits of the ruler's numbers as segments (a 7-segment display: a top, b top
+# right, c bottom right, d bottom, e bottom left, f top left, g middle)
+_SEGMENTS = {"a": ((0, 1), (1, 1)), "b": ((1, 1), (1, 0.5)), "c": ((1, 0.5), (1, 0)), "d": ((0, 0), (1, 0)),
+             "e": ((0, 0.5), (0, 0)), "f": ((0, 1), (0, 0.5)), "g": ((0, 0.5), (1, 0.5))}
+_DIGITS = {"0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc",
+           "7": "abc", "8": "abcdefg", "9": "abcdfg", "-": "g"}
+
+
+def draw_ruler_numbers(debug_draw, start=-10, end=390):
+    """the ruler's metres in view (not its ends start, end), under their marks (lines:
+    no text in the view)"""
+    camera = debug_draw.camera
+    half = camera.zoom * camera.width / camera.height
+    w, h, gap = 0.07, 0.13, 0.03  # (a digit's width and height, the gap between digits, m)
+    first = max(start + 1, int(np.floor(camera.center[0] - half)))
+    for metre in range(first, min(end - 1, int(np.ceil(camera.center[0] + half))) + 1):
+        text = str(metre)
+        left = metre - (len(text) * (w + gap) - gap) / 2
+        for i, char in enumerate(text):
+            x = left + i * (w + gap)
+            for (x0, y0), (x1, y1) in (_SEGMENTS[s] for s in _DIGITS[char]):
+                debug_draw.draw_segment((x + x0 * w, -0.45 + y0 * h), (x + x1 * w, -0.45 + y1 * h), RULER_MARKS)
+
+
+def bang_bang(groups, joints):
+    """discrete actions (for DQN): every joint at full torque, one way or the other; the
+    joints of a group (indices) together -> (actions (2^groups, joints), names like "+-+-")"""
+    signs = np.array(list(itertools.product((1, -1), repeat=len(groups))))
+    actions = np.zeros((len(signs), joints))
+    for g, group in enumerate(groups):
+        actions[:, group] = signs[:, g : g + 1]
+    return actions, tuple("".join("+" if s > 0 else "-" for s in row) for row in signs)
 
 
 def _batch(items):
