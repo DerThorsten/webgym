@@ -5,7 +5,7 @@ holds them up with the jets. The objects can't touch the cart: only the water ca
 them; the jets also push them sideways and turn them, so the cart has to follow, aim and
 dose the pressure. The water drops are real bodies (an emitter at the end of each
 barrel), their recoil pushes the cart. Each cart's water only hits its own objects
-(collision groups): many carts share one world. Setting "objects": keep 1, 2 or 3 up
+(collision groups): many carts share one world. Setting "objects": keep 1 or 2 up
 (they bump into each other); the cart has as many cannons as objects.
 obs: per object its position (relative to the cart) and velocity; the cart's velocity;
 per cannon its angle, pressure and spread.
@@ -61,7 +61,7 @@ def numbered(names, count):
 
 @register_env("WaterCannon")
 class WaterCannon(Env):
-    settings = {"objects": (1, (1, 2, 3), "How many objects to keep in the air, with as many cannons "
+    settings = {"objects": (1, (1, 2), "How many objects to keep in the air, with as many cannons "
                                           "on the cart (harder with more).")}
     max_steps = 1200
     view_center, view_zoom = (0.0, 4.0), 6.0

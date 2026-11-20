@@ -134,19 +134,34 @@ def test_checkpoint_restore_continue():
 
 
 def test_display_takes_snapshots():
-    """two workers: the display app takes the trainer's policy (a checkpoint) without
-    restarting its episode; a snapshot of another env switches the env"""
+    """two workers: the display app takes the trainer's policy (a checkpoint) of the same
+    run with its next episode (an episode: one policy); another run (new run, other
+    algorithm or network): a new episode at once; a snapshot of another env switches the
+    env"""
     trainer = make_app(population=16)
     trainer.command("train")
     while len(trainer.history) < 2:
         trainer._train_steps()
     display = make_app()
+    display.load_policy(trainer.checkpoint())
     for _ in range(10):
         display._watch_step()
     steps = display.env.steps
-    display.load_policy(trainer.checkpoint())
-    assert np.array_equal(display.params, trainer.params) and display.env.steps == steps
+    while len(trainer.history) < 3:
+        trainer._train_steps()
+    iteration = display.policy_iteration
+    display.load_policy(trainer.checkpoint())  # (the same run, trained on: with the next episode)
+    assert display.policy_iteration == iteration and display.env.steps == steps
+    display.command("reset")  # (the next episode)
+    assert np.array_equal(display.params, trainer.params)
+    assert display.policy_iteration == trainer.history[-1]["iteration"] > iteration
     assert "iteration" in display.state()["policy"]
+    for change in (("algo", "es"), ("hp.hidden", 8), ("new_run", None)):
+        for _ in range(10):
+            display._watch_step()
+        trainer.command(*change)
+        display.load_policy(trainer.checkpoint())
+        assert display.env.steps == 0 and display.algo == trainer.algo, change  # (at once)
     lander = make_app(env="LunarLander", population=8)
     display.load_policy(lander.checkpoint())  # (no policy yet: zero actions)
     assert display.env_name == "LunarLander" and display.params is None
@@ -389,13 +404,13 @@ def test_env_settings():
     carry the settings and bring them back; the env key names them"""
     app = make_app(env="WaterCannon")
     control = next(c for c in app.controls() if c["name"] == "setting.objects")
-    assert control["type"] == "select" and control["options"] == [1, 2, 3] and control["value"] == 1
+    assert control["type"] == "select" and control["options"] == [1, 2] and control["value"] == 1
     # (the World tab: the env and its settings; the page's icons above the tabs: training,
     # the switches, how you watch)
     sections = {c["name"]: c["section"] for c in app.controls()}
     assert sections["env"] == sections["setting.objects"] == "environment"
-    assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run", "reset", "follow",
-                                                              "decorate", "show_n", "replay_speed"}
+    assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run", "reset", "paused",
+                                                              "follow", "decorate", "show_n", "replay_speed"}
     assert "watch" not in sections.values()
     assert app.env_key == "WaterCannon · objects 1"
     app.command("train")
@@ -559,6 +574,20 @@ def test_replay_speed():
         for _ in range(frames):
             app.frame(800, 600)
         assert app.env.steps == steps
+    app.command("paused", True)  # (the watched world stands still; training would go on)
+    for _ in range(5):
+        app.frame(800, 600)
+    assert app.env.steps == steps
+    app.command("paused", False)
+    app.frame(800, 600)
+    assert app.env.steps > steps
+
+
+def test_settings_from_the_start():
+    """the env's settings given to the App (the page: from the URL, e.g. ?poles=4)"""
+    app = make_app(env="MultiCartPole", settings={"poles": 4})
+    assert app.env_key == "MultiCartPole · poles 4" and len(app.env.obs_names) == 2 + 2 * 4
+    assert app.state()["max_return"] == 500
 
 
 def test_safetensors_roundtrip():

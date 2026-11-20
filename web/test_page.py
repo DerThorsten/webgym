@@ -275,7 +275,7 @@ def main():
                 section.screenshot(path=str(args.screenshot.with_name(args.screenshot.stem + "_network.png")))
             page.click("#tabs button:text('World')")
         # every env loads and runs in the browser (no errors)
-        for env in ("LunarLander", "Walker", "Crawler", "Ragdoll", "DoubleCartPole", "WaterCannon"):
+        for env in ("LunarLander", "Walker", "Crawler", "Ragdoll", "MultiCartPole", "WaterCannon"):
             page.select_option("#controls-environment select >> nth=0", env)
             page.wait_for_timeout(800)
         # the pretrained walker that comes with the page (public/pretrained/): restorable;

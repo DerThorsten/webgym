@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
+from webgym import checkpoints
 from webgym.app import App
 from webgym.core import make
 
@@ -21,8 +22,8 @@ FOLDER = Path(__file__).resolve().parent / "public" / "pretrained"
 
 
 def check(path, n=16):
-    env_name, algo = path.stem.split("-", 1)
-    app = App(env=env_name, algo=algo, draws=False)
+    meta = checkpoints.loads(path.read_bytes())[1]  # (its env and algorithm; restore sets the settings)
+    app = App(env=meta["env"], algo=meta["algo"], draws=False)
     try:
         app.restore(path.read_bytes())
     except Exception as e:  # noqa: BLE001

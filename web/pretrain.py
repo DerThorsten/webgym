@@ -5,6 +5,7 @@ the suggested parameters (webgym.cli --save: the checkpoint of the best iteratio
     pixi run -e ml python web/pretrain.py              # all (needs pytorch: the ml env)
     pixi run -e ml python web/pretrain.py Walker cem   # one env (and algorithm)
     pixi run -e ml python web/pretrain.py Walker,Crawler   # some envs
+    pixi run -e ml python web/pretrain.py MultiCartPole --set poles=4   # one setting
 
 Several runs at once (--jobs, one thread each); logs in build/pretrain/. Then build the
 page (build_page.py lists them in public/pretrained/index.json).
@@ -29,36 +30,47 @@ OUT = HERE / "public" / "pretrained"
 LOGS = HERE.parent / "build" / "pretrain"
 # per run: at most this many iterations / minutes (numpy algorithms are fast per
 # iteration, the pytorch ones slow)
-LIMITS = {"numpy": (5000, 6), "pytorch": (1000, 12)}  # (the minutes decide: Walker / CEM did 400 in 1.2 min)
+LIMITS = {"numpy": (100_000, 6), "pytorch": (100_000, 12)}  # (the minutes decide)
+# envs with runs for more than their default settings (each its own runs; the page lists
+# them under the env with these settings; {}: the defaults)
+SETTINGS = {"MultiCartPole": [{"poles": p} for p in (2, 3, 4, 5)], "WaterCannon": [{}, {"objects": 2}]}
 
 
-def runs(only_env=None, only_algo=None):
-    """(env, algo) of every suggestion"""
+def runs(only_env=None, only_algo=None, only_settings=()):
+    """(env, algo, settings) of every suggestion (the suggestions may depend on the
+    settings); `only_settings`: ["poles=4", ...], the runs with these settings only"""
     import webgym.envs  # noqa: F401
-    from webgym.core import ENVS
+    from webgym.core import ENVS, make
 
-    for name, cls in sorted(ENVS.items()):
-        algos = []
-        for budget in cls.suggested.values():
-            algos += [a for a in budget if a not in algos]
-        for algo in algos:
-            if (only_env is None or name in only_env.split(",")) and (only_algo in (None, algo)):
-                yield name, algo
+    for name in sorted(ENVS):
+        for settings in SETTINGS.get(name, [{}]):
+            if only_settings and (not settings or any(f"{k}={v}" not in only_settings for k, v in settings.items())):
+                continue
+            env = make(name, **settings)
+            algos = []
+            for budget in env.suggested.values():
+                algos += [a for a in budget if a not in algos]
+            env.close()
+            for algo in algos:
+                if (only_env is None or name in only_env.split(",")) and (only_algo in (None, algo)):
+                    yield name, algo, settings
 
 
-def train(env, algo):
-    """one run -> (env, algo, seconds, the last log line)"""
+def train(env, algo, settings):
+    """one run -> (its name, seconds, the last log line)"""
     from webgym.algos import ALGOS
 
     iterations, minutes = LIMITS["pytorch" if ALGOS[algo].requires else "numpy"]
-    log = LOGS / f"{env}-{algo}.log"
+    name = f"{env}-{algo}" + "".join(f"-{k}{v}" for k, v in settings.items())  # (e.g. MultiCartPole-cem-poles3)
+    log = LOGS / f"{name}.log"
     command = [sys.executable, "-u", "-m", "webgym.cli", env, "--algo", algo, "--iterations", str(iterations),
-               "--minutes", str(minutes), "--save", str(OUT / f"{env}-{algo}.safetensors")]
+               "--minutes", str(minutes), "--save", str(OUT / f"{name}.safetensors"),
+               *(f"--set={k}={v}" for k, v in settings.items())]
     start = time.perf_counter()
     with open(log, "w") as f:
         subprocess.run(command, stdout=f, stderr=subprocess.STDOUT, env={**os.environ, "OMP_NUM_THREADS": "1"})
     lines = log.read_text().strip().splitlines()
-    return env, algo, time.perf_counter() - start, lines[-1] if lines else "(no output)"
+    return name, time.perf_counter() - start, lines[-1] if lines else "(no output)"
 
 
 def release():
@@ -93,6 +105,8 @@ def main():
     parser.add_argument("env", nargs="?")
     parser.add_argument("algo", nargs="?")
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
+                        help="only the runs with this setting (repeatable: any of them)")
     parser.add_argument("--upload", action="store_true", help="upload public/pretrained/ to the release")
     parser.add_argument("--download", action="store_true", help="download the release into public/pretrained/")
     args = parser.parse_args()
@@ -101,11 +115,11 @@ def main():
         return
     OUT.mkdir(parents=True, exist_ok=True)
     LOGS.mkdir(parents=True, exist_ok=True)
-    todo = list(runs(args.env, args.algo))
+    todo = list(runs(args.env, args.algo, args.set))
     print(f"{len(todo)} runs, {args.jobs} at once", flush=True)
     with ThreadPoolExecutor(args.jobs) as pool:
-        for env, algo, seconds, last in pool.map(lambda r: train(*r), todo):
-            print(f"{env:15s} {algo:16s} {seconds / 60:5.1f} min  {last}", flush=True)
+        for name, seconds, last in pool.map(lambda r: train(*r), todo):
+            print(f"{name:32s} {seconds / 60:5.1f} min  {last}", flush=True)
 
 
 if __name__ == "__main__":

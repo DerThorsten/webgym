@@ -81,6 +81,9 @@ class Env:
     dt = 1 / 60
     substeps = 4
     max_steps = 1000
+    # the best return an episode can get, if known (e.g. CartPole: 1 per step, 500 steps);
+    # the page shows it next to the returns and marks a perfect score; None: unknown
+    max_return = None
     gravity = (0, -10)
     # initial camera: world point at the view center, half height in world units
     view_center = (0.0, 0.0)

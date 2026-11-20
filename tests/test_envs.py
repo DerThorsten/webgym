@@ -70,20 +70,33 @@ def test_discrete_actions(name):
     env.step(actions[-1:])
 
 
+@pytest.mark.parametrize("poles", [2, 3, 4, 5])
+def test_multi_cartpole(poles):
+    """N poles: 2 + 2N observations; with zero force the stack falls (each agent alone)"""
+    env = make("MultiCartPole", n=3, poles=poles)
+    assert len(env.pole) == 3 * poles and env.observation_space.shape == (2 + 2 * poles,)
+    env.reset(seed=0)
+    for _ in range(env.max_steps):
+        env.step(np.zeros((3, 1)))
+        if env.done.all():
+            break
+    assert env.done.all() and (env.episode_return < env.max_return).all()
+
+
 def test_water_cannon_one_gun_per_object():
     """with N objects the cart has N cannons, each with its own angle, pressure and spread:
     1 + 3N actions; only the cannon that is given pressure sprays"""
-    env = make("WaterCannon", n=2, objects=3)
-    assert env.action_space.shape == (10,) and env.observation_space.shape == (6 + 6 + 1 + 9,)
-    assert len(env.barrel) == len(env.hinge) == 6 and len(env.object) == 6
+    env = make("WaterCannon", n=2, objects=2)
+    assert env.action_space.shape == (7,) and env.observation_space.shape == (4 + 4 + 1 + 6,)
+    assert len(env.barrel) == len(env.hinge) == 4 and len(env.object) == 4
     env.reset(seed=0)
-    actions = np.zeros((2, 10))
+    actions = np.zeros((2, 7))
     actions[:, 3::3] = -1  # (narrow jets)
-    actions[0, 5] = 1.0  # agent 0: cannon 2 (of 3) at full pressure
+    actions[0, 5] = 1.0  # agent 0: cannon 2 (of 2) at full pressure
     for _ in range(20):
         env.step(actions)
     drops = [len(c) for c in env.cannon]
-    assert drops[1] > 0 and drops[0] == drops[2] == 0 and sum(drops[3:]) == 0
+    assert drops[1] > 0 and drops[0] == 0 and sum(drops[2:]) == 0
 
 
 def test_water_hits_only_its_own_object():

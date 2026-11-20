@@ -53,7 +53,7 @@ class NeedPackage(Exception):
 class App:
     """see the module docstring"""
 
-    def __init__(self, env="CartPole", algo=None, population=64, seed=0, draws=True, helpers=None):
+    def __init__(self, env="CartPole", algo=None, population=64, seed=0, draws=True, helpers=None, settings=None):
         # the algorithm: as given (e.g. the URL's), else the env's suggestion for the time
         # budget (Env.suggested; "quick" / "medium" / "long")
         self.algo = algo or "cem"
@@ -75,6 +75,10 @@ class App:
         # watch mode: env steps per frame (x real time); `_replay_due`: steps owed
         self.replay_speed = 1
         self._replay_due = 0.0
+        self.paused = False  # the watched world stands still (training goes on)
+        self.run = 0  # +1 per new run / restore: the display starts a new episode then
+        self.shown_run = None  # (display) the run of the trainer's last snapshot
+        self._pending = None  # (display) its newest policy, for the next episode: (tensors, meta)
         # watch mode: a new episode when one ends; off: the env goes on after the end
         # (see the agent recover), "reset" / R starts a new one
         self.auto_reset = True
@@ -102,7 +106,7 @@ class App:
         self.pop_key = None  # (env key, population) it was made for
         self.trainer = None
         self.env_settings = {}  # the settings chosen per env (name -> {setting: value})
-        self.set_env(env)
+        self.set_env(env, settings)  # (settings: e.g. the URL's ?poles=3)
 
     @property
     def settings(self):
@@ -148,7 +152,7 @@ class App:
 
     def suggestions(self):
         """the env's suggestions for the time budget that can train it: {algo: params}"""
-        listed = type(self.env).suggested.get(self.budget, {})
+        listed = self.env.suggested.get(self.budget, {})  # (may depend on the settings)
         return {name: params for name, params in listed.items() if name in ALGOS and ALGOS[name].supports(self.env)}
 
     def suggest(self, algo=None):
@@ -165,12 +169,15 @@ class App:
     def new_run(self):
         """forget the policy, the trainer's state and the history"""
         self.stop()
+        self.run += 1
+        self._pending = None
         # (discrete: Q-values of the env's discrete actions, acting with argmax)
         self.policy = ALGOS[self.algo].policy(self.env, self.hp[self.algo])
         self.params = None  # the watched policy's parameters (None: zero actions)
         self.top_params = None  # (k, num_params): more policies to show, best / newest first
         self.recent = []  # the last policies (for algorithms without top_params)
         self.policy_info = "none yet (zero actions)"
+        self.policy_iteration = 0  # the training iteration of the watched policy (0: untrained)
         self.scores = []  # returns of the finished watch-mode episodes (newest last)
         self.new_best = False  # the last finished episode beat all earlier ones
         self.train_state = None  # resumes the trainer (stats["state"])
@@ -179,9 +186,12 @@ class App:
 
     def watch(self):
         """watch mode: the current policy and show_n - 1 more drive the agents of the
-        watched env"""
+        watched env (the display: the trainer's newest policy takes over now)"""
         if self.mouse_drag is not None:
             self.mouse_drag.end()
+        if self._pending is not None:
+            self._take_policy(*self._pending)
+            self._pending = None
         n = self.show_n if ENVS[self.env_name].batchable else 1
         if self.env.n != n or self.env.decorated != self.decorated:
             self.env.close()
@@ -270,18 +280,33 @@ class App:
             "state": state if self.train_state is not None else None,
             "history": self.history,
             "policy_info": self.policy_info,
+            "run": self.run,
             "iteration": self.history[-1]["iteration"] if self.history else 0,
             "mean_return": self.history[-1]["mean_return"] if self.history else None,
         }
         return checkpoints.dumps(tensors, metadata)
 
     def load_policy(self, data):
-        """the display side of two workers: the trainer's latest policy (a checkpoint)
-        drives the watched env from now on; the episode goes on (no reset), unless the
-        env changed"""
+        """the display side of two workers: the trainer's latest policy (a checkpoint).
+        The same run, trained on: it takes over with the next episode (an episode is
+        played by one policy, of one iteration). Another run (a new run, another
+        algorithm or network, a restore) or env: a new episode at once, with the new
+        (maybe untrained) policy"""
         tensors, meta = checkpoints.loads(data)
+        self._pending = None
+        if meta.get("run") == self.shown_run and meta["env"] == self.env_name and \
+                ENVS[meta["env"]].chosen(meta.get("settings")) == self.settings:
+            self._pending = (tensors, meta)  # (see watch)
+            return
         self._env_of(meta)
         self._check_fits(meta)
+        self._take_policy(tensors, meta)
+        self.shown_run = meta.get("run")
+        self.scores, self.new_best = [], False  # (the old run's)
+        self.watch()
+
+    def _take_policy(self, tensors, meta):
+        """the policy of a checkpoint drives the watched agents"""
         self.algo = meta["algo"]
         sizes, algo = meta["policy_sizes"], ALGOS[self.algo]
         if sizes != self.policy.sizes or self.policy.tanh_out == algo.discrete or self.policy.kind != algo.network:
@@ -289,6 +314,7 @@ class App:
         self.params = tensors.get("policy")
         self.top_params = tensors.get("top")
         self.policy_info = meta["policy_info"]
+        self.policy_iteration = meta.get("iteration", 0)
 
     def _env_of(self, meta):
         """switch to the env (and settings) of a checkpoint, if it is another one"""
@@ -320,6 +346,8 @@ class App:
         self._env_of(meta)
         self._check_fits(meta)
         self.stop()
+        self.run += 1
+        self._pending = None
         self.algo = meta["algo"]
         self.hp[self.algo].update(meta.get("params", {}))
         self.population = int(meta["population"])
@@ -339,6 +367,7 @@ class App:
         self.train_state = state
         self.history = meta["history"]
         self.policy_info = meta["policy_info"]
+        self.policy_iteration = meta.get("iteration", 0)
         self.watch()
 
     # -- host API ----------------------------------------------------------------
@@ -383,6 +412,9 @@ class App:
              "help": "Looks only, in the env you watch (never in training): e.g. the lander's "
                      "flags and thrust particles. Off: just the physics."},
             {"type": "button", "name": "reset", "label": "Reset episode (R)"},
+            {"type": "checkbox", "name": "paused", "label": "Pause", "value": self.paused,
+             "help": "Stops the world you watch (look closely, drag the view); training goes "
+                     "on. Space toggles it."},
         ]
         suggested = self.suggestions()
         training = [
@@ -402,7 +434,7 @@ class App:
             {"type": "hint", "name": "network", "text": self._network_hint()},
             {"type": "slider", "name": "population", "label": "Population", "min": 8, "max": MAX_POPULATION,
              "step": 8, "value": self.population, "disabled": not self.env.batchable,
-             "help": "How many agents learn at once (one world, drawn as ghosts): candidates "
+             "help": "How many agents learn at once (in one world, in the training worker): candidates "
                      "for CEM / ES, parallel episodes for PPO / DQN."},
             {"type": "button", "name": "stop" if self.training else "train",
              "label": "Stop" if self.training else ("Continue training" if resume else "Train")},
@@ -431,8 +463,8 @@ class App:
                 for name, (_, low, high, step, in_group, explanation) in toys.PARAMS.items() if in_group == group]
         # always in view (the page's icons above the tabs): the training's buttons, reset
         # episode, auto reset, camera follows, decoration; how many policies, replay speed
-        bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run", "reset", "follow", "decorate",  # noqa: E731
-                                      "show_n", "replay_speed")
+        bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run", "reset", "paused",  # noqa: E731
+                                      "follow", "decorate", "show_n", "replay_speed")
         return ([{**c, "section": "bar" if bar(c) else "environment"} for c in env]
                 + [{**c, "section": "bar" if bar(c) else "training"} for c in training]
                 + [{**c, "section": "toys"} for c in toy_controls])
@@ -552,6 +584,8 @@ class App:
             self.train()
         elif name == "reset":
             self.watch()
+        elif name == "paused":
+            self.paused = bool(value)
         elif name == "replay_speed":
             self.replay_speed = REPLAY_SPEEDS[int(value)]
         elif name == "show_n":
@@ -581,6 +615,8 @@ class App:
             "mode": "train" if self.training else "watch",
             "env": self.env_name,
             "policy": self.policy_info,
+            "policy_iteration": self.policy_iteration,  # (0: untrained)
+            "max_return": self.env.max_return,  # (the best possible, None: unknown)
             "episode": self.episodes,
             "episode_over": self.ended,
             "auto_reset": self.auto_reset,
@@ -627,7 +663,7 @@ class App:
         """one animation frame into the current GL context of size (width, height) px"""
         t0 = time.perf_counter()
         # replay speed: steps per frame (0.25x: one step every 4th frame)
-        self._replay_due += self.replay_speed
+        self._replay_due += 0 if self.paused else self.replay_speed
         while self._replay_due >= 1:
             self._watch_step()
             self._replay_due -= 1
@@ -705,6 +741,7 @@ class App:
                 self.top_params = top
                 self.train_state = item["state"]
                 self.policy_info = f"{self.algo}, iteration {item['iteration']}"
+                self.policy_iteration = item["iteration"]
 
     def _watch_step(self):
         """one env step with the current policy; when the episode ends, the

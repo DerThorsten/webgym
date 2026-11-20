@@ -21,6 +21,7 @@ class CartPole(Env):
     discrete_actions = np.array([[-1.0], [1.0]])  # (for DQN: push left / right)
     discrete_names = ("push left", "push right")
     max_steps = 500
+    max_return = 500  # (1 per step)
     view_center, view_zoom = (0.0, 1.0), 3.0
     suggested = {"quick": {"cem": {}, "neat": {}, "ppo_torch": {}},
                  "medium": {"ppo_torch": {}, "cem": {}, "dqn_torch": {}},

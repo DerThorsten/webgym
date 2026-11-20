@@ -97,6 +97,17 @@ class WebHost:
             if k in kwargs and kwargs[k] not in known:
                 post({"type": "log", "text": f"no {k} {kwargs.pop(k)!r} (any more): the default instead"})
         kwargs.update({k: int(options[k]) for k in ("population", "seed") if k in options})
+        # the env's settings from the URL too (e.g. ?env=MultiCartPole&poles=3; the page
+        # sends text: matched against the choices; an unknown value: the default, a note)
+        settings = {}
+        for name, (_, choices, _) in ENVS[kwargs.get("env", "CartPole")].settings.items():
+            if name in options:
+                choice = next((c for c in choices if str(c) == str(options[name])), None)
+                if choice is None:
+                    post({"type": "log", "text": f"no {name} {options[name]!r}: one of {list(choices)}"})
+                else:
+                    settings[name] = choice
+        kwargs["settings"] = settings
         # (the training worker draws nothing: no decoration, no particles; it can have
         # simulation helpers: more workers, see webgym/helpers.py)
         self.pool = Pool(post) if self.role == "trainer" else None
@@ -270,8 +281,10 @@ class WebHost:
                       "algo": self.app.algo})
             self.send_controls()
             if self.role == "trainer" and (name in ("env", "algo", "budget", "new_run", "stop", "train")
-                                           or name.startswith("setting.")):
-                self.send_snapshot()  # (the display shows the current policy / env)
+                                           or name.startswith(("setting.", "hp."))):
+                # (the display shows the current policy / env at once; another run: a new
+                # episode, see App.load_policy)
+                self.send_snapshot()
         except Exception:
             post({"type": "error", "error": traceback.format_exc()})
 

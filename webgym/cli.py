@@ -31,31 +31,32 @@ def train(env_name, algo="cem", population=64, iterations=30, seed=0, log=print,
 
 
 def train_and_save(path, env_name, algo="cem", population=64, iterations=30, seed=0, settings=None, log=print,
-                   minutes=None):
+                   minutes=None, hp=None):
     """train with the page's App (headless) and write its checkpoint to `path`: the
     page restores it like its own (e.g. web/public/pretrained/, see build_page.py). The
     algorithm's parameters: as the env suggests them (Env.suggested, any time budget),
     else its defaults. Stops after `iterations` or `minutes`; the checkpoint written is
     the one of the iteration with the best mean return (some algorithms fall back
-    after their peak)."""
+    after their peak). `hp`: more parameters of the algorithm ({name: value})."""
     from pathlib import Path
 
     from webgym.app import App
 
-    app = App(env=env_name, algo=algo, population=population, seed=seed, draws=False)
-    if settings:
-        app.set_env(env_name, settings)
+    app = App(env=env_name, algo=algo, population=population, seed=seed, draws=False, settings=settings)
     for budget in ("quick", "medium", "long"):  # (the env's suggested parameters for it)
         app.budget = budget
         if algo in app.suggestions():
             app.suggest(algo)
             app.new_run()
             break
+    for name, value in (hp or {}).items():
+        app.command(f"hp.{name}", value)
     app.command("train")
     start, shown = time.perf_counter(), 0
     best, best_data = None, None
-    while (app.training and len(app.history) < iterations  # (the trainer may end by itself)
-           and (minutes is None or time.perf_counter() - start < 60 * minutes)):
+    while len(app.history) < iterations and (minutes is None or time.perf_counter() - start < 60 * minutes):
+        if not app.training:  # (the trainer ended by itself, e.g. after 1000 iterations: go on)
+            app.command("train")
         app._train_steps()
         for entry in app.history[shown:]:
             log(f"iter {entry['iteration']:3d}  mean {entry['mean_return']:7.1f}  "
@@ -81,6 +82,8 @@ def main():
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="an env setting")
     parser.add_argument("--save", metavar="FILE", help="write the run as a page checkpoint (.safetensors)")
     parser.add_argument("--minutes", type=float, help="(with --save) stop after this long, too")
+    parser.add_argument("--hp", action="append", default=[], metavar="NAME=VALUE",
+                        help="(with --save) a parameter of the algorithm, e.g. min_std=0.1")
     args = parser.parse_args()
     # (the values as the env's choices: "2" -> 2)
     from webgym.core import ENVS
@@ -91,8 +94,9 @@ def main():
         name, value = item.split("=", 1)
         settings[name] = next(c for c in ENVS[args.env].settings[name][1] if str(c) == value)
     if args.save:
+        hp = dict(item.split("=", 1) for item in args.hp)  # (App.command converts: "0.1" -> 0.1)
         train_and_save(args.save, args.env, args.algo, args.population, args.iterations, args.seed, settings,
-                       minutes=args.minutes)
+                       minutes=args.minutes, hp=hp)
     else:
         train(args.env, args.algo, args.population, args.iterations, args.seed, settings=settings)
 

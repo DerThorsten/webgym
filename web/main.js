@@ -37,7 +37,7 @@ let autoTrain = params.get("train") !== "0"; // start training once the page is 
 let trainerState = null; // the trainer's state message
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
-const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "show_n", "replay_speed", "follow", "decorate",
+const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "paused", "show_n", "replay_speed", "follow", "decorate",
   "toy", "rain", "toy_mode"]);
 
 /** a widget changed: route the command to the worker(s) concerned */
@@ -235,10 +235,17 @@ const openFolds = new Set(["Things to drop"]); // the folds that are open (kept 
  * changes go back as commands */
 // the app's controls of section "bar", as icons above the tabs: train (a barbell, a
 // switch: blue while training; the title says what a click does: Train / Continue
-// training / Stop), new run, reset episode, the switches auto reset, camera follows,
-// decoration (blue: on); below them the steppers show policies and replay speed
+// training / Stop), new run, reset episode, pause / continue (the watched world only),
+// the switches auto reset, camera follows, decoration (blue: on); below them the
+// steppers show policies and replay speed
 const quickTrain = document.getElementById("quick-train");
+const quickPause = document.getElementById("quick-pause");
 const SWITCHES = { auto_reset: "quick-reset", follow: "quick-follow", decorate: "quick-decorate" };
+const PAUSE = '<svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>';
+const PLAY = '<svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>';
+let paused = false;
+quickPause.innerHTML = PAUSE;
+quickPause.onclick = () => command("paused", !paused);
 document.getElementById("quick-new").onclick = () => command("new_run");
 document.getElementById("quick-episode").onclick = () => command("reset");
 function showQuick(controls) {
@@ -247,6 +254,13 @@ function showQuick(controls) {
     quickTrain.title = button.label;
     quickTrain.classList.toggle("on", button.name === "stop"); // (training)
     quickTrain.onclick = () => command(button.name);
+  }
+  const pause = controls.find((c) => c.name === "paused");
+  if (pause) {
+    paused = Boolean(pause.value);
+    quickPause.innerHTML = paused ? PLAY : PAUSE;
+    quickPause.classList.toggle("on", paused);
+    quickPause.title = `${paused ? "Continue" : "Pause"} the world you watch (Space); training goes on.`;
   }
   for (const [name, id] of Object.entries(SWITCHES)) {
     const c = controls.find((c) => c.name === name);
@@ -445,8 +459,11 @@ function showScore(s) {
   el.hidden = !(s.mode === "watch" && s.episode_over && s.scores.length && !s.toys);
   if (el.hidden) return;
   const score = s.scores.at(-1);
+  // (an env that knows its best possible return: "of 500", "perfect!")
+  const perfect = s.max_return != null && score >= s.max_return - 0.5;
   el.innerHTML =
-    `<div class="big">Score ${Math.round(score)}${s.new_best ? " · new best!" : ""}</div>` +
+    `<div class="big">Score ${Math.round(score)}${s.max_return != null ? ` / ${s.max_return}` : ""}` +
+    `${perfect ? " · perfect!" : s.new_best ? " · new best!" : ""}</div>` +
     `<div class="small">best ${Math.round(s.best_score)} · last ${s.scores.map(Math.round).join(", ")}</div>`;
 }
 
@@ -467,13 +484,15 @@ function showState() {
     `frame     ${s.frame_ms.toFixed(1)} ms`;
   // the same, short, in the top bar
   const chip = (html, cls = "") => `<span class="chip ${cls}">${html}</span>`;
+  const of = s.max_return != null ? ` / ${s.max_return}` : ""; // (the best possible, if the env knows it)
   document.getElementById("chips").innerHTML =
     (worldKey ? chip(`<b>${worldKey}</b>`, "world") : "") +
     (training ? chip(`training · iteration <b>${t.iteration}</b>`, "running") : chip("not training")) +
-    (last ? chip(`mean <b>${last.mean_return.toFixed(0)}</b>`) + chip(`best <b>${last.best_return.toFixed(0)}</b>`, "best") : "") +
+    (last ? chip(`mean <b>${last.mean_return.toFixed(0)}</b>${of}`) + chip(`best <b>${last.best_return.toFixed(0)}</b>${of}`, "best") : "") +
     (s.toys
       ? chip("watching: toys (no score)", "watch")
-      : chip(`watching: episode ${s.episode}, return <b>${s.episode_return.toFixed(0)}</b>`, "watch"));
+      : chip(`watching: ${s.policy_iteration ? `iteration ${s.policy_iteration}` : "untrained"}, ` +
+          `return <b>${s.episode_return.toFixed(0)}</b>`, "watch")); // (the policy you watch: its training iteration)
 }
 let displayState = null;
 let worldKey = ""; // the env with its settings (e.g. "WaterCannon · objects 2"): a chip in the bar
@@ -977,8 +996,14 @@ stage.addEventListener("pointerup", lift);
 stage.addEventListener("pointercancel", lift);
 // R: a new episode (unless the user types into a widget)
 window.addEventListener("keydown", (e) => {
-  if (e.key.toLowerCase() !== "r" || e.repeat || e.target.closest?.("input, select, textarea, [contenteditable]")) return;
-  toDisplay({ type: "event", kind: "keydown", key: "r" });
+  if (e.repeat || e.target.closest?.("input, select, textarea, [contenteditable]")) return;
+  if (e.key.toLowerCase() === "r") toDisplay({ type: "event", kind: "keydown", key: "r" });
+  else if (e.key === " ") {
+    // pause / continue the watched world (not the focused button's click, no page scroll)
+    e.preventDefault();
+    document.activeElement?.blur?.();
+    quickPause.click();
+  }
 });
 stage.addEventListener(
   "wheel",

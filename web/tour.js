@@ -25,7 +25,7 @@ const TOURS = {
   // come last)
   quick: [
     { target: "#quick",
-      text: "<b>The buttons</b> (hover one for its name): the <b>barbell</b> trains (blue while it does, click again to stop; the world you watch keeps going either way); the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R). Then three switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent, the <b>top hat</b> adds decoration (flames, flags). The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
+      text: "<b>The buttons</b> (hover one for its name): the <b>barbell</b> trains (blue while it does, click again to stop; the world you watch keeps going either way); the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R); <b>pause</b> stops the world you watch (Space; training goes on). Then three switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent, the <b>top hat</b> adds decoration (flames, flags). The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
     { target: "#quick-watch",
       text: "<b>How you watch:</b> − / + sets how many policies you see at once (the current one solid, the best candidates as ghosts); the arrows make the replay slower or faster (training always runs at full speed)." },
     { target: "#tabs", text: "<b>More in the panel:</b> the world, how it trains, the policy, toys, the log." },
@@ -45,8 +45,9 @@ const TOURS = {
     // above the tabs: training's buttons, auto reset
     { target: "#quick-train", text: "<b>Train</b> (the barbell; blue: training). A click starts learning, another stops it and keeps the run: the next click continues it. Training runs in a worker of its own: the page stays responsive, and the world you watch keeps going either way." },
     { target: "#quick-new", text: "<b>New run</b> (the circling arrows) throws the run away (network, history, autosave) and starts training from scratch." },
-    { target: "#chips", text: "<b>The live numbers:</b> the world (with its settings), training and its iteration, the population's mean and best return, the episode you watch and its return so far." },
+    { target: "#chips", text: "<b>The live numbers:</b> the world (with its settings), training and its iteration, the population's mean and best return, and what you watch: the training iteration its policy comes from (the trainer sends its newest one as it learns) and the return of the episode so far." },
     { target: "#quick-episode", text: "<b>Reset episode</b> (or R): the watched world starts a new episode now." },
+    { target: "#quick-pause", text: "<b>Pause / continue</b> (or Space): the world you watch stands still, e.g. to look closely at a move; training goes on meanwhile." },
     { target: "#quick-reset", text: "<b>Auto reset</b> (the loop; blue: on): a new episode when the watched one ends. Off: it goes on after a fall, see whether the agent recovers; R starts a new one.<br>Fun with it off: tease a trained agent with the mouse (knock the walker over, nudge the lander off course, tip the ragdoll) and watch how it copes." },
     // the World tab
     { target: "#controls-environment select", tab: "world", text: "<b>The world.</b> Each one is a python file: a box2d world with agents in it, what they see, what they do, what earns reward." },

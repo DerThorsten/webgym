@@ -51,8 +51,12 @@ Technical considerations:
 - Envs (`webgym/envs/`, registered with `@register_env`): CartPole, LunarLander, Walker,
   Crawler (the Car (was Tank) was dropped 2026-11-19: its pretrained runs were poor; it is
   in git history before that; an unknown env / algo in the URL falls back to the default
-  with a log note, a checkpoint of one is refused), DoubleCartPole (CartPole with a second pole on
-  top; replaced the swing-up Pendulum), Ragdoll (pyb2d3's ragdoll as a walker, `Legged`
+  with a log note, a checkpoint of one is refused), MultiCartPole (setting "poles" 2..5, 2026-11-20;
+  replaced DoubleCartPole (which replaced the swing-up Pendulum) and a short-lived
+  TripleCartPole; 4 / 5 poles get a little hinge friction between the poles,
+  `HINGE_FRICTION` per pole count, as little as works (body angular damping barely
+  helped); suggested per pole count (`suggested` is a property): CEM up to 4, PPO for 5;
+  pretrained per pole count, `pretrain.py SETTINGS`), Ragdoll (pyb2d3's ragdoll as a walker, `Legged`
   subclass; feet on ankles, every one of its 11 joints a motor (action) and observed, plus
   the heels' heights; limp motors at action 0, so it falls untrained), WaterCannon (the CarDesigner was dropped 2026-11-19: open loop, one design
   action, nothing to watch live; it didn't fit). **Users read and edit these files** (Code panel): keep them short and plain.
@@ -63,7 +67,13 @@ Technical considerations:
   `action_names` (actions always in [-1, 1]). The how-to is the docstring of `core.py`;
   CartPole is the template. Walker, Crawler and Ragdoll share `Legged` (`envs/walker.py`;
   joint motors via `RevoluteJoints`, feet sensors). Flat ground (bumpy terrain for the walkers was tried and removed 2026-11-19). Agent bodies
-  never sleep (`core.body`: motors don't wake bodies). Watched episodes: a new seed each. Every env advertises discrete actions for DQN
+  never sleep (`core.body`: motors don't wake bodies). Watched episodes: a new seed each; another run
+  (new run, other algorithm / network, a restore: `App.run` in the snapshot) starts a new
+  watched episode at once with the new policy; the same run trained on: the newest
+  snapshot takes over with the next watched episode (`App._pending`; an episode = one
+  policy, the "watching: iteration N" chip); the trainer sends a snapshot on every
+  algo / hp / env command. `Env.max_return` (known best, e.g. CartPole 500; None:
+  unknown): "mean x / 500", "perfect!". Env settings also from the URL (`?poles=4`). Every env advertises discrete actions for DQN
   (`discrete_actions` + names; the walkers: bang-bang per joint / joint pair). Also
   `camera_target` ("Camera follows"). No keyboard play (removed 2026-11-19; R = reset stays).
 - `Env.suggested` = {budget: {algo: params}} for "quick" / "medium" / "long" (~1 / 5 / 20 min),
@@ -120,7 +130,8 @@ Technical considerations:
   controls of section "bar", drawn by `showQuick` in main.js (the only place they are):
   `#quick` train (a barbell, a switch: blue while training; ▶/⏸ read as "pause the
   replay"; its title = the app's button label), new run, | reset
-  episode, | switches auto reset, camera follows (disabled for fixed views), decoration
+  episode, pause / continue (⏸ / ▶, Space: the watched world only, `App.paused`; training
+  goes on), | switches auto reset, camera follows (disabled for fixed views), decoration
   (a top hat), blue when on; `#quick-watch` steppers − / + for show policies and slower /
   faster for replay speed. No panel below the tabs any more. Then five tabs, in this order (World: the env select,
   its settings, its description (the module docstring, unwrapped) /
@@ -170,9 +181,13 @@ Technical considerations:
   them; the Pages workflow downloads before building). `build_page.py` writes
   `public/pretrained/index.json`; the Policy tab lists them as "Pretrained · <algo
   label>" (restore only, fetched on click) for their env key, every algorithm, the best
-  mean first (a restore switches algo + network). 29 runs (2026-11-19; limits per run:
-  numpy 6 min, pytorch 12 min, the trainer ends after 1000 iterations; no Car runs: the
-  Car was dropped). `--upload` doesn't remove assets that are
+  mean first (a restore switches algo + network). Limits per run: numpy 6 min, pytorch
+  12 min (the minutes decide: the CLI continues a trainer that ends by itself, `--hp
+  NAME=VALUE` sets algorithm parameters). Envs with runs per setting: `pretrain.py
+  SETTINGS` (MultiCartPole poles 2..5, WaterCannon objects 1 / 2; files
+  `<env>-<algo>-<setting><value>`, `--set poles=4` trains only those). WaterCannon has
+  objects 1 or 2 (3 dropped 2026-11-20; 2 learns, slowly: PPO 435 after 5 min).
+  `--upload` doesn't remove assets that are
   gone locally: `gh release delete-asset`. After an env changes, retrain its runs and
   check them all: `pixi run -e ml python web/check_pretrained.py` (restores each as the
   page does, replays its policy on the current env vs its training mean).

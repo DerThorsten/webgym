@@ -40,7 +40,7 @@ drag the env around with the mouse.
 
 ## Worlds and algorithms
 
-**Worlds** (`webgym/envs/`): CartPole, DoubleCartPole (a second pole on top), LunarLander,
+**Worlds** (`webgym/envs/`): CartPole, MultiCartPole (2 to 5 poles stacked on top), LunarLander,
 Walker, Crawler (four legs), Ragdoll (a human figure, 11 motor joints), WaterCannon (keep objects in the air with water).
 
 **Algorithms** (`webgym/algos/`):
