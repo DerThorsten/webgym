@@ -30,6 +30,10 @@ jobs:
         run: pixi run python web/pretrain.py --download
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: The help page's videos (assets of the release "videos", see web/help_videos.py)
+        run: pixi run python web/help_videos.py --download
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Build the page
         run: pixi run web-build
       - uses: actions/upload-pages-artifact@v3

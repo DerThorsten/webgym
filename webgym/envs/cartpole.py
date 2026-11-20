@@ -9,7 +9,7 @@ The episode ends when the pole tilts more than 12 degrees or the cart leaves |x|
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import DARK_COLOR, LIGHT_COLOR, Env, draw_ruler_numbers, register_env, ruler
+from webgym.core import DARK_COLOR, Env, draw_ruler_numbers, register_env, ruler
 
 MAX_FORCE = 10.0  # N; the cart weighs 1 kg, the pole 0.1 kg (as the classic cart-pole)
 
@@ -63,8 +63,4 @@ class CartPole(Env):
         return np.ones(self.n), fallen
 
     def draw(self, debug_draw):
-        """looks: the ruler's numbers, a disc on the hinge (the current policy's)"""
         draw_ruler_numbers(debug_draw, -3, 3)
-        a = float(self.pole.angle[0])
-        x, y = self.pole.position[0]
-        debug_draw.draw_solid_circle(b2d.transform(p=(x + 0.5 * np.sin(a), y - 0.5 * np.cos(a))), 0.06, LIGHT_COLOR)

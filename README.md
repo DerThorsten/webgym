@@ -8,7 +8,13 @@ watch them learn as it happens. Everything runs on your machine: python, numpy, 
 [pyjs](https://github.com/emscripten-forge/pyjs). No server, nothing to install.
 
 **▶ Try it: [derthorsten.github.io/webgym](https://derthorsten.github.io/webgym/)** ·
-[Help page](https://derthorsten.github.io/webgym/help.html)
+[Help page](https://derthorsten.github.io/webgym/help.html) · e.g. a pretrained ragdoll right
+away: [?env=Ragdoll&checkpoint=ppo](https://derthorsten.github.io/webgym/?env=Ragdoll&checkpoint=ppo)
+(all [URL options](https://derthorsten.github.io/webgym/help.html#url))
+
+| A pretrained ragdoll | Before it learns: NEAT's first tries |
+|---|---|
+| [![a pretrained ragdoll walking](https://github.com/DerThorsten/webgym/releases/download/videos/ragdoll_pretrained.gif)](https://derthorsten.github.io/webgym/?env=Ragdoll&checkpoint=ppo) | [![an untrained ragdoll stumbling](https://github.com/DerThorsten/webgym/releases/download/videos/ragdoll_neat_fresh.gif)](https://derthorsten.github.io/webgym/?env=Ragdoll&algo=neat) |
 
 Gymnasium-like box2d environments with live training, natively and **in the browser**
 (Python in WebAssembly via pyjs + emscripten-forge). Watch a population of agents learn,
@@ -18,7 +24,7 @@ drag the env around with the mouse.
 
 ## What you can do
 
-- **Train live.** Press the barbell (or just pick a world: it starts by itself): a whole population learns at once in one
+- **Train live.** Press Train (the button with the barbell icon; or just pick a world: it starts by itself): a whole population learns at once in one
   world, in a worker of its own; you watch the current policy (and the best candidates as
   ghosts) improve, the progress plot below. Pick a time budget (quick /
   medium / long) and each world suggests an algorithm and its settings.

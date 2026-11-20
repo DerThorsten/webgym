@@ -21,9 +21,11 @@ import numpy as np
 import pyb2d3 as b2d
 from pyb2d3 import extensions as ext
 
-from webgym.core import DARK_COLOR, GHOST_COLOR, LIGHT_COLOR, PARTICLE, SCENERY, SENSOR_COLOR, Env, register_env
+from webgym.core import (DARK_COLOR, GHOST_COLOR, LIGHT_COLOR, PARTICLE, SCENERY, SENSOR_COLOR, Env,
+                         draw_ruler_numbers, register_env, ruler)
 
 BARREL = 1.0  # a barrel's length (the water leaves at its end)
+FLAP = 0.3  # the length of a nozzle's flaps (they open as wide as the spray: you see it)
 ANGLE_MAX = 0.8  # a barrel's angle from straight up, either way (radians)
 WHEEL_SPEED, MOTOR_TORQUE = 8.0, 60.0  # at full drive
 JET_SPEED = 14.0  # m/s of the drops at full pressure
@@ -46,11 +48,12 @@ BALL = 32  # the balls' collision category
 GUN_ACTIONS = ("angle", "pressure", "spread")  # each cannon's actions
 
 
-def own(category, i):
+def own(category, i, grabbable=False):
     """a filter for agent i's water / balls: they touch the ground and each other (the
     same positive group always collides), not the cart, not the other agents' water and
-    balls (their masks leave them out): many agents fit in one world"""
-    return b2d.make_filter(category_bits=category, mask_bits=SCENERY, group_index=i + 1)
+    balls (their masks leave them out): many agents fit in one world. `grabbable`: the
+    pointer can grab it too (its queries have category 1; nothing else here has it)"""
+    return b2d.make_filter(category_bits=category, mask_bits=SCENERY | (1 if grabbable else 0), group_index=i + 1)
 
 
 def numbered(names, count):
@@ -94,7 +97,8 @@ class WaterCannon(Env):
         return [(x, 4.0 + 1.5 * b) for b, x in enumerate(self.guns_x)]
 
     def build_scenery(self):
-        self.scenery(b2d.box(40, 0.5, center=(0, -0.5)))
+        # the ground: a ruler, 80 m (box2d's default friction, as the runs were trained with)
+        ruler(self, -40, 40, friction=0.6)
 
     def build_agent(self, i):
         half = CART_HALF_WIDTH[self.balls]
@@ -107,7 +111,7 @@ class WaterCannon(Env):
                 local_frame_b=b2d.transform(p=(0, 0)), enable_motor=True, max_motor_torque=MOTOR_TORQUE,
             ))
         # the cannons: barrels on hinges on top of the cart, pointing up; motors turn them
-        barrels, hinges = [], []
+        barrels, hinges, flaps = [], [], []
         for x in self.guns_x:
             barrel = self.body((x, 1.3), b2d.box(0.1, BARREL / 2, center=(0, BARREL / 2)), density=1.0,
                                color=DARK_COLOR)
@@ -117,13 +121,24 @@ class WaterCannon(Env):
                 upper_angle=ANGLE_MAX, enable_motor=True, max_motor_torque=200.0,
             ))
             barrels.append(barrel)
+            # the nozzle: two flaps at the barrel's end, opened by motors as wide as the
+            # spray (see act); the water passes them (its drops touch only the ground and
+            # the balls)
+            for side in (-1, 1):  # (left, right)
+                flap = self.body((x + side * 0.07, 1.3 + BARREL), b2d.capsule((0, 0), (0, FLAP), 0.03), density=1.0,
+                                 color=LIGHT_COLOR)
+                flaps.append(self.world.create_revolute_joint(
+                    body_a=barrel, body_b=flap, local_frame_a=b2d.transform(p=(side * 0.07, BARREL)),
+                    local_frame_b=b2d.transform(p=(0, 0)), enable_limit=True, lower_angle=-SPREAD_MAX,
+                    upper_angle=SPREAD_MAX, enable_motor=True, max_motor_torque=5.0,
+                ))
         # the balls: light (gravity pulls them only a little, they fall slowly)
         balls = [self.body((x, y), b2d.circle(radius=BALL_RADIUS), density=0.2,
-                           filter=own(BALL, i), gravity_scale=BALL_GRAVITY, color=LIGHT_COLOR)
+                           filter=own(BALL, i, grabbable=True), gravity_scale=BALL_GRAVITY, color=LIGHT_COLOR)
                  for x, y in self.ball_starts]
         # (self.ball / self.barrel / self.hinge: all of them, agent after agent;
         # self.balls: how many each agent has)
-        return {"cart": cart, "axles": axles, "barrel": barrels, "hinge": hinges, "ball": balls}
+        return {"cart": cart, "axles": axles, "barrel": barrels, "hinge": hinges, "flap": flaps, "ball": balls}
 
     def water_cannon(self, k, seed):
         """an emitter of water drops at the end of barrel k (of all agents): it follows the
@@ -163,6 +178,9 @@ class WaterCannon(Env):
         self.hinge.target_motor_speed = 6.0 * (target - self.hinge.current_angle)  # (turn towards it)
         self.pressure = np.maximum(pressure, 0.0)
         self.spread = SPREAD_MIN + (spread + 1) / 2 * (SPREAD_MAX - SPREAD_MIN)
+        # the nozzles' flaps open to the spray's half angle (left flap turns left: +)
+        target = np.repeat(self.spread, 2) * np.tile([1.0, -1.0], len(self.spread))
+        self.flap.target_motor_speed = 10.0 * (target - self.flap.current_angle)
         for k, cannon in enumerate(self.cannon):
             p = float(self.pressure[k])
             cannon.enabled = p > 0.05
@@ -193,8 +211,9 @@ class WaterCannon(Env):
         return float(self.cart.position[i, 0]), self.view_center[1]
 
     def draw(self, debug_draw):
-        """the current policy's water as a liquid (its drops as metaballs; a wide shower's
-        drops lie further apart: bigger blobs, so they still merge)"""
+        """the ruler's numbers; the current policy's water as a liquid (its drops as
+        metaballs; a wide shower's drops lie further apart: bigger blobs, so they still merge)"""
+        draw_ruler_numbers(debug_draw, -40, 40)
         for k, cannon in enumerate(self.cannon[: self.balls]):  # (agent 0's cannons)
             if len(cannon):
                 wide = (self.spread[k] - SPREAD_MIN) / (SPREAD_MAX - SPREAD_MIN)  # (0: a jet .. 1: a shower)

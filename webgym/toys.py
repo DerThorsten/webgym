@@ -18,34 +18,38 @@ import pyb2d3 as b2d
 from webgym.core import SCENERY, SCENERY_FILTER
 
 TOY_COLOR, RAIN_COLOR, GROUND_COLOR = 0xD9A441, 0x5DA9E9, 0x8FBF6F
+RAIN_WATER = (0.45, 0.85, 0.95)  # (the rain drawn as a liquid: a light cyan, not the water cannon's blue)
 
-# the sliders of the Toys tab: {name: (default, min, max, step, group, explanation)}
+# the sliders of the Toys tab: {name: (default, min, max, step, group, explanation)};
+# step None: a free slider (no steps). The Gravity group's act while they are dragged
+# (LIVE), the others on the next toy
 PARAMS = {
-    "size": (0.4, 0.1, 1.5, 0.05, "Things to drop", "Boxes and balls: half the side of a box / the radius of a ball (m)."),
-    "weight": (1.0, 0.1, 10.0, 0.1, "Things to drop", "Boxes, balls and planks: their density (kg per m²): heavy ones knock the agent over."),
-    "bounce": (0.2, 0.0, 0.95, 0.05, "Things to drop", "Boxes, balls and planks: how bouncy they are (0: a thud, 0.95: a rubber ball)."),
-    "plank length": (2.0, 0.5, 6.0, 0.25, "Things to drop", "A plank: its length (m)."),
-    "blast radius": (4.0, 1.0, 10.0, 0.5, "Explosion", "How far it reaches (m)."),
-    "blast strength": (6.0, 1.0, 40.0, 1.0, "Explosion", "How hard it pushes (impulse per meter of surface facing it)."),
-    "ramp length": (3.0, 0.5, 8.0, 0.25, "Ramps and steps", "A ramp: how long it is (m); it rises to the right."),
-    "ramp height": (0.6, 0.1, 3.0, 0.05, "Ramps and steps", "A ramp: its height at the high end (m)."),
-    "step height": (0.3, 0.05, 2.0, 0.05, "Ramps and steps", "A step: its height (m); 1 m wide."),
-    "seesaw length": (3.0, 1.0, 8.0, 0.25, "Ramps and steps", "A seesaw: the length of its plank (m)."),
-    "heaviness": (20.0, 1.0, 100.0, 1.0, "Ramps and steps",
+    "size": (0.4, 0.1, 1.5, None, "Things to drop", "Boxes and balls: half the side of a box / the radius of a ball (m)."),
+    "weight": (1.0, 0.1, 10.0, None, "Things to drop", "Boxes, balls and planks: their density (kg per m²): heavy ones knock the agent over."),
+    "bounce": (0.2, 0.0, 0.95, None, "Things to drop", "Boxes, balls and planks: how bouncy they are (0: a thud, 0.95: a rubber ball)."),
+    "plank length": (2.0, 0.5, 6.0, None, "Things to drop", "A plank: its length (m)."),
+    "blast radius": (4.0, 1.0, 10.0, None, "Explosion", "How far it reaches (m)."),
+    "blast strength": (6.0, 1.0, 40.0, None, "Explosion", "How hard it pushes (impulse per meter of surface facing it)."),
+    "ramp length": (3.0, 0.5, 8.0, None, "Ramps and steps", "A ramp: how long it is (m); it rises to the right."),
+    "ramp height": (0.6, 0.1, 3.0, None, "Ramps and steps", "A ramp: its height at the high end (m)."),
+    "step height": (0.3, 0.05, 2.0, None, "Ramps and steps", "A step: its height (m); 1 m wide."),
+    "seesaw length": (3.0, 1.0, 8.0, None, "Ramps and steps", "A seesaw: the length of its plank (m)."),
+    "heaviness": (20.0, 1.0, 100.0, None, "Ramps and steps",
                   "Ramps, steps and seesaws: their density. Heavy ones stay where they are (but can be "
                   "pushed or tipped over), light ones slide away under the agent."),
-    "gravity x": (0.0, -2.5, 2.5, 0.05, "Gravity",
+    "gravity x": (0.0, -2.5, 2.5, None, "Gravity",
                   "The gravity vector's sideways part, in the world's own g (+ = to the right): a wind that pushes "
                   "everything; a storm at 1. (The arrow in the view's corner; its ring: 1 g.)"),
-    "gravity y": (1.0, -2.5, 2.5, 0.05, "Gravity",
+    "gravity y": (1.0, -2.5, 2.5, None, "Gravity",
                   "The gravity vector's downward part, in the world's own g: 1 as usual, 0.17 is the moon, 2.5 a "
                   "heavy planet, 0 floats, below 0 everything falls up."),
-    "rain rate": (120.0, 10.0, 600.0, 10.0, "Weather", "Rain: drops per second."),
-    "drop size": (0.06, 0.02, 0.3, 0.01, "Weather", "Rain: the radius of a drop (m)."),
-    "drop weight": (0.5, 0.1, 10.0, 0.1, "Weather", "Rain: the density of a drop: light drizzle .. hail."),
-    "drop life": (4.0, 0.5, 15.0, 0.5, "Weather", "Rain: how long a drop stays (s) before it disappears."),
+    "rain rate": (150.0, 10.0, 600.0, 10.0, "Weather", "Rain: drops per second."),
+    "drop size": (0.01, 0.005, 0.3, None, "Weather", "Rain: the radius of a drop (m)."),
+    "drop weight": (0.5, 0.1, 10.0, None, "Weather", "Rain: the density of a drop: light drizzle .. hail."),
+    "drop life": (15.0, 0.5, 15.0, None, "Weather", "Rain: how long a drop stays (s) before it disappears."),
 }
 GROUPS = ("Things to drop", "Explosion", "Ramps and steps", "Gravity", "Weather")  # (in this order)
+LIVE = ("Gravity",)  # the groups whose sliders act while dragged (the watched world follows at once)
 
 
 def defaults():
@@ -180,10 +184,12 @@ GRAVITY_COLOR = 0xEFE2C8
 
 
 def draw_gravity(draw, camera, p):
-    """the gravity vector as an arrow in the view's top right corner; the ring: 1 g"""
-    r = 0.12 * camera.zoom  # (1 g, in world units: the same size on screen at any zoom)
+    """the gravity vector as an arrow in the view's top right corner; the ring: 1 g. Far
+    enough from the edges that the longest arrow (both sliders at their limit) fits"""
+    r = 0.06 * camera.zoom  # (1 g, in world units: the same size on screen at any zoom)
+    reach = max(abs(PARAMS[k][i]) for k in ("gravity x", "gravity y") for i in (1, 2)) * r  # (per axis)
     corner = camera.convert_screen_to_world(b2d.Vec2(camera.width, 0))
-    center = (corner[0] - 2.0 * r, corner[1] - 2.0 * r)
+    center = (corner[0] - reach - 0.04 * camera.zoom, corner[1] - reach - 0.04 * camera.zoom)
     draw.draw_circle(center, r, GRAVITY_COLOR)
     dx, dy = p["gravity x"] * r, -p["gravity y"] * r
     length = np.hypot(dx, dy)
@@ -227,3 +233,19 @@ class Rain:
             else:
                 alive.append([body, life - dt])
         self.drops = alive
+
+    def clear(self, world):
+        """remove all drops (the rain stops); only from the world they are in (see step)"""
+        if world is self.world:
+            for body, _ in self.drops:
+                if body.is_valid:
+                    body.destroy()
+        self.drops = []
+
+    def draw(self, draw, p):
+        """the drops as water (a liquid: they merge into puddles; the drop bodies
+        themselves, in RAIN_COLOR, are not drawn)"""
+        drops = [body for body, _ in self.drops if body.is_valid]
+        if drops:
+            # (the blobs bigger than the drops: they flow together into puddles)
+            draw.draw_liquid(b2d.Bodies(drops).position, 3.5 * p["drop size"], RAIN_WATER)

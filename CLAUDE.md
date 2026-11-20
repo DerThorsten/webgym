@@ -161,14 +161,17 @@ Technical considerations:
   `toys.gravity`: "gravity x" sideways, "gravity y" down, both in the world's own g,
   -2.5..2.5 (y below 0: falls up), set on the watched world every step, only while the
   Toys tab is open, drawn as an arrow in the view's top right corner, a ring = 1 g,
-  `toys.draw_gravity`; not 1 g down: nothing sleeps; a "Reset gravity" button, command
+  `toys.draw_gravity`, only while the Gravity fold is open (main.js `showGravity` sends
+  "gravity_shown" to the display on a change only: an open fold fires its toggle again
+  on every controls rebuild); not 1 g down: nothing sleeps; a "Reset gravity" button, command
   "gravity_reset"; a fold may hold buttons); weather (rain); sliders from `toys.PARAMS` in
   folds per `toys.GROUPS` (controls with "group" + "fold": `<details>` in main.js, open
   state kept in `openFolds`; commands "toy.<name>"); an
   explosion is drawn as growing rings + a flash (`toys.draw_blasts`, as pyb2d3's tank
   sample); opening the tab (command "toy_mode") or a toy turns auto reset off and shows
   one policy; R clears them: the snapshot reset drops later bodies; leaving the tab starts
-  a new episode in the world as it was: no rain, the env's gravity, no toy on a click; the
+  a new episode in the world as it was: no rain, the env's gravity, no toy on a click,
+  auto reset on again; the
   settings stay for the next visit) / Policy: network +
   checkpoints / Log: state, packages, log; the tab is remembered), the world with the training progress plot in a strip below it (closable,
   remembered). First visit: a welcome card at once, while python loads (a status line
@@ -202,8 +205,8 @@ Technical considerations:
   checkpoint of the best mean iteration) into `web/public/pretrained/` (not in git:
   `--upload` puts them on the GitHub release `pretrained-<version>`, `--download` gets
   them; the Pages workflow downloads before building). `build_page.py` writes
-  `public/pretrained/index.json`; the Policy tab lists them as "Pretrained · <algo
-  label>" (restore only, fetched on click) for their env key, every algorithm, the best
+  `public/pretrained/index.json`; the Policy tab lists them named after their algo
+  without "_torch" ("ppo"; "pretrained · <algo label>" below; restore only, fetched on click) for their env key, every algorithm, the best
   mean first (a restore switches algo + network). Limits per run: numpy 6 min, pytorch
   12 min (the minutes decide: the CLI continues a trainer that ends by itself, `--hp
   NAME=VALUE` sets algorithm parameters). Envs with runs per setting: `pretrain.py
@@ -219,11 +222,29 @@ Technical considerations:
   first (`Env.show_ghosts`, `draw_world(show=/hide=)`), sensors hidden, the walkers' ground
   a ruler with numbered metres (`core.ruler(env, start, end, depth)`,
   `draw_ruler_numbers(debug_draw, start, end)`; also the Blob, the Drone and the cart
-  poles: there 6 m, -3..3, as the old ground).
+  poles: there 6 m, -3..3, as the old ground). Later the same day: the world is flushed
+  before `Env.draw`, so an env's own drawing (hinge discs, springs) lies on top; liquids
+  per color (`GLDebugDraw.liquids`, they don't merge); the Toys rain drawn as a light cyan
+  liquid (`toys.RAIN_WATER`, blobs 3.5x the drop, default drop size 0.03; rain off removes
+  its drops). Shapes: an agent's polygons get rounded corners (`core.rounded`, in
+  `Env.shape`: same outer size, radius `ROUND` = 4 cm or less; thinner than 4 cm, e.g. the
+  cart poles' poles, stay sharp; scenery (rulers, posts, the lander's ground) is never
+  rounded); leg parts are capsules whose round ends are centered on the joints (Walker,
+  Crawler, Ragdoll legs; the lander's legs capsules too). WaterCannon: a nozzle of two
+  flaps (capsules on motor hinges at the barrel's end) opens as wide as the spray; the
+  water passes them. The runs of Walker, Crawler, Ragdoll, WaterCannon were retrained
+  for these shapes.
   `--upload` doesn't remove assets that are
   gone locally: `gh release delete-asset`. After an env changes, retrain its runs and
   check them all: `pixi run -e ml python web/check_pretrained.py` (restores each as the
   page does, replays its policy on the current env vs its training mean).
+  Help videos (2026-11-20): `pixi run -e web-test python web/help_videos.py [names]`
+  (`SCENES`: pretrained runs, NEAT's first ragdoll episodes, the network view, the whole
+  page; chrome's screencast frames -> ffmpeg (in web-test): 16:9, 960x540 mp4 + poster jpg
+  + gif; one policy, no score card, each clip starts a new episode). Not in git: the
+  release "videos" (`--upload`; the Pages workflow `--download`s mp4 + jpg into
+  public/help/videos/; the README links the gifs on the release). help.html: `<video
+  preload="none" poster>`, played while in view (IntersectionObserver).
   Help screenshots: `pixi run -e web-test python web/help_shots.py` (uses the pretrained
   PPO walker / ragdoll; the Toys scenes: ramp, explosion, rain).
 - PPO and A2C scale the rewards (`ppo_torch.RewardScale`, as gymnasium's NormalizeReward
@@ -264,7 +285,17 @@ Technical considerations:
   once the trainer is ready. Measured: Walker, 20 s: 20 iterations alone, 72 with 3.
 - Query params: `env`, `algo`, `population`, `seed`, `train=0` (no autostart; picking another world or a
   setting in the page always starts training, after restoring its autosave),
-  `arch`, `dpr`, `tour=0`, `welcome=1`.
+  `arch`, `dpr`, `tour=0`, `welcome=1`, env settings (`poles=4`), `checkpoint=NAME` (one
+  parameter for all kinds alike, decided 2026-11-20: own saves of the env key first,
+  "autosave" too, any algo, the newest; then pretrained runs by their name, the algo
+  without "_torch": `?checkpoint=ppo`, kept short on purpose): restored at page
+  load instead of the autosave, as by the user (`checkpoints.onControls` `pick`; the
+  automatic training start is cancelled: it watches). A restore notes the run's env +
+  algo first, so its algo switch doesn't restore that algo's autosave over it. All of
+  them are documented for users in help.html#url ("URL options"): keep that list
+  complete when adding one. help.html#pretrained links the best pretrained run of each
+  non-trivial world (`?env=…&checkpoint=<algo>`; the user-facing text says "a
+  pretrained run", not "best"): update it after retraining.
 - Crash handling: a wasm trap in a worker -> the page restarts it (autosave restored); more
   than 3 crashes a minute -> stop. Python exceptions are only reported.
 - Measured (headless chromium, wasm64): page running after ~3.2 s cold, ~0.9 s on reload

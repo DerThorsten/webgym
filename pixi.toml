@@ -51,6 +51,7 @@ depends-on = ["npm-install", "web-archives"]
 # the built page in headless chromium (playwright; its browser lives in .pixi)
 [feature.web-test.dependencies]
 playwright-python = "*"
+ffmpeg = "*"  # (web/help_videos.py: the page's recordings -> mp4 / gif)
 
 [feature.web-test.activation.env]
 PLAYWRIGHT_BROWSERS_PATH = "$PIXI_PROJECT_ROOT/.pixi/ms-playwright"

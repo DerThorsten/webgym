@@ -51,6 +51,7 @@ class LunarLander(Env):
     discrete_names = ("nothing", "left engine", "main engine", "right engine")
     dt, substeps = 1 / FPS, 4
     max_steps = 1000
+    hinge_discs = False  # (the legs' joints sit at the lander's center, as in Gymnasium: no discs)
     gravity = (0, -10.0)
     view_center, view_zoom = (W / 2, H / 2), H / 2 + 0.5
     suggested = {"quick": {"cem": {}, "neat": {}},
@@ -73,7 +74,9 @@ class LunarLander(Env):
                            density=5.0, friction=0.1, enable_sleep=True, color=LIGHT_COLOR)  # (asleep: landed)
         legs, joints, feet = [], [], []
         for side in (-1, 1):
-            leg = self.body((W / 2 - side * LEG_AWAY / SCALE, H), b2d.box(LEG_W / SCALE, LEG_H / SCALE),
+            # (a capsule as long and wide as Gymnasium's box leg)
+            end = (LEG_H - LEG_W) / SCALE
+            leg = self.body((W / 2 - side * LEG_AWAY / SCALE, H), b2d.capsule((0, -end), (0, end), LEG_W / SCALE),
                             density=1.0, friction=0.1, enable_sleep=True, rotation=side * 0.05, color=DARK_COLOR)
             # (the springy legs: a motor pushes them out against a limit)
             joints.append(self.world.create_revolute_joint(

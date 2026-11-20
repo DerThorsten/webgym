@@ -88,6 +88,8 @@ class Env:
     # the best return an episode can get, if known (e.g. CartPole: 1 per step, 500 steps);
     # the page shows it next to the returns and marks a perfect score; None: unknown
     max_return = None
+    # looks: a disc on each hinge of the current policy's agent (draw_hinges); False: none
+    hinge_discs = True
     gravity = (0, -10)
     # initial camera: world point at the view center, half height in world units
     view_center = (0.0, 0.0)
@@ -128,6 +130,7 @@ class Env:
                 parts.setdefault(name, []).extend(part if isinstance(part, (list, tuple)) else [part])
         for name, items in parts.items():
             setattr(self, name, _batch(items))
+        self._hinges = _hinges([b for b, i in zip(self._bodies, self._owner) if i == 0]) if self.hinge_discs else []
         self._bodies = b2d.Bodies(self._bodies)
         self._owner = np.array(self._owner)
         self._shapes = [b2d.Shapes(s) for s in self._shapes]
@@ -238,7 +241,7 @@ class Env:
         its surface, e.g. rolling_resistance)"""
         shape_def = b2d.shape_def(density=density, filter=filter,
                                   material=b2d.surface_material(friction=friction, custom_color=color, **material))
-        shape = body.create_shape(shape_def, geometry)
+        shape = body.create_shape(shape_def, rounded(geometry))
         self._shapes[self._agent].append(shape)
         return shape
 
@@ -304,6 +307,12 @@ class Env:
     def _observation(self):
         return np.column_stack(self.observe()).astype(np.float32)
 
+    def draw_hinges(self, debug_draw):
+        """looks: a disc on each hinge (revolute joint) of agent 0, the current policy,
+        sized to the parts it joins (the app draws them on top, for every env)"""
+        for body, p, radius in self._hinges:
+            debug_draw.draw_solid_circle(b2d.transform(p=body.world_point(p)), radius, LIGHT_COLOR)
+
     def show_ghosts(self):
         """the agents after the first in GHOST_COLOR (the view draws them translucent);
         agent 0, the current policy, keeps its own colors"""
@@ -323,18 +332,38 @@ class Env:
         self.world.destroy()
 
 
+ROUND = 0.04  # m: the corner radius of an agent's polygons (see rounded)
+
+
+def rounded(geometry):
+    """a polygon with rounded corners, the same outer size (an agent's boxes: they look
+    softer and slide over edges instead of catching on them); thin ones (less than 4 cm
+    across: the cart poles' poles) and other geometry (circles, capsules, polygons that
+    are rounded already) stay as they are"""
+    if not isinstance(geometry, b2d.Polygon) or geometry.radius > 0:
+        return geometry
+    v, n = np.array(geometry.vertices), np.array(geometry.normals)  # (edge i: v[i] -> v[i+1], normal n[i])
+    extent = min(float(np.dot(n[i], v[i] - np.array(geometry.centroid))) for i in range(len(v)))
+    if extent < ROUND:
+        return geometry
+    r = min(ROUND, 0.3 * extent)
+    prev = np.roll(n, 1, axis=0)  # (the normal of the edge before each vertex)
+    inset = v - r * (prev + n) / (1 + np.sum(prev * n, axis=1))[:, None]  # (each edge moved in by r)
+    return b2d.polygon(points=inset, radius=r)
+
+
 # -- helpers for envs: a ruler as the ground, discrete actions ---------------------------
 
 RULER_COLOR, RULER_MARKS = 0xE6CF8E, 0x3B3326  # (a wooden ruler, dark marks)
 
 
-def ruler(env, start=-10, end=390, depth=1.0):
+def ruler(env, start=-10, end=390, depth=1.0, friction=1.0):
     """flat ground from x = start to end (m), `depth` deep, a ruler: a mark every 10 cm,
     longer ones every 50 cm and every metre (numbered: draw_ruler_numbers in the env's
     draw). The marks are looks only: nothing collides with them. Returns the ground body
     (its top at y = 0)"""
     ground = env.scenery(b2d.box((end - start) / 2, depth / 2, center=((start + end) / 2, -depth / 2)),
-                         friction=1.0, color=RULER_COLOR)
+                         friction=friction, color=RULER_COLOR)
     mark = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=RULER_MARKS))
     for k in range(start * 10, end * 10 + 1):  # (in cm / 10)
         length = 0.25 if k % 10 == 0 else 0.15 if k % 5 == 0 else 0.08
@@ -374,6 +403,37 @@ def bang_bang(groups, joints):
     for g, group in enumerate(groups):
         actions[:, group] = signs[:, g : g + 1]
     return actions, tuple("".join("+" if s > 0 else "-" for s in row) for row in signs)
+
+
+def _thickness(body):
+    """half the width of a body's (first, non-sensor) shape: a circle's or capsule's radius,
+    a polygon's smallest distance from its center to an edge (+ its rounding)"""
+    for shape in body.shapes:
+        if shape.is_sensor:
+            continue
+        s = shape.cast()
+        if shape.type == b2d.ShapeType.circle:
+            return s.circle.radius
+        if shape.type == b2d.ShapeType.capsule:
+            return s.capsule.radius
+        if shape.type == b2d.ShapeType.polygon:
+            g = s.polygon
+            v, n, c = np.array(g.vertices), np.array(g.normals), np.array(g.centroid)
+            return min(float(np.dot(n[i], v[i] - c)) for i in range(len(v))) + g.radius
+    return 0.05
+
+
+def _hinges(bodies):
+    """the revolute joints of these bodies as (body a, its local anchor point, a disc
+    radius: 60 % of the thinner of the two parts it joins), each once (from its body b)"""
+    hinges = []
+    for body in bodies:
+        for joint in body.joints:
+            if joint.type == b2d.JointType.REVOLUTE and joint.body_b == body:
+                a, p = joint.body_a, joint.local_frame_a.p
+                radius = 0.6 * min(_thickness(a), _thickness(body))
+                hinges.append((a, (float(p[0]), float(p[1])), radius))
+    return hinges
 
 
 def _batch(items):

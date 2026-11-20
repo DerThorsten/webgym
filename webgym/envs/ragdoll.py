@@ -6,8 +6,9 @@ ankles. Without a policy the motors are limp and it collapses.
 obs: torso angle, angular velocity and velocity, the 11 joint angles and speeds,
 foot contacts, the heels' heights above the ground in m (30 values).
 action: 11 joint torques in [-1, 1] (each joint's strength: TORQUE).
-reward: forward progress, minus a small effort cost; -100 when it falls (the torso
-low or tilted). Episodes last 10 s, or end when it makes no progress for 1.5 s.
+reward: forward progress, minus a small effort cost, a little for every step it stays
+upright; -100 when it falls (the torso low or tilted). Episodes last 10 s, or end when
+it makes no progress for 1.5 s.
 """
 
 import numpy as np
@@ -24,6 +25,13 @@ MAX_SPEED = 20.0  # rad/s the motors drive towards
 LIMITS = {"hip": (-0.6, 1.3), "knee": (-1.5, 0.0), "ankle": (-0.5, 0.5),
           "shoulder": (-1.0, 2.0), "elbow": (0.0, 1.5), "neck": (-0.3, 0.3)}
 FALL_Y, FALL_ANGLE = 0.55, 1.0  # the torso lower (standing: 0.68) / tilted more: fallen
+# reward per step with the torso upright (tilted less than UPRIGHT_ANGLE): standing pays a
+# little, as in Gymnasium's Walker2d / Humanoid ("healthy reward"); CEM learns to walk far
+# more often with it (8 seeds: median 8.6 m instead of 1.3 m, with the lighter top and the
+# grip below)
+UPRIGHT_BONUS, UPRIGHT_ANGLE = 0.05, 0.5
+TOP_DENSITY = 6.0  # torso and head (the limbs: 10): a light top tips over less easily
+GRIP = 1.5  # the feet's friction
 # no progress (the torso did not get STALL_DISTANCE further right than ever before) for
 # STALL_SECONDS: the episode ends (no penalty), the population does not wait for it
 STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
@@ -43,20 +51,23 @@ class Ragdoll(Env):
     view_center, view_zoom = (0.0, 1.0), 2.0
     suggested = {"quick": {"cem": {}},
                  "medium": {"cem": {}, "ppo_torch": {"hidden": 64}},
-                 "long": {"ppo_torch": {"hidden": 64}, "cem": {}}}
+                 "long": {"ppo_torch": {"hidden": 64}, "cem": {}, "neat": {}}}
 
     def build_scenery(self):
         ruler(self)  # (the ground: a ruler, you see how far it walked)
 
     def build_agent(self, i):
         # heights in m above the ground (about 1.35 m tall)
-        torso = self.body((0, 0.68), b2d.capsule((0, 0), (0, 0.37), 0.1), density=10.0, color=DARK_COLOR)
-        head = self.body((0, 1.2), b2d.capsule((0, -0.04), (0, 0.04), 0.075), density=10.0, color=LIGHT_COLOR)
+        torso = self.body((0, 0.68), b2d.capsule((0, 0), (0, 0.37), 0.1), density=TOP_DENSITY, color=DARK_COLOR)
+        head = self.body((0, 1.2), b2d.capsule((0, -0.04), (0, 0.04), 0.075), density=TOP_DENSITY,
+                         color=LIGHT_COLOR)
         joints, feet, soles = [], [], []
         for side in "LR":
-            thigh = self.body((0, 0.5), b2d.capsule((0, -0.125), (0, 0.125), 0.06), density=10.0)
-            shin = self.body((0, 0.2), b2d.capsule((0, -0.155), (0, 0.125), 0.045), density=10.0)
-            foot = self.body((0, 0.2), FOOT, density=10.0, friction=1.0, color=DARK_COLOR)
+            # (the legs' capsules: their round ends centered on the joints, hip 0.63, knee
+            # 0.355, ankle 0.05: they line up; the arms' do already)
+            thigh = self.body((0, 0.5), b2d.capsule((0, 0.355 - 0.5), (0, 0.63 - 0.5), 0.06), density=10.0)
+            shin = self.body((0, 0.2), b2d.capsule((0, 0.05 - 0.2), (0, 0.355 - 0.2), 0.045), density=10.0)
+            foot = self.body((0, 0.2), FOOT, density=10.0, friction=GRIP, color=DARK_COLOR)
             soles.append(foot)
             # (the sensor: the whole sole, heel to toes, and a little below it)
             feet.append(self.sensor(foot, b2d.box(0.13, 0.04, center=(0.05, -0.18))))
@@ -104,7 +115,8 @@ class Ragdoll(Env):
 
     def reward(self):
         x, y = self.torso.position.T
-        reward = 10 * (x - self.prev_x) - 0.005 * self.effort
+        upright = np.abs(self.torso.angle) < UPRIGHT_ANGLE
+        reward = 10 * (x - self.prev_x) - 0.005 * self.effort + UPRIGHT_BONUS * upright
         self.prev_x = x
         fallen = (y < FALL_Y) | (np.abs(self.torso.angle) > FALL_ANGLE)
         progressed = x > self.best_x + STALL_DISTANCE

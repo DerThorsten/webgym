@@ -43,7 +43,7 @@ const TOURS = {
   ],
   detailed: [
     // above the tabs: training's buttons, auto reset
-    { target: "#quick-train", text: "<b>Train</b> (the barbell; blue: training). A click starts learning, another stops it and keeps the run: the next click continues it. Training runs in a worker of its own: the page stays responsive, and the world you watch keeps going either way." },
+    { target: "#quick-train", text: "<b>Train</b> (the button with the barbell icon; blue: training). A click starts learning, another stops it and keeps the run: the next click continues it. Training runs in a worker of its own: the page stays responsive, and the world you watch keeps going either way." },
     { target: "#quick-new", text: "<b>New run</b> (the circling arrows) throws the run away (network, history, autosave) and starts training from scratch." },
     { target: "#chips", text: "<b>The live numbers:</b> the world (with its settings), training and its iteration, the population's mean and best return, and what you watch: the training iteration its policy comes from (the trainer sends its newest one as it learns) and the return of the episode so far." },
     { target: "#quick-episode", text: "<b>Reset episode</b> (or R): the watched world starts a new episode now." },
@@ -116,7 +116,7 @@ export function welcome() {
       pytorch, compiled to WebAssembly by <a href="https://emscripten-forge.org" target="_blank" rel="noopener">emscripten-forge</a>.
       No server, nothing to install.</p>
     <ul>
-      <li>Press <b>Train</b> (the barbell) and see a whole population learn; the plot below
+      <li>Press <b>Train</b> (the button with the barbell icon) and see a whole population learn; the plot below
         the world shows the progress.</li>
       <li>Look inside: the agent's <b>neural network</b>, live (Policy tab): what it sees,
         how its neurons fire and its weights, as it acts.</li>

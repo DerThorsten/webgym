@@ -13,6 +13,11 @@
       a { color: #6a9fd8; }
       img { max-width: 100%; border: 1px solid #333; border-radius: 4px; display: block; margin: 10px 0; }
       img.small { max-width: 380px; }
+      /* clips (web/help_videos.py): the poster at once, the video when in view */
+      figure.clip { margin: 10px 0 14px; }
+      figure.clip video { width: 100%; display: block; border: 1px solid #333; border-radius: 4px; background: #222; }
+      figure.clip figcaption { color: #999; font-size: 13px; margin-top: 4px; }
+      .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 14px; }
       .orange { color: #ff8c42; font-weight: 600; }
       .blue { color: #4fa3ff; font-weight: 600; }
       code, kbd { background: #222; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
@@ -39,6 +44,10 @@
       <a href="https://github.com/emscripten-forge/pyjs">pyjs</a>). Nothing runs on a server. Pick an environment, press <b>Train</b> and watch the
       agents learn, live.
     </p>
+    <figure class="clip">
+      <video src="help/videos/ragdoll_ui.mp4" poster="help/videos/ragdoll_ui.jpg" muted loop playsinline preload="none"></video>
+      <figcaption>The page with a pretrained ragdoll walking.</figcaption>
+    </figure>
     <ul>
       <li><a href="#overview">The page</a></li>
       <li><a href="#training">Training</a></li>
@@ -63,7 +72,7 @@
     </p>
     <p>
       <b>Left panel</b>: on top two rows of icons (hover them for what they do). The first:
-      the <b>barbell</b> trains (blue while training; a click stops it, the next one
+      the button with the <b>barbell icon</b> trains (blue while training; a click stops it, the next one
       continues; the world you watch keeps going either way); the circling arrows start a new
       run from scratch; the skip-back icon starts a new episode (or R); <b>⏸</b> pauses the
       world you watch (Space; ▶ continues; training goes on); then two switches
@@ -89,12 +98,16 @@
     <h2 id="training">Training</h2>
     <img src="help/training.png" alt="training" />
     <p>
-      <b>Train</b> (the barbell) starts learning: a whole <b>population</b> of agents in one
+      <b>Train</b> (the button with the barbell icon) starts learning: a whole <b>population</b> of agents in one
       world (they don't collide with each other), each trying a different policy, in a
-      worker of its own, as fast as it can. The world you see shows the current policy (and
-      as <span class="blue">blue</span> ghosts the best candidates, see "Show policies"),
+      worker of its own, as fast as it can. The world you see shows the current policy,
       updated as it learns.
     </p>
+    <figure class="clip">
+      <video src="help/videos/ragdoll_neat_fresh.mp4" poster="help/videos/ragdoll_neat_fresh.jpg" muted loop playsinline preload="none"></video>
+      <figcaption>The first minute: NEAT starts training the ragdoll from scratch, every
+        episode a new attempt.</figcaption>
+    </figure>
     <dl>
       <dt>Time budget</dt>
       <dd>Quick (~1 min), medium (~5 min) or long (~20 min): picks the algorithm and settings
@@ -116,8 +129,8 @@
         population's episodes: CEM and ES train several times faster. Each costs memory;
         more than your CPU cores don't help.</dd>
       <dt>Train / new run (above the tabs)</dt>
-      <dd>The barbell (blue: training): a click stops and keeps the run, the next continues
-        it. <b>New run</b> (the circling arrows)
+      <dd>The button with the barbell icon (blue: training): a click stops and keeps the run,
+        the next continues it. <b>New run</b> (the circling arrows)
         starts from scratch.
         Picking another world starts training by itself.</dd>
     </dl>
@@ -161,12 +174,25 @@
       (what the agent sees, with their values), right the actions. Neurons are colored by
       activation (<span class="orange">orange</span> positive, <span class="blue">blue</span>
       negative), connections by their weight.</p>
+    <div class="clips">
+      <figure class="clip">
+        <video src="help/videos/walker_network.mp4" poster="help/videos/walker_network.jpg" muted loop playsinline preload="none"></video>
+        <figcaption>A pretrained walker and its network, live.</figcaption>
+      </figure>
+      <figure class="clip">
+        <video src="help/videos/neat_growing.mp4" poster="help/videos/neat_growing.jpg" muted loop playsinline preload="none"></video>
+        <figcaption>NEAT training the lander: its network changes shape (new parts glow green).</figcaption>
+      </figure>
+    </div>
     <p><b>Checkpoints</b> (Policy tab, below the network): stored in your browser, per
       environment (with its settings) + algorithm. The <i>autosave</i> is updated while
       training (a reload continues where you were); give a name and press Save to keep one.
       Restore loads it, Delete removes it. Below them the <b>pretrained runs</b> that come
-      with the page, one per algorithm, the best first ("Pretrained · PPO (pytorch)"):
-      Restore switches to that algorithm and its network, and Train continues it.</p>
+      with the page, one per algorithm, the best first, named after their algorithm
+      (<code>ppo</code>, <code>cem</code>, <code>neat</code>, …): Restore switches
+      to that algorithm and its network, and Train continues it. A link can open any of
+      them by name, yours too: <code>?env=Walker&amp;checkpoint=ppo</code> (see
+      <a href="#url">URL options</a>).</p>
     <p><b>Log</b> tab: the detailed state, what was loaded (e.g. pytorch), messages / errors.</p>
 
     <h2 id="code">Editing the python code</h2>
@@ -215,6 +241,7 @@
       let it rain. The settings of each (size, weight, rain rate, ...) are in its
       fold. A click on a body still grabs it. Opening the tab switches auto reset off and
       shows one policy, without a score (no time limit applies); R (reset) clears the world
+      again. Leaving the tab starts a new episode in the world as it was, with auto reset on
       again.
     </p>
     <p>A ramp in the walker's way: it never saw a slope in training, does it make it up?</p>
@@ -242,12 +269,107 @@
       <li>CartPole and the Blob learn in seconds, LunarLander and the Drone (PPO) in a minute
         or so, the walkers take longer. MultiCartPole with 4 or 5 poles is hard: try the
         pretrained runs.</li>
-      <li>URL options: <code>?env=Walker&amp;algo=es&amp;population=128&amp;seed=1</code>,
-        <code>train=0</code> (don't start training); a world's settings too, e.g.
-        <code>?env=MultiCartPole&amp;poles=4</code>.</li>
+      <li>Links can open the page in a given state, e.g. watching a pretrained ragdoll:
+        <code>?env=Ragdoll&amp;checkpoint=ppo</code>. All options:
+        <a href="#url">URL options</a>.</li>
       <li>The first visit downloads python and the packages; later visits come from the
         browser cache and start in about a second.</li>
     </ul>
+
+    <h2 id="pretrained">Pretrained runs to watch</h2>
+    <p>The clips show what these agents learned. A click on a name opens webgym with that
+      world and loads the pretrained network (its weights come with the page); the agent
+      then acts live in your browser, as if you had trained it yourself: grab it, throw toys
+      at it, or press Train to go on learning from there.</p>
+    <div class="clips">
+      <figure class="clip">
+        <video src="help/videos/ragdoll_pretrained.mp4" poster="help/videos/ragdoll_pretrained.jpg" muted loop playsinline preload="none"></video>
+        <figcaption><a href="./?env=Ragdoll&amp;checkpoint=ppo">Ragdoll</a></figcaption>
+      </figure>
+      <figure class="clip">
+        <video src="help/videos/walker_pretrained.mp4" poster="help/videos/walker_pretrained.jpg" muted loop playsinline preload="none"></video>
+        <figcaption><a href="./?env=Walker&amp;checkpoint=ppo">Walker</a></figcaption>
+      </figure>
+      <figure class="clip">
+        <video src="help/videos/crawler_pretrained.mp4" poster="help/videos/crawler_pretrained.jpg" muted loop playsinline preload="none"></video>
+        <figcaption><a href="./?env=Crawler&amp;checkpoint=ppo">Crawler</a></figcaption>
+      </figure>
+      <figure class="clip">
+        <video src="help/videos/lander_pretrained.mp4" poster="help/videos/lander_pretrained.jpg" muted loop playsinline preload="none"></video>
+        <figcaption><a href="./?env=LunarLander&amp;checkpoint=reinforce">LunarLander</a></figcaption>
+      </figure>
+      <figure class="clip">
+        <video src="help/videos/drone_pretrained.mp4" poster="help/videos/drone_pretrained.jpg" muted loop playsinline preload="none"></video>
+        <figcaption><a href="./?env=Drone&amp;checkpoint=ppo">Drone</a></figcaption>
+      </figure>
+      <figure class="clip">
+        <video src="help/videos/watercannon_pretrained.mp4" poster="help/videos/watercannon_pretrained.jpg" muted loop playsinline preload="none"></video>
+        <figcaption><a href="./?env=WaterCannon&amp;balls=2&amp;checkpoint=ppo">WaterCannon, 2 balls</a></figcaption>
+      </figure>
+    </div>
+    <ul>
+      <li><a href="./?env=LunarLander&amp;checkpoint=reinforce">LunarLander</a> (REINFORCE)</li>
+      <li><a href="./?env=MultiCartPole&amp;poles=4&amp;checkpoint=ppo">MultiCartPole, 4 poles</a>
+        and <a href="./?env=MultiCartPole&amp;poles=5&amp;checkpoint=ppo">5 poles</a> (PPO)</li>
+      <li><a href="./?env=Walker&amp;checkpoint=ppo">Walker</a> (PPO)</li>
+      <li><a href="./?env=Crawler&amp;checkpoint=ppo">Crawler</a> (PPO)</li>
+      <li><a href="./?env=Ragdoll&amp;checkpoint=ppo">Ragdoll</a> (PPO)</li>
+      <li><a href="./?env=WaterCannon&amp;checkpoint=ppo">WaterCannon, 1 ball</a> and
+        <a href="./?env=WaterCannon&amp;balls=2&amp;checkpoint=ppo">2 balls</a> (PPO)</li>
+      <li><a href="./?env=Blob&amp;checkpoint=es">Blob</a> (ES)</li>
+      <li><a href="./?env=Drone&amp;checkpoint=ppo">Drone</a> (PPO)</li>
+    </ul>
+
+    <h2 id="url">URL options</h2>
+    <p>Add them to the page's address after a <code>?</code>, joined with <code>&amp;</code>,
+      e.g. <code>?env=Walker&amp;checkpoint=ppo</code>. The page keeps
+      <code>env</code> and <code>algo</code> in the address up to date, so a copied link opens
+      the same world.</p>
+    <dl>
+      <dt><code>env</code></dt>
+      <dd>The world: <code>CartPole</code>, <code>MultiCartPole</code>, <code>LunarLander</code>,
+        <code>Walker</code>, <code>Crawler</code>, <code>Ragdoll</code>, <code>WaterCannon</code>,
+        <code>Blob</code>, <code>Drone</code>. Unknown: the default (CartPole).</dd>
+      <dt>a world's settings</dt>
+      <dd>As in its World tab: <code>poles=2</code> … <code>5</code> (MultiCartPole),
+        <code>balls=1</code> or <code>2</code> (WaterCannon), e.g.
+        <code>?env=MultiCartPole&amp;poles=4</code>.</dd>
+      <dt><code>algo</code></dt>
+      <dd>The algorithm: <code>cem</code>, <code>es</code>, <code>neat</code> (numpy);
+        <code>ppo_torch</code>, <code>a2c_torch</code>, <code>reinforce_torch</code>,
+        <code>sac_torch</code>, <code>td3_torch</code>, <code>dqn_torch</code> (pytorch).
+        Without it: the world's suggestion for the time budget.</dd>
+      <dt><code>checkpoint</code></dt>
+      <dd>Watch a checkpoint of the world right away, by its name as listed in the Policy tab
+        (instead of continuing the autosave, and without starting to train). All kinds alike:
+        a pretrained one, named after its algorithm (<code>ppo</code>, <code>cem</code>,
+        <code>es</code>, <code>neat</code>, <code>sac</code>, <code>dqn</code>, …), one you saved in
+        this browser (the newest of that name; it comes first if it has a pretrained one's
+        name), or <code>autosave</code>. E.g. <code>?env=Ragdoll&amp;checkpoint=ppo</code>,
+        <code>?env=CartPole&amp;checkpoint=my%20best%20run</code>. Not found: the autosave as
+        usual.</dd>
+      <dt><code>train=0</code></dt>
+      <dd>Don't start training when the page opens (it does by default, continuing your
+        autosave if there is one).</dd>
+      <dt><code>population</code></dt>
+      <dd>How many agents learn at once (as the slider in the Training tab), up to 256.</dd>
+      <dt><code>seed</code></dt>
+      <dd>The random seed of training and of the episodes you watch (a number), for
+        reproducible runs.</dd>
+      <dt><code>helpers</code></dt>
+      <dd>How many simulation workers (as the slider in the Training tab; 0: none). Without
+        it: what you chose last, else about half your CPU cores.</dd>
+      <dt><code>arch</code></dt>
+      <dd><code>wasm64</code> or <code>wasm32</code>: which build of python to run. Without
+        it: wasm64 where the browser supports it (Chrome, Firefox), else wasm32 (Safari).</dd>
+      <dt><code>dpr</code></dt>
+      <dd>Drawing pixels per screen pixel, e.g. <code>dpr=0.5</code> for a faster, blurrier
+        world on a slow device. Without it: the screen's, but at most about a million pixels.</dd>
+      <dt><code>tour=0</code></dt>
+      <dd>Skip the welcome card on a first visit.</dd>
+      <dt><code>welcome=1</code></dt>
+      <dd>Always show the welcome card (with the tours), also after the first visit.</dd>
+    </dl>
 
     <h2 id="about">About</h2>
     <p>
@@ -323,5 +445,12 @@
     </ul>
     <p>What webgym takes from where, with the licenses:
       <a href="https://github.com/DerThorsten/webgym/blob/main/THIRD_PARTY.md">THIRD_PARTY.md</a>.</p>
+    <script>
+      // the clips play while in view (they load only then: preload="none", a poster until)
+      const seen = new IntersectionObserver((entries) => {
+        for (const e of entries) e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause();
+      }, { threshold: 0.4 });
+      for (const v of document.querySelectorAll("figure.clip video")) seen.observe(v);
+    </script>
   </body>
 </html>

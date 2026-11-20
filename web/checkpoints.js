@@ -50,14 +50,29 @@ export async function list(env, algo) {
     .filter((r) => r.env === env && r.algo === algo)
     .sort((a, b) => (b.name === AUTOSAVE) - (a.name === AUTOSAVE) || b.saved - a.saved);
   const shipped = (await pretrained).filter((r) => r.env === env).sort((a, b) => b.mean_return - a.mean_return);
-  return [...own, ...shipped.map((r) => ({ ...r, name: `Pretrained · ${r.label ?? r.algo}`, pretrained: true }))];
+  return [...own, ...shipped];
+}
+
+/** a pretrained run's name: its algorithm without "_torch" ("ppo", "neat"): short in a
+ * link (?checkpoint=ppo); a save of yours with the same name comes first */
+const short = (algo) => algo.replace(/_torch$/, "");
+
+/** the checkpoint of env called `name` (URL ?checkpoint=), whatever kind: your saves
+ * ("autosave" too; any algorithm, the newest of that name), then the pretrained runs by
+ * their name ("ppo") -> the record or undefined */
+async function find(env, name) {
+  const all = (await transaction("readonly", (s) => s.getAll())) ?? [];
+  const own = all.filter((r) => r.env === env && r.name === name).sort((a, b) => b.saved - a.saved)[0];
+  return own ?? (await pretrained).find((r) => r.env === env && r.name === name);
 }
 
 // the pretrained runs that come with the page (public/pretrained/index.json, written by
-// build_page.py): [{file, env, algo, label, iteration, mean_return}]
+// build_page.py): [{file, env, algo, label, iteration, mean_return}], each named after
+// its algorithm ("ppo")
 const pretrained = fetch("pretrained/index.json")
   .then((r) => (r.ok ? r.json() : []))
-  .catch(() => []);
+  .catch(() => [])
+  .then((runs) => runs.map((r) => ({ ...r, name: short(r.algo), pretrained: true })));
 
 /** a pretrained run's checkpoint, base64 (as the worker takes it) */
 async function pretrainedData(file) {
@@ -83,13 +98,17 @@ export function setupPanel(send) {
       row.className = "ckpt";
       const mean = r.mean_return == null ? "" : ` · mean ${Math.round(r.mean_return)}`;
       const when = r.pretrained
-        ? "comes with the page"
+        ? `pretrained · ${r.label ?? r.algo}, comes with the page`
         : new Date(r.saved).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
       row.innerHTML = `<div><b></b><div class="meta">iteration ${r.iteration}${mean} · ${when}</div></div>`;
       row.querySelector("b").textContent = r.name;
       const restore = Object.assign(document.createElement("button"), { textContent: "Restore" });
-      restore.onclick = async () =>
+      restore.onclick = async () => {
+        // (a pretrained run of another algorithm switches to it: that is no new algo
+        // whose autosave should be restored over it, see onControls)
+        current = { env: r.env, algo: r.algo };
         send({ type: "restore", data: r.pretrained ? await pretrainedData(r.file) : r.data, byUser: true });
+      };
       row.append(restore);
       if (!r.pretrained) {
         // (the pretrained ones can't be deleted: they come with the page)
@@ -122,16 +141,28 @@ export function setupPanel(send) {
       refresh();
     },
     /** the app's controls arrived: on a new env / algo (also after a page load or a
-     * worker restart: `fresh`) its autosave is restored (the run continues) */
-    async onControls(controls, fresh) {
+     * worker restart: `fresh`) its autosave is restored (the run continues). `pick`
+     * (the URL's ?checkpoint=, once at page load): the checkpoint of that name instead
+     * -> true if one was restored */
+    async onControls(controls, fresh, pick = null) {
       const control = (name) => controls.find((c) => c.name === name);
       // (env: its key, the name with its settings, e.g. "WaterCannon · balls 2")
       const next = { env: control("env")?.key ?? control("env")?.value, algo: control("algo")?.value };
-      if (!fresh && next.env === current.env && next.algo === current.algo) return;
+      if (!fresh && next.env === current.env && next.algo === current.algo) return false;
       current = next;
       refresh();
+      if (pick !== null) {
+        const run = await find(current.env, pick);
+        if (run) {
+          current = { env: run.env, algo: run.algo }; // (as a restore by hand, see there)
+          send({ type: "restore", data: run.pretrained ? await pretrainedData(run.file) : run.data, byUser: true });
+          return true;
+        }
+        console.warn("no such checkpoint for", current.env, pick, "(the autosave instead)");
+      }
       const autosave = await get(current.env, current.algo, AUTOSAVE);
       if (autosave) send({ type: "restore", data: autosave.data });
+      return false;
     },
   };
 }

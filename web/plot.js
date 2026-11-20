@@ -30,19 +30,25 @@ export function plot(canvas, series) {
   ctx.lineTo(pad.left, h - pad.bottom);
   ctx.lineTo(w - pad.right, h - pad.bottom);
   ctx.stroke();
+  // the labels centered on their values (a line at the top value is level with its label)
   ctx.textAlign = "right";
-  ctx.fillText(String(Math.round(ymax)), pad.left - 4, pad.top + 4);
-  ctx.fillText(String(Math.round(ymin)), pad.left - 4, h - pad.bottom);
-  if (ymin < 0) {
-    // the zero line
-    ctx.fillText("0", pad.left - 4, y(0) + 3);
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(Math.round(ymax)), pad.left - 4, y(ymax));
+  ctx.fillText(String(Math.round(ymin)), pad.left - 4, y(ymin));
+  const dashed = (v) => {
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
-    ctx.moveTo(pad.left, y(0));
-    ctx.lineTo(w - pad.right, y(0));
+    ctx.moveTo(pad.left, y(v));
+    ctx.lineTo(w - pad.right, y(v));
     ctx.stroke();
     ctx.setLineDash([]);
+  };
+  dashed(ymax); // (the top value: e.g. CartPole's 500)
+  if (ymin < 0) {
+    ctx.fillText("0", pad.left - 4, y(0));
+    dashed(0); // the zero line
   }
+  ctx.textBaseline = "alphabetic";
   ctx.textAlign = "center";
   ctx.fillText(`iteration ${n > 2 ? n : ""}`, (w + pad.left) / 2, h - 3);
 

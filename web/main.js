@@ -34,6 +34,9 @@ const toDisplay = (message, transfer) => display?.postMessage(message, transfer)
 const toTraining = (message) => trainer?.postMessage(message);
 let lastSnapshot = null; // the trainer's latest policy (for a display that (re)starts)
 let autoTrain = params.get("train") !== "0"; // start training once the page is up
+// ?checkpoint=NAME: watch that checkpoint at once (instead of the autosave), whatever
+// kind: a save of yours, "autosave", a pretrained run (named after its algorithm: "ppo")
+let urlPick = params.get("checkpoint");
 let trainerState = null; // the trainer's state message
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
@@ -231,6 +234,24 @@ const unwrap = (text) =>
 
 const openFolds = new Set(["Things to drop"]); // the folds that are open (kept on a rebuild)
 
+/** a free slider's value as text: whole numbers from 10, two decimals from 1, two
+ * significant digits below (a rain drop's 0.015) */
+function freeLabel(v) {
+  if (Math.abs(v) >= 10) return v.toFixed(0);
+  if (Math.abs(v) >= 1) return v.toFixed(2);
+  return String(Number(v.toPrecision(2)));
+}
+
+// the gravity arrow in the world: only while the Toys tab's Gravity fold is open (the
+// display is told on a change only: a rebuilt open fold fires its toggle again)
+let gravityShown = null;
+function showGravity() {
+  const shown = openFolds.has("Gravity") && !document.getElementById("tab-toys").hidden;
+  if (shown === gravityShown || !display) return;
+  gravityShown = shown;
+  toDisplay({ type: "command", name: "gravity_shown", value: shown });
+}
+
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
 // the app's controls of section "bar", as icons above the tabs: train (a barbell, a
@@ -317,7 +338,10 @@ function showControls(controls) {
           // (a fold: opens / closes with a click on its title, e.g. the Toys tab's groups)
           box = Object.assign(document.createElement("details"), { className: "group", open: openFolds.has(c.group) });
           box.append(Object.assign(document.createElement("summary"), { className: "group-title", textContent: c.group }));
-          box.ontoggle = () => (box.open ? openFolds.add(c.group) : openFolds.delete(c.group));
+          box.ontoggle = () => {
+            box.open ? openFolds.add(c.group) : openFolds.delete(c.group);
+            showGravity();
+          };
         } else {
           box = Object.assign(document.createElement("div"), { className: "group" });
           box.append(Object.assign(document.createElement("div"), { className: "group-title", textContent: c.group }));
@@ -412,14 +436,21 @@ function showControls(controls) {
         input.blur(); // (R resets again)
       };
     } else {
-      input = Object.assign(document.createElement("input"), { type: "range", min: c.min, max: c.max, step: c.step, value: c.value });
+      // (step null: a free slider, no steps)
+      input = Object.assign(document.createElement("input"), { type: "range", min: c.min, max: c.max, step: c.step ?? "any", value: c.value });
       // (e.g. the population of an env that runs one agent at a time)
       input.disabled = Boolean(c.disabled);
       if (c.disabled) el.title = "this environment runs one agent at a time";
       // optional labels per slider position (e.g. "4x")
-      const show = () => (value.textContent = c.labels ? c.labels[input.value] : input.value);
+      const show = () =>
+        (value.textContent = c.labels ? c.labels[input.value] : c.step == null ? freeLabel(Number(input.value)) : input.value);
       show();
-      input.oninput = show;
+      input.oninput = () => {
+        show();
+        // (live: the watched world follows while dragging; only the display: the trainer
+        // would send the controls again and rebuild the slider under the pointer)
+        if (c.live) toDisplay({ type: "command", name: c.name, value: Number(input.value) });
+      };
       input.onchange = () => {
         command(c.name, Number(input.value));
         input.blur();
@@ -521,6 +552,10 @@ function onMessage(role, { data }) {
     if (role === "display" && lastSnapshot) toDisplay({ type: "snapshot", data: lastSnapshot });
     // (the Toys tab open at the start, remembered, or at a restart: the new python is told)
     if (role === "display" && !document.getElementById("tab-toys").hidden) command("toy_mode", true);
+    if (role === "display") {
+      gravityShown = null; // (a new display: tell it again)
+      showGravity();
+    }
     // the big packages in the training worker, in the background, a bit later: the
     // restore of the autosave goes first (the installs keep python busy)
     if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
@@ -545,7 +580,10 @@ function onMessage(role, { data }) {
   } else if (data.type === "controls") {
     showControls(data.controls);
     controlsShown(); // (the tour may wait for them)
-    const restored = checkpoints.onControls(data.controls, freshWorker);
+    // (?checkpoint=: once, at page load, that run instead of the autosave;
+    // restored as by the user: the automatic training start below is cancelled)
+    const restored = checkpoints.onControls(data.controls, freshWorker, freshWorker ? urlPick : null);
+    if (freshWorker) urlPick = null;
     freshWorker = false;
     // the page starts training (after restoring the autosave: it continues the run);
     // ?train=0 starts watching
@@ -720,6 +758,7 @@ for (const button of document.querySelectorAll("#tabs button")) {
     // (the Toys tab: playing with the world, so no auto reset, one policy in view, no
     // scores; another tab: scores again)
     command("toy_mode", button.dataset.tab === "toys");
+    showGravity();
   };
 }
 showTab(document.getElementById(`tab-${remembered(TAB, "world")}`) ? remembered(TAB, "world") : "world");

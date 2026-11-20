@@ -7,6 +7,8 @@ web/public/core-*.tar.gz
 web/public/webgym-*.tar.gz
 # (release assets, see web/pretrain.py; index.json: written by build_page.py)
 web/public/pretrained/
+# (release assets too, see web/help_videos.py)
+web/public/help/videos/
 web/public/config.json
 web/public/*.tmp
 __pycache__/

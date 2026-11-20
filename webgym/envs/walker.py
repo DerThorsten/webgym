@@ -46,8 +46,9 @@ class Walker(Env):
         hull = self.body((0, HIP_Y + HULL[1]), b2d.box(*HULL), density=5.0, color=DARK_COLOR)
         joints, feet = [], []
         for leg in "LR":  # (both legs at the hull's middle)
-            thigh = self.body((0, HIP_Y - THIGH), b2d.box(0.07, THIGH), density=3.0)
-            shin = self.body((0, HIP_Y - 2 * THIGH - SHIN), b2d.capsule((0, -SHIN + 0.05), (0, SHIN - 0.05), 0.05),
+            # capsules whose round ends are centered on the joints (hip, knee): they line up
+            thigh = self.body((0, HIP_Y - THIGH), b2d.capsule((0, -THIGH), (0, THIGH), 0.07), density=3.0)
+            shin = self.body((0, HIP_Y - 2 * THIGH - SHIN), b2d.capsule((0, -SHIN + 0.05), (0, SHIN), 0.05),
                              density=3.0, color=LIGHT_COLOR)
             joints.append(self.joint(hull, thigh, (0, -HULL[1]), (0, THIGH), "hip"))
             joints.append(self.joint(thigh, shin, (0, -THIGH), (0, SHIN), "knee"))

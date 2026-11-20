@@ -40,6 +40,15 @@ def test_drag_the_cart_in_watch_mode():
     assert not app.mouse_drag.active
 
 
+def test_grab_the_water_cannon_ball():
+    """the WaterCannon's balls have their own collision filter: the pointer still grabs them"""
+    app = make_app(env="WaterCannon")
+    app.command("show_n", 1)
+    app.event("down", *screen_of(app, tuple(app.env.ball.position[0])))
+    assert app.mouse_drag.active
+    app.event("up", 0, 0)
+
+
 def test_pan_and_zoom():
     """dragging empty space pans the camera, the wheel zooms about the pointer"""
     app = make_app()
@@ -296,6 +305,19 @@ def test_rain_forgets_the_drops_of_an_old_world():
     assert app.env.world.counters.body_count >= hull_bodies
 
 
+def test_rain_off_removes_its_drops():
+    """the drops are drawn as water, not as bodies: when the rain stops, they go (else
+    they'd stay, invisible)"""
+    app = make_app(env="Walker")
+    before = app.env.world.counters.body_count
+    app.command("rain", True)
+    for _ in range(30):
+        app._watch_step()
+    assert app.env.world.counters.body_count > before
+    app.command("rain", False)
+    assert app.env.world.counters.body_count == before
+
+
 def test_toys():
     """the Toys tab: a toy turns auto reset off and shows one policy; a click drops a box
     / a ball or sets off an explosion; rain adds drops; a reset clears them all"""
@@ -376,9 +398,10 @@ def test_toys():
 
 def test_leaving_the_toys_starts_afresh():
     """leaving the Toys tab: a new episode in the world as it was (no rain, the env's own
-    gravity, no toy on a click); back in the tab, the settings are still there"""
+    gravity, no toy on a click, auto reset on); back in the tab, the settings are still there"""
     app = make_app(env="Walker")
     app.command("toy_mode", True)
+    assert not app.auto_reset
     app.command("rain", True)
     app.command("toy.gravity y", -0.5)
     for _ in range(30):
@@ -387,6 +410,7 @@ def test_leaving_the_toys_starts_afresh():
     app.command("toy", "box")
     app.command("toy_mode", False)  # (another tab)
     assert app.env.steps == 0 and tuple(app.env.world.gravity) == pytest.approx(app.env.gravity)
+    assert app.auto_reset
     count = app.env.world.counters.body_count
     for _ in range(30):
         app._watch_step()

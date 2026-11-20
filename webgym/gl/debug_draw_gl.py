@@ -187,7 +187,7 @@ class GLDebugDraw(b2d.DebugDraw):
         self.solid_polygons = GLSolidPolygons(self.camera)
         self.points = GLPoints(self.camera)
         self.lines = GLLines(self.camera)
-        self.liquid = GLLiquid(self.camera)  # (webgym: water from drops, see draw_liquid)
+        self.liquids = {}  # (webgym: water from drops, one liquid per color, see draw_liquid)
         # Add storage for debug strings
         self.debug_strings = []
         # the world is drawn in C++ into flat arrays (no python call per shape); the
@@ -228,8 +228,12 @@ class GLDebugDraw(b2d.DebugDraw):
 
     def draw_liquid(self, positions, radius, color=None):
         """drops at `positions` ((k, 2) world points) drawn as one liquid (metaballs,
-        blobs of `radius` that merge); `color`: the water's (r, g, b), 0..1"""
-        self.liquid.add(np.asarray(positions, dtype=np.float32).reshape(-1, 2), radius, color)
+        blobs of `radius` that merge); `color`: the water's (r, g, b), 0..1 (liquids of
+        different colors are drawn apart: they don't merge)"""
+        color = tuple(color or (0.3, 0.6, 0.95))
+        if color not in self.liquids:
+            self.liquids[color] = GLLiquid(self.camera)
+        self.liquids[color].add(np.asarray(positions, dtype=np.float32).reshape(-1, 2), radius, color)
 
     def flush(self):
         """draw what is queued so far (each batch empties itself): what is drawn after
@@ -253,7 +257,8 @@ class GLDebugDraw(b2d.DebugDraw):
         # costs, especially python -> wasm -> JS in the browser): blending for all
         # shapes, a reset at the end (the imgui frontend draws after us)
         self.flush()
-        self.liquid.draw()  # (over everything else)
+        for liquid in self.liquids.values():  # (over everything else)
+            liquid.draw()
         glDisable(GL_BLEND)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)

@@ -91,6 +91,7 @@ class App:
         self.rain = None
         # toy mode (the Toys tab open, or a toy used): no scores (no time limit applies)
         self.toys_on = False
+        self.gravity_shown = False  # the gravity arrow (the page: while its Gravity fold is open)
         self.toy_params = toys.defaults()  # (their sliders: size, weight, rain rate, ...)
         self.blasts = []  # explosions still drawn (toys.draw_blasts)
         self.camera = Camera()
@@ -452,7 +453,8 @@ class App:
                      "help": "Drops fall from above the view onto the agent and the world."})
             toy_controls += [
                 {"type": "slider", "name": f"toy.{name}", "label": name, "min": low, "max": high, "step": step,
-                 "value": self.toy_params[name], "help": explanation, "group": group, "fold": True}
+                 "value": self.toy_params[name], "help": explanation, "group": group, "fold": True,
+                 "live": group in toys.LIVE}  # (the watched world follows while it is dragged)
                 for name, (_, low, high, step, in_group, explanation) in toys.PARAMS.items() if in_group == group]
             if group == "Gravity":
                 toy_controls.append({"type": "button", "name": "gravity_reset", "label": "Reset gravity",
@@ -548,16 +550,19 @@ class App:
                 self.train()
         elif name.startswith("toy."):  # a toy's setting (toys.PARAMS)
             self.toy_params[name[len("toy."):]] = float(value)
+        elif name == "gravity_shown":  # (the page: the Toys tab's Gravity fold is open)
+            self.gravity_shown = bool(value)
         elif name == "gravity_reset":  # (the Toys tab: the world's own gravity again)
             defaults = toys.defaults()
             for key in ("gravity x", "gravity y"):
                 self.toy_params[key] = defaults[key]
         elif name == "toy_mode":  # (the Toys tab was opened; False: left)
             if value is False:
-                # (left: a new episode, the world as it was: no toys, rain or other gravity;
-                # their settings stay for the next visit of the tab)
+                # (left: a new episode, the world as it was: no toys, rain or other gravity,
+                # auto reset on again; their settings stay for the next visit of the tab)
                 if self.toys_on:
                     self.toys_on = False
+                    self.auto_reset = True
                     self.env.world.gravity = self.env.gravity
                     self.env.world.sleeping_enabled = True
                     self.watch()
@@ -567,6 +572,8 @@ class App:
             if name == "toy":
                 self.toy = value
             else:
+                if self.rain is not None and not value:  # (stopped: its drops go too)
+                    self.rain.clear(self.env.world)
                 self.rain = toys.Rain() if value else None
             if self.toy != "grab" or self.rain is not None:
                 self._toy_mode()
@@ -820,11 +827,15 @@ class App:
         if self.env.n > 1:
             self.debug_draw.draw_world(self.env.world, alpha=GHOST_ALPHA, only=(GHOST_COLOR,), show=(GHOST_COLOR,))
             self.debug_draw.flush()
-        self.debug_draw.draw_world(self.env.world, hide=(GHOST_COLOR, SENSOR_COLOR))
-        self.env.draw(self.debug_draw)  # (the env's own lines, if any)
+        self.debug_draw.draw_world(self.env.world, hide=(GHOST_COLOR, SENSOR_COLOR, toys.RAIN_COLOR))
+        if self.rain is not None:  # (its drops as water)
+            self.rain.draw(self.debug_draw, self.toy_params)
+        self.debug_draw.flush()  # (the world drawn: the env's own drawing lies on top of it)
+        self.env.draw(self.debug_draw)  # (the env's own lines, discs, water, if any)
+        self.env.draw_hinges(self.debug_draw)  # (a disc on each joint of the current policy)
         if self.blasts:  # (the Toys tab's explosions)
             self.blasts = toys.draw_blasts(self.debug_draw, self.blasts)
-        if self.toys_on:  # (the Toys tab: the gravity vector, an arrow in the corner)
+        if self.toys_on and self.gravity_shown:  # (the Gravity fold open: the gravity vector, an arrow)
             toys.draw_gravity(self.debug_draw, self.camera, self.toy_params)
         self.debug_draw.end_draw()
 
