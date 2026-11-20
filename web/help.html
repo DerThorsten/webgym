@@ -132,6 +132,12 @@
       (While training, the page uses a second worker for this: you watch the latest policy
       while the training goes on.)
     </p>
+    <p>
+      The ghosts are drawn behind the current policy. The ground is a ruler with the
+      metres numbered, so you see how far a walker got; the cart poles mark their hinges
+      with small discs; the water cannon's water is drawn as a liquid (metaballs: a small
+      shader). Sensors are not drawn.
+    </p>
     <dl>
       <dt>Auto reset (the loop above the tabs)</dt><dd>A new episode starts when all agents are
         done. Off: the episode goes on after a fall; R starts a new one.</dd>
@@ -174,7 +180,9 @@
       after a reload); <b>Revert</b> brings the original back.
     </p>
     <p>Try: in the lander, change <code>gravity</code> or <code>PAD</code> (the width of the
-      landing pad), or the reward in <code>reward</code>.</p>
+      landing pad), or the reward in <code>reward</code>. Or the looks: a body's
+      <code>color=</code>, or a <code>draw(debug_draw)</code> method that adds lines, discs or
+      water to the picture (the blob's springs, the cart pole's hinge).</p>
 
     <h2 id="fun">Having fun with agents</h2>
     <p>
@@ -202,8 +210,9 @@
     <p>
       Even more mischief: in the <b>Toys</b> tab you choose what a click into the world does:
       drop a box, a ball or a plank, set off an explosion, or put a ramp, a step or a seesaw
-      on the ground in front of the agent. Or change the weather: rain, or the gravity vector,
-      sideways (a wind) and up-down (the walker on the moon! or everything falling up). The settings of each (size, weight, rain rate, ...) are in its
+      on the ground in front of the agent. Or change the world's gravity (its own fold),
+      sideways (a wind) and up-down (the walker on the moon! or everything falling up), or
+      let it rain. The settings of each (size, weight, rain rate, ...) are in its
       fold. A click on a body still grabs it. Opening the tab switches auto reset off and
       shows one policy, without a score (no time limit applies); R (reset) clears the world
       again.

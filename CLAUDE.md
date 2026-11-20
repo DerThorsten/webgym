@@ -111,9 +111,11 @@ Technical considerations:
 - Decoration (looks only): `make(name, decorated=True)` builds it (e.g. the lander's flags,
   which collide with nothing, as in the classic lander) and `Env.decorate()` runs after each
   watched step (the lander's exhaust: pyb2d3 emitters, `pyb2d3.extensions.RadialEmitter`).
-  Only the watched env is decorated, and only where something is drawn (`App(draws=False)`
-  in the training worker) and the "Decoration" checkbox is on (`App.show_deco`); training
-  envs never are.
+  Only the watched env is decorated, i.e. where something is drawn (`App(draws=False)` in
+  the training worker: never); no option for it any more (2026-11-20).
+- Drawing (2026-11-20): `Env.draw(debug_draw)` adds the env's own looks after the world
+  (ruler numbers, the blob's springs as lines, the cart poles' hinge discs (agent 0 only,
+  `draw_solid_circle`), the water cannon's `draw_liquid`).
 - Algorithms (`webgym/algos/__init__.py`, `ALGOS`): CEM and ES (numpy), PPO and DQN (pytorch).
   Each declares its parameters (shown with help texts) and `requires` (pytorch: loaded in the
   background in the browser). Trainers are generators: yield None per env step, stats per
@@ -144,8 +146,7 @@ Technical considerations:
   `#quick` train (a barbell, a switch: blue while training; ▶/⏸ read as "pause the
   replay"; its title = the app's button label), new run, | reset
   episode, pause / continue (⏸ / ▶, Space: the watched world only, `App.paused`; training
-  goes on), | switches auto reset, camera follows (disabled for fixed views), decoration
-  (a top hat), blue when on; `#quick-watch` steppers − / + for show policies and slower /
+  goes on), | switches auto reset, camera follows (disabled for fixed views), blue when on; `#quick-watch` steppers − / + for show policies and slower /
   faster for replay speed. No panel below the tabs any more. Then five tabs, in this order (World: the env select,
   its settings, its description (the module docstring, unwrapped) /
   Training: algorithm, parameters, population, simulation workers / Policy (see below) / Toys (`webgym/toys.py`,
@@ -153,9 +154,12 @@ Technical considerations:
   body always grabs it (mouse joint); a click into empty space (`toys.empty`) uses the
   chosen tool of `toys.TOOLS` (box, ball, plank, explosion, ramp, step, seesaw; all dynamic,
   ramps & co. heavy ("heaviness") on the ground below the click), chosen with buttons (control type
-  "tools") in the folds, a click on the active one puts it away ("grab"); weather (rain, the gravity vector:
-  "gravity x" m/s² sideways, "gravity y" times the world's own, -2.5..2.5 (below 0: falls
-  up), set on the watched world every step, only while the Toys tab is open); sliders from `toys.PARAMS` in
+  "tools") in the folds, a click on the active one puts it away ("grab"); the world's gravity (its own fold "Gravity",
+  `toys.gravity`: "gravity x" sideways, "gravity y" down, both in the world's own g,
+  -2.5..2.5 (y below 0: falls up), set on the watched world every step, only while the
+  Toys tab is open, drawn as an arrow in the view's top right corner, a ring = 1 g,
+  `toys.draw_gravity`; not 1 g down: nothing sleeps; a "Reset gravity" button, command
+  "gravity_reset"; a fold may hold buttons); weather (rain); sliders from `toys.PARAMS` in
   folds per `toys.GROUPS` (controls with "group" + "fold": `<details>` in main.js, open
   state kept in `openFolds`; commands "toy.<name>"); an
   explosion is drawn as growing rings + a flash (`toys.draw_blasts`, as pyb2d3's tank
@@ -203,7 +207,16 @@ Technical considerations:
   SETTINGS` (MultiCartPole poles 2..5, WaterCannon balls 1 / 2; files
   `<env>-<algo>-<setting><value>`, `--set poles=4` trains only those). WaterCannon has
   balls 1 or 2 (3 dropped 2026-11-20; squares were balls again the same day: setting
-  "balls"; two: a wider cart, a cannon at each end).
+  "balls"; two: a wider cart, a cannon at each end). Its water (the current policy's
+  drops) is drawn as a liquid: metaballs (`gl/draw.py` `GLLiquid`: soft blobs added up
+  in a half-resolution offscreen texture, then a threshold pass `liquid.fs`; envs call
+  `debug_draw.draw_liquid(positions, radius, color)` in `Env.draw`; the blob radius grows
+  with the spray's spread); the ghosts' drops: plain faint balls. The look (2026-11-20):
+  solid fills, darker outlines, a sky gradient (shaders), `color=` per body, ghosts drawn
+  first (`Env.show_ghosts`, `draw_world(show=/hide=)`), sensors hidden, the walkers' ground
+  a ruler with numbered metres (`walker.ground_with_ticks(env, start, end, depth)`,
+  `draw_ruler_numbers(debug_draw, start, end)`; also the Blob, the Drone and the cart
+  poles: there 6 m, -3..3, as the old ground).
   `--upload` doesn't remove assets that are
   gone locally: `gh release delete-asset`. After an env changes, retrain its runs and
   check them all: `pixi run -e ml python web/check_pretrained.py` (restores each as the

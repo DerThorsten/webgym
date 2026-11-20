@@ -391,7 +391,8 @@ class GLCircles:
 
 
 class GLSolidCircles:
-    def __init__(self, camera):
+    def __init__(self, camera, fragment="solid_circle.fs"):
+        """`fragment`: the fragment shader file (shaders/): how a circle is filled"""
         self.camera = camera
         self.vao_id = None
         self.vbo_ids = [None, None]  # Need two buffers: vertices and instance data
@@ -405,7 +406,7 @@ class GLSolidCircles:
 
         # Create shader paths relative to this file
         vertex_shader = os.path.join(current_dir, "shaders", "solid_circle.vs")
-        fragment_shader = os.path.join(current_dir, "shaders", "solid_circle.fs")
+        fragment_shader = os.path.join(current_dir, "shaders", fragment)
 
         self.program_id = create_program_from_files(vertex_shader, fragment_shader)
         self.projection_uniform = glGetUniformLocation(self.program_id, "projectionMatrix")
@@ -955,6 +956,94 @@ class GLPoints:
         if self.program_id:
             glDeleteProgram(self.program_id)
             self.program_id = None
+
+
+class GLLiquid:
+    """webgym: drops drawn as a liquid (metaballs). Each frame the queued drops are drawn
+    as soft blobs into an offscreen texture (half the resolution), added up: a field;
+    then one full-screen pass draws water where the field passes a threshold (a lighter
+    rim at the surface), over the scene"""
+
+    def __init__(self, camera):
+        self.camera = camera
+        self.blobs = GLSolidCircles(camera, "soft_circle.fs")
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shaders")
+        self.program_id = create_program_from_files(os.path.join(here, "background.vs"),
+                                                    os.path.join(here, "liquid.fs"))
+        self.field_uniform = glGetUniformLocation(self.program_id, "field")
+        self.resolution_uniform = glGetUniformLocation(self.program_id, "resolution")
+        self.color_uniform = glGetUniformLocation(self.program_id, "waterColor")
+        self.vao_id = glGenVertexArrays(1)
+        self.vbo_id = glGenBuffers(1)
+        glBindVertexArray(self.vao_id)
+        glEnableVertexAttribArray(0)
+        quad = np.array([-1, 1, -1, -1, 1, 1, 1, -1], dtype=np.float32)  # (a triangle strip)
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_id)
+        glBufferData(GL_ARRAY_BUFFER, quad.nbytes, quad, GL_STATIC_DRAW)
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, None)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glBindVertexArray(0)
+        self.fbo_id = self.texture_id = None
+        self.size = (0, 0)
+        self.color = (0.3, 0.6, 0.95)
+
+    def add(self, positions, radius, color=None):
+        """drops at `positions` ((k, 2) world points) of the blob radius `radius`;
+        `color`: the water's (r, g, b) in 0..1 (the last one given counts)"""
+        if color is not None:
+            self.color = color
+        drops = np.zeros(len(positions), SOLID_CIRCLE_DTYPE)
+        drops["x"], drops["y"] = positions[:, 0], positions[:, 1]
+        drops["c"], drops["radius"], drops["color"] = 1.0, radius, 0xFFFFFFFF
+        if len(drops):
+            self.blobs.circles.blocks.append(drops)
+
+    def _target(self, width, height):
+        """the offscreen texture and framebuffer, at this size (made anew on a resize)"""
+        if self.size == (width, height):
+            return
+        if self.fbo_id is not None:
+            glDeleteFramebuffers(1, [self.fbo_id])
+            glDeleteTextures(1, [self.texture_id])
+        self.texture_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, None)
+        for name, value in ((GL_TEXTURE_MIN_FILTER, GL_LINEAR), (GL_TEXTURE_MAG_FILTER, GL_LINEAR),
+                            (GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE), (GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)):
+            glTexParameteri(GL_TEXTURE_2D, name, value)
+        self.fbo_id = glGenFramebuffers(1)
+        glBindFramebuffer(GL_FRAMEBUFFER, self.fbo_id)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self.texture_id, 0)
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        self.size = (width, height)
+
+    def draw(self):
+        """the queued drops as water (nothing queued: nothing drawn)"""
+        if not self.blobs.circles:
+            return
+        width, height = int(self.camera.width), int(self.camera.height)
+        small = (max(1, width // 2), max(1, height // 2))
+        self._target(*small)
+        # the field: the blobs added up, offscreen
+        glBindFramebuffer(GL_FRAMEBUFFER, self.fbo_id)
+        glViewport(0, 0, *small)
+        glClearColor(0.0, 0.0, 0.0, 0.0)
+        glClear(GL_COLOR_BUFFER_BIT)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_ONE, GL_ONE)
+        self.blobs.draw()
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        glViewport(0, 0, width, height)
+        # the water, over the scene
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glUseProgram(self.program_id)
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glUniform1i(self.field_uniform, 0)
+        glUniform2f(self.resolution_uniform, float(width), float(height))
+        glUniform3f(self.color_uniform, *self.color)
+        glBindVertexArray(self.vao_id)
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
 
 class GLLines:

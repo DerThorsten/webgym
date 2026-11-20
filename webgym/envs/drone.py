@@ -17,6 +17,7 @@ import numpy as np
 import pyb2d3 as b2d
 
 from webgym.core import DARK_COLOR, SENSOR_FILTER, Env, register_env
+from webgym.envs.walker import draw_ruler_numbers, ground_with_ticks
 
 GATES = 10
 GATE_GAP = 6.0  # m between gates
@@ -38,14 +39,14 @@ class Drone(Env):
     # (no discrete actions, no DQN: flying needs fine thrust; with 4 fixed settings DQN
     # learned nothing in 3 min)
     max_steps = 1200
-    view_center, view_zoom = (0.0, 4.5), 5.0
+    view_center, view_zoom = (0.0, 4.3), 5.0  # (low enough for the ruler's numbers)
     # (PPO: mean 420 in 1 min natively; CEM: 60 in 2 min)
     suggested = {"quick": {"ppo_torch": {"hidden": 64}, "cem": {}},
                  "medium": {"ppo_torch": {"hidden": 64}, "cem": {}},
                  "long": {"ppo_torch": {"hidden": 64}, "sac_torch": {}, "cem": {}}}
 
     def build_scenery(self):
-        self.scenery(b2d.box(GATE_X[-1] / 2 + 20, 0.5, center=(GATE_X[-1] / 2, -0.5)))
+        ground_with_ticks(self)  # (a ruler: you see how far it flew)
         for x, y in zip(GATE_X, GATE_Y):  # each gate: a post from the ground, one hanging from above
             low, high = y - OPENING / 2, y + OPENING / 2
             self.scenery(b2d.box(0.1, low / 2, center=(x, low / 2)))
@@ -112,3 +113,6 @@ class Drone(Env):
     def camera_target(self, i):
         """follow the drone sideways (the height stays: the course fits)"""
         return float(self.frame.position[i, 0]) + 2.0, self.view_center[1]
+
+    def draw(self, debug_draw):
+        draw_ruler_numbers(debug_draw)

@@ -23,15 +23,18 @@ STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
 RULER_COLOR, RULER_MARKS = 0xE6CF8E, 0x3B3326  # (a wooden ruler, dark marks)
 
 
-def ground_with_ticks(env):
-    """flat ground to the right, a ruler: a mark every 10 cm, longer ones every 50 cm and
-    every metre (the metres numbered, see draw_ruler_numbers): you see the progress. The
-    marks are looks only: nothing collides with them"""
-    ground = env.scenery(b2d.box(200, 0.5, center=(190, -0.5)), friction=1.0, color=RULER_COLOR)
+def ground_with_ticks(env, start=-10, end=390, depth=1.0):
+    """flat ground from x = start to end (m), `depth` deep, a ruler: a mark every 10 cm,
+    longer ones every 50 cm and every metre (the metres numbered, see draw_ruler_numbers):
+    you see the progress. The marks are looks only: nothing collides with them. Returns
+    the ground body (its top at y = 0)"""
+    ground = env.scenery(b2d.box((end - start) / 2, depth / 2, center=((start + end) / 2, -depth / 2)),
+                         friction=1.0, color=RULER_COLOR)
     mark = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=RULER_MARKS))
-    for k in range(-100, 3900):  # (in cm / 10)
+    for k in range(start * 10, end * 10 + 1):  # (in cm / 10)
         length = 0.25 if k % 10 == 0 else 0.15 if k % 5 == 0 else 0.08
         ground.create_shape(mark, b2d.segment((k / 10, 0), (k / 10, -length)))
+    return ground
 
 
 # the digits of the ruler's numbers as segments (a 7-segment display: a top, b top
@@ -42,12 +45,14 @@ _DIGITS = {"0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5
            "7": "abc", "8": "abcdefg", "9": "abcdfg", "-": "g"}
 
 
-def draw_ruler_numbers(debug_draw):
-    """the metres in view, under their marks (lines: no text in the view)"""
+def draw_ruler_numbers(debug_draw, start=-10, end=390):
+    """the metres in view (and inside the ruler: not its ends start, end), under their marks
+    (lines: no text in the view)"""
     camera = debug_draw.camera
     half = camera.zoom * camera.width / camera.height
     w, h, gap = 0.07, 0.13, 0.03  # (a digit's width and height, the gap between digits, m)
-    for metre in range(int(np.floor(camera.center[0] - half)), int(np.ceil(camera.center[0] + half)) + 1):
+    first = max(start + 1, int(np.floor(camera.center[0] - half)))
+    for metre in range(first, min(end - 1, int(np.ceil(camera.center[0] + half))) + 1):
         text = str(metre)
         left = metre - (len(text) * (w + gap) - gap) / 2
         for i, char in enumerate(text):

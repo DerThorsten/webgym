@@ -21,7 +21,7 @@ import numpy as np
 import pyb2d3 as b2d
 from pyb2d3 import extensions as ext
 
-from webgym.core import DARK_COLOR, LIGHT_COLOR, PARTICLE, SCENERY, Env, register_env
+from webgym.core import DARK_COLOR, GHOST_COLOR, LIGHT_COLOR, PARTICLE, SCENERY, SENSOR_COLOR, Env, register_env
 
 BARREL = 1.0  # a barrel's length (the water leaves at its end)
 ANGLE_MAX = 0.8  # a barrel's angle from straight up, either way (radians)
@@ -30,6 +30,7 @@ JET_SPEED = 14.0  # m/s of the drops at full pressure
 SPREAD_MIN, SPREAD_MAX = 0.02, 0.4  # half angle (radians) of the spray: a jet .. a shower
 MAX_RATE = 120.0  # drops per second at full pressure (fewer at less)
 DROP_RADIUS = 0.05
+WATER_COLOR = (0.25, 0.55, 0.95)  # (the liquid: r, g, b)
 # how long a drop lives (s): long enough to reach the balls (at full pressure 6 m in
 # ~0.6 s); the drops alive cost the time, not their collisions
 DROP_LIFE = (0.5, 0.8)
@@ -136,7 +137,9 @@ class WaterCannon(Env):
             body=self.barrel[k], seed=seed, local_frame=b2d.transform(p=(0, BARREL), q=b2d.make_rot(np.pi / 2)),
             rate=MAX_RATE, capacity=int(MAX_RATE * DROP_LIFE[1]) + 1, angle_min=-0.04, angle_max=0.04,
             lifetime=ext.uniform(*DROP_LIFE), max_lifetime=DROP_LIFE[1],
-            colors=[(0.0, 0xE0F4FF), (1.0, 0x2B6CB0)],  # by age
+            # (the current policy's drops: not drawn as balls, as a liquid instead (see
+            # draw); the ghosts' as faint blue balls)
+            colors=[(0.0, SENSOR_COLOR if agent == 0 else GHOST_COLOR)] * 2,
         )
 
     def randomize(self, rng):
@@ -188,3 +191,11 @@ class WaterCannon(Env):
     def camera_target(self, i):
         """follow the cart sideways (the height stays)"""
         return float(self.cart.position[i, 0]), self.view_center[1]
+
+    def draw(self, debug_draw):
+        """the current policy's water as a liquid (its drops as metaballs; a wide shower's
+        drops lie further apart: bigger blobs, so they still merge)"""
+        for k, cannon in enumerate(self.cannon[: self.balls]):  # (agent 0's cannons)
+            if len(cannon):
+                wide = (self.spread[k] - SPREAD_MIN) / (SPREAD_MAX - SPREAD_MIN)  # (0: a jet .. 1: a shower)
+                debug_draw.draw_liquid(cannon.particles.position, (3 + 2 * wide) * DROP_RADIUS, WATER_COLOR)

@@ -454,6 +454,9 @@ class App:
                 {"type": "slider", "name": f"toy.{name}", "label": name, "min": low, "max": high, "step": step,
                  "value": self.toy_params[name], "help": explanation, "group": group, "fold": True}
                 for name, (_, low, high, step, in_group, explanation) in toys.PARAMS.items() if in_group == group]
+            if group == "Gravity":
+                toy_controls.append({"type": "button", "name": "gravity_reset", "label": "Reset gravity",
+                                     "group": group, "fold": True})
         # always in view (the page's icons above the tabs): the training's buttons, reset
         # episode, auto reset, camera follows; how many policies, replay speed
         bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run", "reset", "paused",  # noqa: E731
@@ -545,6 +548,10 @@ class App:
                 self.train()
         elif name.startswith("toy."):  # a toy's setting (toys.PARAMS)
             self.toy_params[name[len("toy."):]] = float(value)
+        elif name == "gravity_reset":  # (the Toys tab: the world's own gravity again)
+            defaults = toys.defaults()
+            for key in ("gravity x", "gravity y"):
+                self.toy_params[key] = defaults[key]
         elif name == "toy_mode":  # (the Toys tab was opened; False: left)
             if value is False:
                 # (left: a new episode, the world as it was: no toys, rain or other gravity;
@@ -552,6 +559,7 @@ class App:
                 if self.toys_on:
                     self.toys_on = False
                     self.env.world.gravity = self.env.gravity
+                    self.env.world.sleeping_enabled = True
                     self.watch()
             else:
                 self._toy_mode()
@@ -760,8 +768,8 @@ class App:
         else:
             action = self.policy(self._watch_params(), self.obs)
         self.mouse_drag.step(self.env.dt)
-        if self.toys_on:  # (the weather: only while the Toys tab is open)
-            toys.weather(self.env.world, self.env.gravity, self.toy_params)  # (the gravity vector)
+        if self.toys_on:  # (the world's gravity: only while the Toys tab is open)
+            toys.gravity(self.env.world, self.env.gravity, self.toy_params)
         if self.rain is not None and self.toys_on:  # (drops from just above the view, across its width)
             corner = self.camera.convert_screen_to_world(b2d.Vec2(0, 0))
             other = self.camera.convert_screen_to_world(b2d.Vec2(self.camera.width, 0))
@@ -816,6 +824,8 @@ class App:
         self.env.draw(self.debug_draw)  # (the env's own lines, if any)
         if self.blasts:  # (the Toys tab's explosions)
             self.blasts = toys.draw_blasts(self.debug_draw, self.blasts)
+        if self.toys_on:  # (the Toys tab: the gravity vector, an arrow in the corner)
+            toys.draw_gravity(self.debug_draw, self.camera, self.toy_params)
         self.debug_draw.end_draw()
 
     def _update_view(self):

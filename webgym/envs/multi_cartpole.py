@@ -12,7 +12,8 @@ The episode ends when a pole tilts more than 20 degrees or the cart leaves |x| <
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import DARK_COLOR, Env, register_env
+from webgym.core import DARK_COLOR, LIGHT_COLOR, Env, register_env
+from webgym.envs.walker import draw_ruler_numbers, ground_with_ticks
 
 MAX_FORCE = 30.0  # N; the cart weighs 1 kg
 # friction in the hinges between the poles, per number of poles (N m; a motor at speed 0:
@@ -54,7 +55,7 @@ class MultiCartPole(Env):
         return 2.4 + 0.35 * self.poles
 
     def build_scenery(self):
-        self.ground = self.scenery(b2d.box(3.0, 0.05))
+        self.ground = ground_with_ticks(self, -3, 3, depth=0.55)  # (a ruler, 6 m)
 
     def build_agent(self, i):
         cart = self.body((0, 0.3), b2d.box(0.25, 0.12), density=1 / 0.12, color=DARK_COLOR)  # (1 kg)
@@ -95,3 +96,11 @@ class MultiCartPole(Env):
     def reward(self):
         tilted = np.abs(self.pole.angle.reshape(self.n, self.poles)).max(axis=1) > 0.35
         return np.ones(self.n), tilted | (np.abs(self.cart.position[:, 0]) > 2.4)
+
+    def draw(self, debug_draw):
+        """looks: the ruler's numbers, a disc on each hinge (the current policy's poles)"""
+        draw_ruler_numbers(debug_draw, -3, 3)
+        angles, positions = self.pole.angle[: self.poles], self.pole.position[: self.poles]
+        for (length, _), a, (x, y) in zip(POLES, angles, positions):
+            hinge = (x + length / 2 * np.sin(a), y - length / 2 * np.cos(a))
+            debug_draw.draw_solid_circle(b2d.transform(p=hinge), 0.06, LIGHT_COLOR)

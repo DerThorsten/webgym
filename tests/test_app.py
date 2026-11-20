@@ -345,7 +345,8 @@ def test_toys():
     from webgym import toys as toy_module
 
     toys = [c for c in app.controls() if c["section"] == "toys"]
-    assert {c["name"] for c in toys} == {"toy", "rain", "toys_hint", *(f"toy.{k}" for k in toy_module.PARAMS)}
+    assert {c["name"] for c in toys} == {"toy", "rain", "toys_hint", "gravity_reset",
+                                          *(f"toy.{k}" for k in toy_module.PARAMS)}
     app.command("toy.size", 1.2)  # (the sliders: a bigger, heavier box)
     app.command("toy.weight", 3)
     big = toy_module.thing(app.env.world, (0, 5), b2d.box(1.2, 1.2), app.toy_params)
@@ -357,11 +358,20 @@ def test_toys():
         app.event("down", x, 150)  # (each in empty space)
         app.event("up", x, 150)
         assert app.env.world.counters.body_count == count + bodies, tool
-    # weather: the gravity vector (sideways, up-down; upside down too)
-    app.command("toy.gravity x", 10)
+    # the world's gravity vector (sideways, up-down; upside down too)
+    app.command("toy.gravity x", 1)  # (both in the world's own g)
     app.command("toy.gravity y", -0.5)
     app._watch_step()
-    assert tuple(app.env.world.gravity) == pytest.approx((10, app.env.gravity[1] * -0.5))
+    g = abs(app.env.gravity[1])
+    assert tuple(app.env.world.gravity) == pytest.approx((g, 0.5 * g))
+    # (bodies at rest notice it too: nothing sleeps then)
+    assert not app.env.world.sleeping_enabled
+    app.command("gravity_reset")  # (the button: the world's own gravity again)
+    app._watch_step()
+    assert tuple(app.env.world.gravity) == pytest.approx(tuple(app.env.gravity))
+    app.command("toy.gravity y", -0.5)
+    app.command("toy_mode", False)  # (left: the world's own gravity, sleeping again)
+    assert app.env.world.sleeping_enabled
 
 
 def test_leaving_the_toys_starts_afresh():

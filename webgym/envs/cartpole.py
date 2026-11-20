@@ -9,7 +9,8 @@ The episode ends when the pole tilts more than 12 degrees or the cart leaves |x|
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import DARK_COLOR, Env, register_env
+from webgym.core import DARK_COLOR, LIGHT_COLOR, Env, register_env
+from webgym.envs.walker import draw_ruler_numbers, ground_with_ticks
 
 MAX_FORCE = 10.0  # N; the cart weighs 1 kg, the pole 0.1 kg (as the classic cart-pole)
 
@@ -28,7 +29,7 @@ class CartPole(Env):
                  "long": {"ppo_torch": {}, "dqn_torch": {}, "sac_torch": {}}}
 
     def build_scenery(self):
-        self.ground = self.scenery(b2d.box(3.0, 0.05))
+        self.ground = ground_with_ticks(self, -3, 3, depth=0.55)  # (a ruler, 6 m)
 
     def build_agent(self, i):
         cart = self.body((0, 0.3), b2d.box(0.25, 0.12), density=1 / 0.12, color=DARK_COLOR)  # (1 kg)
@@ -61,3 +62,10 @@ class CartPole(Env):
     def reward(self):
         fallen = (np.abs(self.pole.angle) > 0.21) | (np.abs(self.cart.position[:, 0]) > 2.4)
         return np.ones(self.n), fallen
+
+    def draw(self, debug_draw):
+        """looks: the ruler's numbers, a disc on the hinge (the current policy's)"""
+        draw_ruler_numbers(debug_draw, -3, 3)
+        a = float(self.pole.angle[0])
+        x, y = self.pole.position[0]
+        debug_draw.draw_solid_circle(b2d.transform(p=(x + 0.5 * np.sin(a), y - 0.5 * np.cos(a))), 0.06, LIGHT_COLOR)

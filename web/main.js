@@ -38,7 +38,7 @@ let trainerState = null; // the trainer's state message
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
 const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "paused", "show_n", "replay_speed", "follow",
-  "toy", "rain", "toy_mode"]);
+  "toy", "rain", "toy_mode", "gravity_reset"]);
 
 /** a widget changed: route the command to the worker(s) concerned */
 function command(name, value) {
@@ -336,7 +336,7 @@ function showControls(controls) {
         command(c.name);
         b.blur(); // space would press it again
       };
-      buttons.append(b);
+      (c.group ? parent : buttons).append(b); // (a fold's button: in the fold)
       continue;
     }
     const el = document.createElement("div");
@@ -519,6 +519,8 @@ function onMessage(role, { data }) {
   } else if (data.type === "ready") {
     if (role !== "trainer" && Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
     if (role === "display" && lastSnapshot) toDisplay({ type: "snapshot", data: lastSnapshot });
+    // (the Toys tab open at the start, remembered, or at a restart: the new python is told)
+    if (role === "display" && !document.getElementById("tab-toys").hidden) command("toy_mode", true);
     // the big packages in the training worker, in the background, a bit later: the
     // restore of the autosave goes first (the installs keep python busy)
     if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);

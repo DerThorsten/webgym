@@ -26,7 +26,11 @@ drag the env around with the mouse.
   its weights, as it acts.
 - **Play with it.** Restore a pretrained run (every world has some, they come with the
   page) and tease it: grab it with the mouse, or use the *Toys*: boxes, balls,
-  planks, explosions, ramps, steps, seesaws, rain, wind, moon gravity.
+  planks, explosions, ramps, steps, seesaws, rain, the gravity vector (wind, the moon,
+  upside down).
+- **Nice to watch.** WebGL2 from python (PyOpenGL on an OffscreenCanvas): solid shapes, a
+  sky, a ruler as the ground (how far did it walk?), the ghosts behind, the water
+  cannon's water as a liquid (metaballs). An env adds its own looks in a `draw` method.
 - **Change the code.** Every world and algorithm is a plain python file. Open *Code*
   (a Monaco editor), edit it, press *Apply*: it runs at once, in the browser. Open and save
   files of your machine; your edits are kept in the browser.

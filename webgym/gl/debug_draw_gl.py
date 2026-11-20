@@ -21,7 +21,7 @@
 import pyb2d3 as b2d
 from OpenGL.GL import *  # noqa: F403
 from pyb2d3 import Vec2, AABB
-from .draw import GLBackground, GLCircles, GLPoints, GLLines
+from .draw import GLBackground, GLCircles, GLLiquid, GLPoints, GLLines
 from .draw import GLSolidPolygons, GLSolidCircles, GLSolidCapsules
 from .draw import CAPSULE_DTYPE, CIRCLE_DTYPE, LINE_VERTEX_DTYPE, POINT_DTYPE
 from .draw import SOLID_CIRCLE_DTYPE, make_rgba8, polygon_dtype
@@ -187,6 +187,7 @@ class GLDebugDraw(b2d.DebugDraw):
         self.solid_polygons = GLSolidPolygons(self.camera)
         self.points = GLPoints(self.camera)
         self.lines = GLLines(self.camera)
+        self.liquid = GLLiquid(self.camera)  # (webgym: water from drops, see draw_liquid)
         # Add storage for debug strings
         self.debug_strings = []
         # the world is drawn in C++ into flat arrays (no python call per shape); the
@@ -225,6 +226,11 @@ class GLDebugDraw(b2d.DebugDraw):
             # a copy: the batch reuses its arrays for the next world
             target.add_block(_faded(block, dtype, alpha, only, hide, show))
 
+    def draw_liquid(self, positions, radius, color=None):
+        """drops at `positions` ((k, 2) world points) drawn as one liquid (metaballs,
+        blobs of `radius` that merge); `color`: the water's (r, g, b), 0..1"""
+        self.liquid.add(np.asarray(positions, dtype=np.float32).reshape(-1, 2), radius, color)
+
     def flush(self):
         """draw what is queued so far (each batch empties itself): what is drawn after
         this lies on top of it (webgym: the ghosts first, behind the current policy)"""
@@ -247,6 +253,7 @@ class GLDebugDraw(b2d.DebugDraw):
         # costs, especially python -> wasm -> JS in the browser): blending for all
         # shapes, a reset at the end (the imgui frontend draws after us)
         self.flush()
+        self.liquid.draw()  # (over everything else)
         glDisable(GL_BLEND)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)

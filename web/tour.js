@@ -32,7 +32,7 @@ const TOURS = {
     { target: "#tab-policy", tab: "policy",
       text: "<b>The policy:</b> once there is one (trained or restored), its neural network shows here, live: what the agent sees on the left, its actions on the right. Below it the checkpoints: save runs, restore them, or try a pretrained one." },
     { target: "#tab-toys", tab: "toys",
-      text: "<b>Toys:</b> once it walks (or flies), tease it: a click into the world drops a box, a ball or a plank on it, sets off an explosion, or puts a ramp, a step or a seesaw in its way; or change the weather: rain, or the gravity vector (wind sideways, the moon, upside down). Opening the tab turns auto reset off and shows one policy: see how it copes. R clears the world." },
+      text: "<b>Toys:</b> once it walks (or flies), tease it: a click into the world drops a box, a ball or a plank on it, sets off an explosion, or puts a ramp, a step or a seesaw in its way; or change the world's gravity (wind sideways, the moon, upside down), or let it rain. Opening the tab turns auto reset off and shows one policy: see how it copes. R clears the world." },
     { target: "#code-toggle",
       text: "<b>The python code</b> of the world and of the algorithm: edit it, press Apply, it runs." },
     { target: "#controls-environment select", tab: "world",
@@ -63,7 +63,7 @@ const TOURS = {
     // Policy, Toys, Log
     { target: "#tab-policy", tab: "policy", text: "<b>Policy:</b> the network, live (neurons colored by activation, connections by weight); the checkpoints of this world + algorithm, kept in your browser, and pretrained runs of every algorithm (a restore switches to it)." },
     { target: "#controls-toys .tools", tab: "toys", text: "<b>Toys:</b> pick a tool in the folds, then click into empty space: drop a box, a ball or a plank, set off an explosion, put a ramp, a step or a seesaw on the ground. They are real bodies: the agent has to deal with them. A click on a body always grabs it; click the tool again to put it away. Opening this tab turns auto reset off and shows one policy; R (reset) clears them." },
-    { target: "#controls-toys details", tab: "toys", text: "<b>The folds</b> (click a title): each with its tools and their settings: size, weight and bounce of what you drop, the explosion, the ramps and steps, and the weather: rain and the gravity vector, sideways (wind) and up-down (try the moon: 0.17, or below 0)." },
+    { target: "#controls-toys details", tab: "toys", text: "<b>The folds</b> (click a title): each with its tools and their settings: size, weight and bounce of what you drop, the explosion, the ramps and steps, the world's gravity, sideways (wind) and up-down (try the moon: 0.17, or below 0), and the weather (rain)." },
     { target: "#tab-log", tab: "log", text: "<b>Log:</b> the detailed state, the packages loaded (e.g. pytorch) and every message." },
     // the middle, the right
     { target: "#stage", tab: "world", text: "<b>The world</b>, simulated live: drag the background to pan, the wheel zooms, drag a body to push it around (while watching)." },

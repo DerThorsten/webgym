@@ -3,7 +3,8 @@
 A click on a body grabs it (drag it around), always. A click elsewhere into the world
 uses the chosen tool (TOOLS): drop a box, a ball or a plank; set off an
 explosion; put a ramp, a step or a seesaw on the ground (for the walkers to deal with:
-heavy, but dynamic too: they can be pushed and tipped over). Weather: rain, and the gravity vector (sideways: wind; up-down: the moon .. upside down). They are real bodies / forces of the
+heavy, but dynamic too: they can be pushed and tipped over). Gravity: its vector (sideways:
+wind; up-down: the moon .. upside down). Weather: rain. They are real bodies / forces of the
 world: the agent bumps into them, they push it. A reset of the episode (R) removes them
 (the world goes back to its start). Never in training: only the env you watch. Their
 settings (PARAMS) are sliders in the Toys tab, in groups.
@@ -33,17 +34,18 @@ PARAMS = {
     "heaviness": (20.0, 1.0, 100.0, 1.0, "Ramps and steps",
                   "Ramps, steps and seesaws: their density. Heavy ones stay where they are (but can be "
                   "pushed or tipped over), light ones slide away under the agent."),
-    "gravity x": (0.0, -20.0, 20.0, 0.5, "Weather",
-                  "The gravity vector's sideways part (m/s², + = to the right): a wind that pushes everything; a storm at 10."),
-    "gravity y": (1.0, -2.5, 2.5, 0.05, "Weather",
-                  "The gravity vector's up-down part, times the world's own: 0.17 is the moon, 2.5 a heavy planet, "
-                  "0 floats, below 0 everything falls up."),
+    "gravity x": (0.0, -2.5, 2.5, 0.05, "Gravity",
+                  "The gravity vector's sideways part, in the world's own g (+ = to the right): a wind that pushes "
+                  "everything; a storm at 1. (The arrow in the view's corner; its ring: 1 g.)"),
+    "gravity y": (1.0, -2.5, 2.5, 0.05, "Gravity",
+                  "The gravity vector's downward part, in the world's own g: 1 as usual, 0.17 is the moon, 2.5 a "
+                  "heavy planet, 0 floats, below 0 everything falls up."),
     "rain rate": (120.0, 10.0, 600.0, 10.0, "Weather", "Rain: drops per second."),
     "drop size": (0.06, 0.02, 0.3, 0.01, "Weather", "Rain: the radius of a drop (m)."),
     "drop weight": (0.5, 0.1, 10.0, 0.1, "Weather", "Rain: the density of a drop: light drizzle .. hail."),
     "drop life": (4.0, 0.5, 15.0, 0.5, "Weather", "Rain: how long a drop stays (s) before it disappears."),
 }
-GROUPS = ("Things to drop", "Explosion", "Ramps and steps", "Weather")  # (in this order)
+GROUPS = ("Things to drop", "Explosion", "Ramps and steps", "Gravity", "Weather")  # (in this order)
 
 
 def defaults():
@@ -160,12 +162,40 @@ def draw_blasts(draw, blasts):
     return left
 
 
-# -- weather -------------------------------------------------------------------------
+# -- gravity, weather -----------------------------------------------------------------
 
-def weather(world, base_gravity, p):
-    """the gravity vector: sideways (gravity x, m/s²) and the world's own up-down part, scaled
-    (gravity y)"""
-    world.gravity = (p["gravity x"], base_gravity[1] * p["gravity y"])
+def gravity(world, base_gravity, p):
+    """the world's gravity vector (for everything in it), both parts in the world's own g:
+    sideways (gravity x, + = to the right) and down (gravity y, 1 = as usual). Bodies at
+    rest sleep and would not notice another gravity: while it is not the world's own,
+    nothing sleeps"""
+    g = abs(base_gravity[1])
+    world.gravity = (p["gravity x"] * g, -p["gravity y"] * g)
+    own = p["gravity x"] == 0.0 and p["gravity y"] == 1.0
+    if world.sleeping_enabled != own:
+        world.sleeping_enabled = own  # (off: box2d wakes every body)
+
+
+GRAVITY_COLOR = 0xEFE2C8
+
+
+def draw_gravity(draw, camera, p):
+    """the gravity vector as an arrow in the view's top right corner; the ring: 1 g"""
+    r = 0.12 * camera.zoom  # (1 g, in world units: the same size on screen at any zoom)
+    corner = camera.convert_screen_to_world(b2d.Vec2(camera.width, 0))
+    center = (corner[0] - 2.0 * r, corner[1] - 2.0 * r)
+    draw.draw_circle(center, r, GRAVITY_COLOR)
+    dx, dy = p["gravity x"] * r, -p["gravity y"] * r
+    length = np.hypot(dx, dy)
+    if length < 1e-6:  # (no gravity: a dot)
+        draw.draw_point(center, 6.0, GRAVITY_COLOR)
+        return
+    tip = (center[0] + dx, center[1] + dy)
+    draw.draw_segment(center, tip, GRAVITY_COLOR)
+    ux, uy, head = dx / length, dy / length, min(0.3 * r, 0.5 * length)
+    for side in (1, -1):  # (the arrow's head)
+        draw.draw_segment(tip, (tip[0] - head * (ux - side * 0.6 * uy), tip[1] - head * (uy + side * 0.6 * ux)),
+                          GRAVITY_COLOR)
 
 
 class Rain:
