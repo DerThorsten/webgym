@@ -83,12 +83,14 @@ def test_multi_cartpole(poles):
     assert env.done.all() and (env.episode_return < env.max_return).all()
 
 
-def test_water_cannon_one_gun_per_object():
-    """with N objects the cart has N cannons, each with its own angle, pressure and spread:
-    1 + 3N actions; only the cannon that is given pressure sprays"""
-    env = make("WaterCannon", n=2, objects=2)
+def test_water_cannon_one_gun_per_ball():
+    """with N balls the cart has N cannons (two: at the ends of a wider cart), each with
+    its own angle, pressure and spread: 1 + 3N actions; only the cannon that is given
+    pressure sprays"""
+    env = make("WaterCannon", n=2, balls=2)
     assert env.action_space.shape == (7,) and env.observation_space.shape == (4 + 4 + 1 + 6,)
-    assert len(env.barrel) == len(env.hinge) == 4 and len(env.object) == 4
+    assert len(env.barrel) == len(env.hinge) == 4 and len(env.ball) == 4
+    assert env.guns_x[0] < -1.0 < 1.0 < env.guns_x[1]
     env.reset(seed=0)
     actions = np.zeros((2, 7))
     actions[:, 3::3] = -1  # (narrow jets)
@@ -99,11 +101,11 @@ def test_water_cannon_one_gun_per_object():
     assert drops[1] > 0 and drops[0] == 0 and sum(drops[2:]) == 0
 
 
-def test_water_hits_only_its_own_object():
-    """water cannons in one world: each cart's water carries its own object, not the
-    others' (collision groups); an object without water falls as if alone"""
+def test_water_hits_only_its_own_ball():
+    """water cannons in one world: each cart's water carries its own ball, not the
+    others' (collision groups); a ball without water falls as if alone"""
     env = make("WaterCannon", n=2)
-    env.same_start = True  # (both objects start alike)
+    env.same_start = True  # (both balls start alike)
     env.reset(seed=0)
     for _ in range(50):  # agent 0 sprays straight up, agent 1 does nothing
         env.step(np.array([[0.0, 0.0, 1.0, -1.0], [0.0, 0.0, 0.0, -1.0]]))
@@ -111,8 +113,8 @@ def test_water_hits_only_its_own_object():
     alone.reset(seed=0)
     for _ in range(50):
         alone.step(np.array([[0.0, 0.0, 0.0, -1.0]]))
-    y = env.object.position[:, 1]
-    assert y[0] > y[1] + 0.5 and abs(y[1] - alone.object.position[0, 1]) < 1e-3
+    y = env.ball.position[:, 1]
+    assert y[0] > y[1] + 0.5 and abs(y[1] - alone.ball.position[0, 1]) < 1e-3
 
 
 def test_agents_never_sleep():
@@ -155,23 +157,25 @@ def test_untrained_ragdoll_falls():
 
 def test_lander_flies_through_the_flags():
     """the flags of the pad are decoration (as in the classic lander): a lander flying
-    sideways at flag height passes the pole at x = 1.6"""
+    sideways at flag height passes the right pole (x = 12)"""
+    from webgym.envs.lunar_lander import HELIPAD_X2, HELIPAD_Y
+
     env = make("LunarLander", n=1, decorated=True)
     env.reset(seed=0)
-    env.lander.position = np.array([[0.8, 1.6]], np.float32)
+    env.lander.position = np.array([[HELIPAD_X2 - 1.0, HELIPAD_Y + 1.3]], np.float32)
     env.lander.angle = np.zeros(1, np.float32)
     env.lander.angular_velocity = np.zeros(1, np.float32)
     env.lander.linear_velocity = np.array([[4.0, 2.0]], np.float32)
     for _ in range(25):
         env.step(np.zeros((1, 2), np.float32))
-    assert env.lander.position[0, 0] > 2.0
+    assert env.lander.position[0, 0] > HELIPAD_X2 + 0.5
 
 
 def test_decoration_only_when_watched():
     """a decorated lander (watch mode) has flags and exhaust emitters: the engines that
-    fire emit particles (main: 2 per step at full thrust; turning: 1 from a side
-    thruster), agent 0's orange, the ghosts' in the ghost color; they expire again. An
-    undecorated lander (training) has none of it"""
+    fire emit particles (main: 120 / s at full thrust; a side engine: 60 / s), agent 0's
+    orange, the ghosts' in the ghost color; they expire again. An undecorated lander
+    (training) has none of it"""
     from webgym.core import PARTICLE_COLOR
 
     plain = make("LunarLander", n=2)
@@ -179,11 +183,13 @@ def test_decoration_only_when_watched():
     assert decorated.world.counters.body_count - plain.world.counters.body_count == 4  # (2 flags: pole + cloth)
     assert not hasattr(plain, "main_exhaust")
     decorated.reset(seed=0)
-    for _ in range(10):  # lander 0: main engine; lander 1: rotate left
+    for _ in range(10):  # lander 0: main engine; lander 1: the right side engine
         decorated.step(np.array([[1.0, 0.0], [0.0, 1.0]], np.float32))
         decorated.decorate()
     main, right, left = decorated.main_exhaust, decorated.right_exhaust, decorated.left_exhaust
-    assert len(main[0]) == 20 and len(right[1]) == 10 and len(main[1]) == len(left[1]) == 0
+    seconds = 10 * decorated.dt
+    assert abs(len(main[0]) - 120 * seconds) <= 1 and abs(len(right[1]) - 60 * seconds) <= 1
+    assert len(main[1]) == len(left[1]) == 0
     assert (main[0].shapes.custom_color == PARTICLE_COLOR).all()
     assert (right[1].shapes.custom_color == 0).all()  # (the ghost color)
     for _ in range(40):

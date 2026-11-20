@@ -495,7 +495,7 @@ function showState() {
           `return <b>${s.episode_return.toFixed(0)}</b>`, "watch")); // (the policy you watch: its training iteration)
 }
 let displayState = null;
-let worldKey = ""; // the env with its settings (e.g. "WaterCannon · objects 2"): a chip in the bar
+let worldKey = ""; // the env with its settings (e.g. "WaterCannon · balls 2"): a chip in the bar
 
 /** a message from a worker: `role` "display" or "trainer" */
 function onMessage(role, { data }) {
@@ -994,6 +994,13 @@ const lift = (e) => {
 };
 stage.addEventListener("pointerup", lift);
 stage.addEventListener("pointercancel", lift);
+// (no pointerup when the capture is lost: a context menu, another window, a dialog. A
+// drag left on would hold the body at the last pointer position and keep the episode
+// from ending: the world looks frozen)
+stage.addEventListener("lostpointercapture", lift);
+window.addEventListener("blur", () => {
+  for (const id of [...pointers.keys()]) lift({ pointerId: id, offsetX: 0, offsetY: 0 });
+});
 // R: a new episode (unless the user types into a widget)
 window.addEventListener("keydown", (e) => {
   if (e.repeat || e.target.closest?.("input, select, textarea, [contenteditable]")) return;

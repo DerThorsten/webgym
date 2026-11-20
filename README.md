@@ -40,8 +40,10 @@ drag the env around with the mouse.
 
 ## Worlds and algorithms
 
-**Worlds** (`webgym/envs/`): CartPole, MultiCartPole (2 to 5 poles stacked on top), LunarLander,
-Walker, Crawler (four legs), Ragdoll (a human figure, 11 motor joints), WaterCannon (keep objects in the air with water).
+**Worlds** (`webgym/envs/`): CartPole, MultiCartPole (2 to 5 poles stacked on top), LunarLander
+(as Gymnasium's), Walker, Crawler (four legs), Ragdoll (a human figure, 11 motor joints),
+WaterCannon (keep one or two balls in the air with water), Blob (a soft ring of balls that
+learns to roll and hop), Drone (fly through a course of gates).
 
 **Algorithms** (`webgym/algos/`):
 
@@ -149,6 +151,9 @@ See [CLAUDE.md](CLAUDE.md) for how it is built (envs, algorithms, the browser se
 - [Box2D](https://box2d.org) by Erin Catto;
 - [Gymnasium](https://gymnasium.farama.org)
   (Farama Foundation) for the idea and the classic environments.
+
+Third-party work and licenses (Gymnasium's environments, pyb2d3's drawing code, ...):
+[THIRD_PARTY.md](THIRD_PARTY.md).
 
 More (credits, what is what, things to try) on the
 [help page](https://derthorsten.github.io/webgym/help.html).

@@ -33,7 +33,7 @@ LOGS = HERE.parent / "build" / "pretrain"
 LIMITS = {"numpy": (100_000, 6), "pytorch": (100_000, 12)}  # (the minutes decide)
 # envs with runs for more than their default settings (each its own runs; the page lists
 # them under the env with these settings; {}: the defaults)
-SETTINGS = {"MultiCartPole": [{"poles": p} for p in (2, 3, 4, 5)], "WaterCannon": [{}, {"objects": 2}]}
+SETTINGS = {"MultiCartPole": [{"poles": p} for p in (2, 3, 4, 5)], "WaterCannon": [{}, {"balls": 2}]}
 
 
 def runs(only_env=None, only_algo=None, only_settings=()):

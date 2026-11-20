@@ -59,7 +59,17 @@ Technical considerations:
   pretrained per pole count, `pretrain.py SETTINGS`), Ragdoll (pyb2d3's ragdoll as a walker, `Legged`
   subclass; feet on ankles, every one of its 11 joints a motor (action) and observed, plus
   the heels' heights; limp motors at action 0, so it falls untrained), WaterCannon (the CarDesigner was dropped 2026-11-19: open loop, one design
-  action, nothing to watch live; it didn't fit). **Users read and edit these files** (Code panel): keep them short and plain.
+  action, nothing to watch live; it didn't fit), Blob (2026-11-20: a ring of 10 balls on
+  springs, own collision group per blob, 5 actuated springs across, rolling losses
+  (friction / rolling resistance / angular damping, else it rolls on by itself), an
+  air-time bonus; springs drawn as lines via `Env.draw`), Drone (2026-11-20: 2 rotors,
+  10 gates with solid posts, stall end after 3 s without getting closer; PPO learns it,
+  CEM slowly). Pool and Slingshot (unbatched, a tower of props) were tried and dropped
+  2026-11-20. LunarLander is a port of Gymnasium's (2026-11-20: legs on motor springs,
+  engine impulses with dispersion, landed = asleep; the surface is fixed; Gymnasium's
+  heuristic lands 63/64, mean 281; its sensors weigh nothing, `core.sensor(density=0)`;
+  the other envs' sensors keep density 1, their runs were trained so). Third-party
+  notes: THIRD_PARTY.md. **Users read and edit these files** (Code panel): keep them short and plain.
   An env builds ONE agent (`build_agent(i)` returns its parts by name; `Env` turns each into
   a batch over all agents: `self.cart` = `b2d.Bodies`, `self.joints` = `b2d.RevoluteJoints`,
   lists of k per agent -> n * k entries), then works batched: `randomize(rng)`, `act`,
@@ -67,7 +77,8 @@ Technical considerations:
   `action_names` (actions always in [-1, 1]). The how-to is the docstring of `core.py`;
   CartPole is the template. Walker, Crawler and Ragdoll share `Legged` (`envs/walker.py`;
   joint motors via `RevoluteJoints`, feet sensors). Flat ground (bumpy terrain for the walkers was tried and removed 2026-11-19). Agent bodies
-  never sleep (`core.body`: motors don't wake bodies). Watched episodes: a new seed each; another run
+  never sleep (`core.body`: motors don't wake bodies). Watched episodes: a new seed each; the next starts
+  when agent 0's ends (the ghosts don't hold it back); another run
   (new run, other algorithm / network, a restore: `App.run` in the snapshot) starts a new
   watched episode at once with the new policy; the same run trained on: the newest
   snapshot takes over with the next watched episode (`App._pending`; an episode = one
@@ -81,9 +92,9 @@ Technical considerations:
   an env pick the first one with its params (`App.suggest`); ★ marks them in the algorithm
   select; an algo given explicitly (URL `?algo=`) is kept.
 - Env settings (`Env.settings = {name: (default, choices, help)}`, e.g. the WaterCannon's
-  `objects`): selects in the Environment section; a change rebuilds the env as a new run;
+  `balls`): selects in the Environment section; a change rebuilds the env as a new run;
   obs / action names may depend on them (properties). Runs and checkpoints are kept per
-  env key ("WaterCannon · objects 2", `core.env_key`; checkpoints carry `settings`; the page's
+  env key ("WaterCannon · balls 2", `core.env_key`; checkpoints carry `settings`; the page's
   IndexedDB uses the key). A checkpoint whose policy doesn't fit the env (other sizes) is
   refused with a message.
 - A batchable car (own crates + gravel per car via collision groups, filter joints between
@@ -184,9 +195,10 @@ Technical considerations:
   mean first (a restore switches algo + network). Limits per run: numpy 6 min, pytorch
   12 min (the minutes decide: the CLI continues a trainer that ends by itself, `--hp
   NAME=VALUE` sets algorithm parameters). Envs with runs per setting: `pretrain.py
-  SETTINGS` (MultiCartPole poles 2..5, WaterCannon objects 1 / 2; files
+  SETTINGS` (MultiCartPole poles 2..5, WaterCannon balls 1 / 2; files
   `<env>-<algo>-<setting><value>`, `--set poles=4` trains only those). WaterCannon has
-  objects 1 or 2 (3 dropped 2026-11-20; 2 learns, slowly: PPO 435 after 5 min).
+  balls 1 or 2 (3 dropped 2026-11-20; squares were balls again the same day: setting
+  "balls"; two: a wider cart, a cannon at each end).
   `--upload` doesn't remove assets that are
   gone locally: `gh release delete-asset`. After an env changes, retrain its runs and
   check them all: `pixi run -e ml python web/check_pretrained.py` (restores each as the

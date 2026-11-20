@@ -31,8 +31,8 @@ Writing an env (see envs/cartpole.py, the shortest one):
         def reward(self):                # -> reward (n,), episode over (n,)
             return np.ones(self.n), np.abs(self.cart.angle) > 1
 
-Settings the user can choose (e.g. how many objects): `settings = {"objects": (1, (1, 2, 3),
-"explanation")}`; the env reads `self.objects`; obs_names / action_names may depend on them
+Settings the user can choose (e.g. how many balls): `settings = {"balls": (1, (1, 2),
+"explanation")}`; the env reads `self.balls`; obs_names / action_names may depend on them
 (make them properties). See envs/water_cannon.py.
 """
 
@@ -184,6 +184,11 @@ class Env:
         default None: a fixed scene, nothing to follow"""
         return None
 
+    def draw(self, debug_draw):
+        """looks only: more to draw after the world (watch mode), e.g. lines with
+        debug_draw.draw_segment(p1, p2, 0xRRGGBB); agent 0 is the current policy, the
+        others are ghosts; default: nothing"""
+
     # -- building blocks for build_scenery / build_agent -----------------------------
 
     def scenery(self, geometry, position=(0, 0), solid=True, **material):
@@ -209,29 +214,33 @@ class Env:
         body.create_shape(shape_def, geometry)
         return body
 
-    def body(self, position, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, **body_settings):
+    def body(self, position, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, material=None,
+             **body_settings):
         """a dynamic body of the agent being built, with one shape (more: self.shape);
-        `filter`: what it collides with (default: the scenery, not other agents). Agent
-        bodies never sleep: a joint motor doesn't wake a sleeping body, and an agent lying
-        still (fallen, auto reset off) must still move when its policy acts"""
+        `filter`: what it collides with (default: the scenery, not other agents);
+        `material`: more of its surface ({"rolling_resistance": 0.2}). Agent bodies never
+        sleep: a joint motor doesn't wake a sleeping body, and an agent lying still
+        (fallen, auto reset off) must still move when its policy acts"""
         body = self.world.create_dynamic_body(position=position, **{"enable_sleep": False, **body_settings})
         self._bodies.append(body)
         self._owner.append(self._agent)
-        self.shape(body, geometry, density, friction, filter)
+        self.shape(body, geometry, density, friction, filter, **(material or {}))
         return body
 
-    def shape(self, body, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER):
-        """one more shape on an agent body"""
+    def shape(self, body, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, **material):
+        """one more shape on an agent body (`material`: more of its surface, e.g.
+        rolling_resistance)"""
         shape_def = b2d.shape_def(density=density, filter=filter,
-                                  material=b2d.surface_material(friction=friction))
+                                  material=b2d.surface_material(friction=friction, **material))
         shape = body.create_shape(shape_def, geometry)
         self._shapes[self._agent].append(shape)
         return shape
 
-    def sensor(self, body, geometry, filter=SENSOR_FILTER):
+    def sensor(self, body, geometry, filter=SENSOR_FILTER, density=1.0):
         """a sensor shape on an agent body: `sensor_capacity > 0` (batched: b2d.Shapes)
-        while it overlaps the scenery, e.g. a foot touching the ground"""
-        shape_def = b2d.shape_def(is_sensor=True, enable_sensor_events=True, filter=filter)
+        while it overlaps the scenery, e.g. a foot touching the ground. (It has mass, as
+        any shape: `density=0` for none; the older envs were trained with 1)"""
+        shape_def = b2d.shape_def(is_sensor=True, enable_sensor_events=True, filter=filter, density=density)
         return body.create_shape(shape_def, geometry)
 
     # -- the API (used by the trainers and the app) ----------------------------------
@@ -367,7 +376,7 @@ MAX_SEPARATE = 32  # non-batchable envs: at most this many agents (one world eac
 
 
 def env_key(name, settings=None):
-    """the name of an env with its settings, e.g. "WaterCannon · objects 2" (runs and
+    """the name of an env with its settings, e.g. "WaterCannon · balls 2" (runs and
     checkpoints are kept per key); just the name for an env without settings"""
     values = ENVS[name].chosen(settings)
     return " · ".join([name, *(f"{k} {v}" for k, v in values.items())])

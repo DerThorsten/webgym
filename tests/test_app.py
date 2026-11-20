@@ -128,9 +128,10 @@ def test_checkpoint_restore_continue():
     assert fresh.history == app.history
     assert np.array_equal(fresh.train_state["mean"], app.train_state["mean"])
     fresh.command("train")
-    while len(fresh.history) < 3:
+    n = len(fresh.history)
+    while len(fresh.history) <= n:
         fresh._train_steps()
-    assert fresh.history[-1]["iteration"] == 3
+    assert [h["iteration"] for h in fresh.history] == list(range(1, len(fresh.history) + 1))  # (continued)
 
 
 def test_display_takes_snapshots():
@@ -193,17 +194,18 @@ def test_watched_policies_start_alike():
     """the policies you watch all get the same (random) start, a new one each episode;
     in training every agent gets its own"""
     app = App(env="LunarLander", seed=0)
+    app.command("show_n", 3)
     starts = []
-    for _ in range(2):
+    for _ in range(2):  # (the lander starts at the top; its random push differs)
         app.env.reset()
-        pos = app.env.lander.position
-        assert np.allclose(pos, pos[0])
-        starts.append(pos[0].copy())
+        vel = app.env.lander.linear_velocity
+        assert np.allclose(vel, vel[0])
+        starts.append(vel[0].copy())
     assert not np.allclose(starts[0], starts[1])
     app.command("train")
     app.pop_env.reset(seed=0)
-    pos = app.pop_env.lander.position
-    assert len(np.unique(pos[:, 0])) == app.population
+    vel = app.pop_env.lander.linear_velocity
+    assert len(np.unique(vel[:, 0])) == app.population
 
 
 def test_network_view():
@@ -321,7 +323,7 @@ def test_toys():
     # a tool acts only in empty space: a click on the ground does nothing, a click on a
     # body grabs it (the mouse joint), whatever tool is chosen
     count = app.env.world.counters.body_count
-    ground = app.camera.convert_world_to_screen(b2d.Vec2(0.0, -0.5))
+    ground = app.camera.convert_world_to_screen(b2d.Vec2(10.0, 1.0))  # (inside the moon's surface)
     app.event("down", ground[0], ground[1])
     app.event("up", ground[0], ground[1])
     lander = app.camera.convert_world_to_screen(b2d.Vec2(*map(float, app.env.lander.position[0])))
@@ -379,7 +381,7 @@ def test_suggested_algorithms():
     assert app.algo == "ppo_torch" and app.hp["ppo_torch"]["hidden"] == 64
     algo = next(c for c in app.controls() if c["name"] == "algo")
     labels = dict(algo["options"])
-    assert labels["td3_torch"].startswith("★") and not labels["es"].startswith("★")
+    assert labels["reinforce_torch"].startswith("★") and not labels["es"].startswith("★")
     app.command("env", "Walker")  # (another env: its suggestion for the budget, with its parameters)
     assert app.algo == "ppo_torch" and app.hp["ppo_torch"]["hidden"] == 64
     assert make_app(env="LunarLander", algo="es").algo == "es"
@@ -399,37 +401,37 @@ def test_checkpoint_of_an_unknown_env():
 
 
 def test_env_settings():
-    """an env setting (the water cannon's objects) is a select in the page's World tab; a
-    change rebuilds the env (more objects: more observations) as a new run; checkpoints
+    """an env setting (the water cannon's balls) is a select in the page's World tab; a
+    change rebuilds the env (more balls: more observations) as a new run; checkpoints
     carry the settings and bring them back; the env key names them"""
     app = make_app(env="WaterCannon")
-    control = next(c for c in app.controls() if c["name"] == "setting.objects")
+    control = next(c for c in app.controls() if c["name"] == "setting.balls")
     assert control["type"] == "select" and control["options"] == [1, 2] and control["value"] == 1
     # (the World tab: the env and its settings; the page's icons above the tabs: training,
     # the switches, how you watch)
     sections = {c["name"]: c["section"] for c in app.controls()}
-    assert sections["env"] == sections["setting.objects"] == "environment"
+    assert sections["env"] == sections["setting.balls"] == "environment"
     assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run", "reset", "paused",
                                                               "follow", "decorate", "show_n", "replay_speed"}
     assert "watch" not in sections.values()
-    assert app.env_key == "WaterCannon · objects 1"
+    assert app.env_key == "WaterCannon · balls 1"
     app.command("train")
     while not app.history:
         app._train_steps()
-    one_object = app.checkpoint()
-    app.command("setting.objects", "2")  # (the page sends text)
-    assert app.settings == {"objects": 2} and app.env.objects == 2 and not app.history
-    assert len(app.env.obs_names) == 15 and app.policy.sizes[0] == 15  # (2 objects, 2 cannons)
-    assert app.env_key == "WaterCannon · objects 2"
+    one_ball = app.checkpoint()
+    app.command("setting.balls", "2")  # (the page sends text)
+    assert app.settings == {"balls": 2} and app.env.balls == 2 and not app.history
+    assert len(app.env.obs_names) == 15 and app.policy.sizes[0] == 15  # (2 balls, 2 cannons)
+    assert app.env_key == "WaterCannon · balls 2"
     app.command("train")
     while not app.history:
         app._train_steps()
-    assert app.pop_env.objects == 2
-    app.restore(one_object)  # (back to one object, with its run)
-    assert app.settings == {"objects": 1} and app.history and app.policy.sizes[0] == 8
+    assert app.pop_env.balls == 2
+    app.restore(one_ball)  # (back to one ball, with its run)
+    assert app.settings == {"balls": 1} and app.history and app.policy.sizes[0] == 8
     display = make_app()
     display.load_policy(app.checkpoint())
-    assert display.env_key == "WaterCannon · objects 1"
+    assert display.env_key == "WaterCannon · balls 1"
     for _ in range(3):
         display._watch_step()
 

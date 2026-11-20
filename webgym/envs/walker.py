@@ -20,6 +20,15 @@ from webgym.core import DECORATION_FILTER, MARK_COLOR, Env, register_env
 STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
 
 
+def ground_with_ticks(env):
+    """flat ground to the right, with ticks every metre (every 5 m a longer one): you see
+    the progress. The ticks are looks only: nothing collides with them"""
+    ground = env.scenery(b2d.box(200, 0.5, center=(190, -0.5)), friction=1.0)
+    tick = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=MARK_COLOR))
+    for x in range(-10, 390):
+        ground.create_shape(tick, b2d.segment((x, 0), (x, -0.4 if x % 5 == 0 else -0.15)))
+
+
 def legged_names(legs):
     """obs_names, action_names of a robot with these legs (a hip and a knee each)"""
     joints = [f"{kind} {leg}" for leg in legs for kind in ("hip", "knee")]
@@ -54,12 +63,7 @@ class Legged(Env):
     view_center, view_zoom = (0.0, 2.0), 3.5
 
     def build_scenery(self):
-        ground = self.scenery(b2d.box(200, 0.5, center=(190, -0.5)), friction=1.0)
-        # ticks in the ground, every metre (every 5 m a longer one): you see the progress.
-        # Looks only: nothing collides with them
-        tick = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=MARK_COLOR))
-        for x in range(-10, 390):
-            ground.create_shape(tick, b2d.segment((x, 0), (x, -0.4 if x % 5 == 0 else -0.15)))
+        ground_with_ticks(self)
 
     def build_agent(self, i):
         hull = self.body((0, self.HIP_Y + self.HULL[1]), b2d.box(*self.HULL), density=5.0)

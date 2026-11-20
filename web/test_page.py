@@ -141,7 +141,7 @@ def main():
         # popup of a first click must not block the second)
         page.click("#tabs button:text('Training')")
         page.dispatch_event("[data-help] >> text=Population", "click")
-        assert page.is_visible("#help-popup") and "ghosts" in page.inner_text("#help-popup")
+        assert page.is_visible("#help-popup") and "at once" in page.inner_text("#help-popup")
         page.dispatch_event("[data-help] >> text=Population", "click")
         assert not page.is_visible("#help-popup")
         page.click("#tabs button:text('World')")
@@ -275,7 +275,7 @@ def main():
                 section.screenshot(path=str(args.screenshot.with_name(args.screenshot.stem + "_network.png")))
             page.click("#tabs button:text('World')")
         # every env loads and runs in the browser (no errors)
-        for env in ("LunarLander", "Walker", "Crawler", "Ragdoll", "MultiCartPole", "WaterCannon"):
+        for env in ("LunarLander", "Walker", "Crawler", "Ragdoll", "MultiCartPole", "WaterCannon", "Blob", "Drone"):
             page.select_option("#controls-environment select >> nth=0", env)
             page.wait_for_timeout(800)
         # the pretrained walker that comes with the page (public/pretrained/): restorable;

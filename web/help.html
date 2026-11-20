@@ -71,7 +71,7 @@
       decoration. The second: <b>− / +</b> how many policies you watch at once, and the
       replay speed (slower / faster). See "Watching a policy" below.
       Then five tabs: <i>World</i> (pick the environment and its settings, e.g.
-      how many objects; what it is about), <i>Training</i> (time budget, the algorithm and
+      how many balls; what it is about), <i>Training</i> (time budget, the algorithm and
       its parameters, population, simulation workers), <i>Policy</i> (the network and the
       checkpoints), <i>Toys</i> (things to throw into the world), <i>Log</i> (state, packages,
       messages).
@@ -223,9 +223,12 @@
 
     <h2 id="tips">Tips</h2>
     <ul>
-      <li>CartPole learns in seconds, LunarLander in a minute or so, the walkers take longer.</li>
+      <li>CartPole and the Blob learn in seconds, LunarLander and the Drone (PPO) in a minute
+        or so, the walkers take longer. MultiCartPole with 4 or 5 poles is hard: try the
+        pretrained runs.</li>
       <li>URL options: <code>?env=Walker&amp;algo=es&amp;population=128&amp;seed=1</code>,
-        <code>train=0</code> (don't start training).</li>
+        <code>train=0</code> (don't start training); a world's settings too, e.g.
+        <code>?env=MultiCartPole&amp;poles=4</code>.</li>
       <li>The first visit downloads python and the packages; later visits come from the
         browser cache and start in about a second.</li>
     </ul>
@@ -290,8 +293,11 @@
         <a href="https://github.com/DerThorsten/pyb2d3">pyb2d3</a>.</li>
       <li>Anutosh Bhat, for bringing pytorch to emscripten-forge: the reason PPO, SAC
         &amp; co. train right here in your browser.</li>
-      <li><a href="https://gymnasium.farama.org">Gymnasium</a> (Farama Foundation): the idea
-        and the classic environments (CartPole, LunarLander, BipedalWalker).</li>
+      <li><a href="https://gymnasium.farama.org">Gymnasium</a> (Copyright (c) 2016 OpenAI,
+        Copyright (c) 2022 Farama Foundation,
+        <a href="https://github.com/Farama-Foundation/Gymnasium/blob/main/LICENSE">MIT license</a>):
+        the idea and the classic environments (CartPole, LunarLander, BipedalWalker), which
+        webgym's follow, written anew for box2d 3.</li>
       <li><a href="https://numpy.org">numpy</a>, 
         <a href="https://pytorch.org">pytorch</a>,
         <a href="https://pyopengl.sourceforge.net">PyOpenGL</a>,
@@ -299,5 +305,7 @@
         <a href="https://vite.dev">vite</a>.
       </li>
     </ul>
+    <p>What webgym takes from where, with the licenses:
+      <a href="https://github.com/DerThorsten/webgym/blob/main/THIRD_PARTY.md">THIRD_PARTY.md</a>.</p>
   </body>
 </html>

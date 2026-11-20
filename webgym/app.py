@@ -115,7 +115,7 @@ class App:
 
     @property
     def env_key(self):
-        """the env with its settings, e.g. "WaterCannon · objects 2": runs and checkpoints
+        """the env with its settings, e.g. "WaterCannon · balls 2": runs and checkpoints
         are kept per key"""
         return env_key(self.env_name, self.settings)
 
@@ -781,7 +781,8 @@ class App:
             # a new best: better than every earlier score (not a tie, not the first)
             self.new_best = bool(self.scores) and self.episode_return > max(self.scores)
             self.scores.append(self.episode_return)
-        if self.env.done.all() and not self.ended:
+        # (the current policy's episode decides: the ghosts don't make it wait, frozen)
+        if self.env.done[0] and not self.ended:
             self.ended = True
             if self.auto_reset:
                 self.end_timer = END_SECONDS
@@ -818,6 +819,7 @@ class App:
             )
         else:
             self.debug_draw.draw_world(self.env.world)
+        self.env.draw(self.debug_draw)  # (the env's own lines, if any)
         if self.blasts:  # (the Toys tab's explosions)
             self.blasts = toys.draw_blasts(self.debug_draw, self.blasts)
         self.debug_draw.end_draw()
