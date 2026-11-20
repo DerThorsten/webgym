@@ -142,11 +142,11 @@ See [CLAUDE.md](CLAUDE.md) for how it is built (envs, algorithms, the browser se
 
 ## Acknowledgments
 
-- [QuantStack](https://quantstack.net), for the work on emscripten-forge, and Sylvain
-  Corlay, for the time to build things like this.
+- [QuantStack](https://quantstack.net), for the work on emscripten-forge.
 - [Bloomberg](https://www.bloomberg.com), for their financial support of emscripten-forge.
 - Anutosh Bhat, for bringing pytorch to emscripten-forge.
-- [Box2D](https://box2d.org) by Erin Catto; [Gymnasium](https://gymnasium.farama.org)
+- [Box2D](https://box2d.org) by Erin Catto;
+- [Gymnasium](https://gymnasium.farama.org)
   (Farama Foundation) for the idea and the classic environments.
 
 More (credits, what is what, things to try) on the
