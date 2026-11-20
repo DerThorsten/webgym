@@ -18,8 +18,9 @@ drag the env around with the mouse.
 
 ## What you can do
 
-- **Train live.** Press ▶ (or just pick a world: it starts by itself): a whole population learns at once in one world (the
-  leader solid, the others as ghosts), the progress plot below. Pick a time budget (quick /
+- **Train live.** Press the barbell (or just pick a world: it starts by itself): a whole population learns at once in one
+  world, in a worker of its own; you watch the current policy (and the best candidates as
+  ghosts) improve, the progress plot below. Pick a time budget (quick /
   medium / long) and each world suggests an algorithm and its settings.
 - **Look inside.** The agent's neural network, live: what it sees, how its neurons fire,
   its weights, as it acts.

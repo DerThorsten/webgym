@@ -118,7 +118,8 @@ Technical considerations:
   Tour, Help, About (= `help.html#about`, About, About the author, Acknowledgments (QuantStack, Bloomberg), Credits; TODOs for the author),
   GitHub), the left panel: on top two rows of line icons (SVG, Feather style), the app's
   controls of section "bar", drawn by `showQuick` in main.js (the only place they are):
-  `#quick` ▶/⏸ train / stop (its title = the app's button label), new run, | reset
+  `#quick` train (a barbell, a switch: blue while training; ▶/⏸ read as "pause the
+  replay"; its title = the app's button label), new run, | reset
   episode, | switches auto reset, camera follows (disabled for fixed views), decoration
   (a top hat), blue when on; `#quick-watch` steppers − / + for show policies and slower /
   faster for replay speed. No panel below the tabs any more. Then five tabs, in this order (World: the env select,
@@ -136,7 +137,10 @@ Technical considerations:
   sample); opening the tab (command "toy_mode") or a toy turns auto reset off and shows
   one policy; R clears them: the snapshot reset drops later bodies) / Policy: network +
   checkpoints / Log: state, packages, log; the tab is remembered), the world with the training progress plot in a strip below it (closable,
-  remembered). First visit: a welcome card (`web/tour.js` `welcome()`: what it is, then
+  remembered). First visit: a welcome card at once, while python loads (a status line
+  "loading" → "ready"; the quick tour puts the steps on what python builds, the world
+  select and the world, last; a step whose element python hasn't built yet waits:
+  `setReady`, resolved on the first "controls") (`web/tour.js` `welcome()`: what it is, then
   Quick tour / Detailed tour / Help page / Skip; on phones a note "made for the
   desktop, may still work"; not under automation,
   `navigator.webdriver`; `?tour=0` skips it, `?welcome=1` always shows it; the Tour links

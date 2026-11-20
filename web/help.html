@@ -62,7 +62,8 @@
     </p>
     <p>
       <b>Left panel</b>: on top two rows of icons (hover them for what they do). The first:
-      <b>▶</b> trains (<b>⏸</b> stops, ▶ again continues); the circling arrows start a new
+      the <b>barbell</b> trains (blue while training; a click stops it, the next one
+      continues; the world you watch keeps going either way); the circling arrows start a new
       run from scratch; the skip-back icon starts a new episode (or R); then three switches
       (blue: on): the loop is auto reset, the crosshair camera follows, the top hat
       decoration. The second: <b>− / +</b> how many policies you watch at once, and the
@@ -87,10 +88,11 @@
     <h2 id="training">Training</h2>
     <img src="help/training.png" alt="training" />
     <p>
-      <b>Train</b> starts learning. While training, the world shows the whole
-      <b>population</b>: many agents in one world (they don't collide with each other), each
-      trying a different policy. The <span class="orange">orange</span> one is the leader (the
-      best one still alive), the <span class="blue">blue</span> ones are the others.
+      <b>Train</b> (the barbell) starts learning: a whole <b>population</b> of agents in one
+      world (they don't collide with each other), each trying a different policy, in a
+      worker of its own, as fast as it can. The world you see shows the current policy (and
+      as <span class="blue">blue</span> ghosts the best candidates, see "Show policies"),
+      updated as it learns.
     </p>
     <dl>
       <dt>Time budget</dt>
@@ -112,8 +114,9 @@
       <dd>More workers (each its own python and box2d, on another CPU core) run a share of the
         population's episodes: CEM and ES train several times faster. Each costs memory;
         more than your CPU cores don't help.</dd>
-      <dt>▶ / ⏸ / new run (above the tabs)</dt>
-      <dd>⏸ stops and keeps the run: ▶ continues it. <b>New run</b> (the circling arrows)
+      <dt>Train / new run (above the tabs)</dt>
+      <dd>The barbell (blue: training): a click stops and keeps the run, the next continues
+        it. <b>New run</b> (the circling arrows)
         starts from scratch.
         Picking another world starts training by itself.</dd>
     </dl>

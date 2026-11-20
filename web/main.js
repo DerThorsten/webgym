@@ -13,7 +13,7 @@ import { createEditor, forgetFile, openFile, saveFile } from "./editor.js";
 import { removeEdit, saveEdit, storedEdits } from "./edits.js";
 import { drawNetwork } from "./network.js";
 import { plot } from "./plot.js";
-import { ask, startTour, tourDone, welcome } from "./tour.js";
+import { ask, setReady, startTour, tourDone, welcome } from "./tour.js";
 
 const stage = document.getElementById("stage");
 let canvas = document.getElementById("canvas"); // replaced on a worker restart
@@ -233,24 +233,19 @@ const openFolds = new Set(["Things to drop"]); // the folds that are open (kept 
 
 /** the app's widgets (App.controls(): select / slider / button), rebuilt on change;
  * changes go back as commands */
-// the app's controls of section "bar", as icons above the tabs: play / pause (train /
-// stop; the title says which: Train / Continue training / Stop), new run, reset episode,
-// the switches auto reset, camera follows, decoration (blue: on); below them the
-// steppers show policies and replay speed
+// the app's controls of section "bar", as icons above the tabs: train (a barbell, a
+// switch: blue while training; the title says what a click does: Train / Continue
+// training / Stop), new run, reset episode, the switches auto reset, camera follows,
+// decoration (blue: on); below them the steppers show policies and replay speed
 const quickTrain = document.getElementById("quick-train");
 const SWITCHES = { auto_reset: "quick-reset", follow: "quick-follow", decorate: "quick-decorate" };
-const PLAY = '<svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3" /></svg>';
-const PAUSE = '<svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>';
-quickTrain.innerHTML = PLAY;
 document.getElementById("quick-new").onclick = () => command("new_run");
 document.getElementById("quick-episode").onclick = () => command("reset");
 function showQuick(controls) {
   const button = controls.find((c) => c.name === "train" || c.name === "stop");
   if (button) {
-    const running = button.name === "stop";
-    quickTrain.innerHTML = running ? PAUSE : PLAY;
     quickTrain.title = button.label;
-    quickTrain.classList.toggle("running", running);
+    quickTrain.classList.toggle("on", button.name === "stop"); // (training)
     quickTrain.onclick = () => command(button.name);
   }
   for (const [name, id] of Object.entries(SWITCHES)) {
@@ -505,11 +500,6 @@ function onMessage(role, { data }) {
   } else if (data.type === "ready") {
     if (role !== "trainer" && Date.now() > keepStatusUntil) status(""); // (a crash notice stays a while)
     if (role === "display" && lastSnapshot) toDisplay({ type: "snapshot", data: lastSnapshot });
-    // the first visit: the welcome card (a tour, help or skip), once the page is up (not
-    // in automated tests: they would click into it; ?tour=0 skips it too; ?welcome=1
-    // shows it always)
-    const firstVisit = !tourDone() && !navigator.webdriver && params.get("tour") !== "0";
-    if (role !== "trainer" && (firstVisit || params.get("welcome") === "1")) setTimeout(welcome, 1000);
     // the big packages in the training worker, in the background, a bit later: the
     // restore of the autosave goes first (the installs keep python busy)
     if (training) setTimeout(() => Object.keys(PACKAGES).forEach(loadPackage), 3000);
@@ -533,6 +523,7 @@ function onMessage(role, { data }) {
     else if (data.type === "fatal") restartAfterCrash(role, data.error);
   } else if (data.type === "controls") {
     showControls(data.controls);
+    controlsShown(); // (the tour may wait for them)
     const restored = checkpoints.onControls(data.controls, freshWorker);
     freshWorker = false;
     // the page starts training (after restoring the autosave: it continues the run);
@@ -895,9 +886,17 @@ async function forgetEverything() {
   for (const key of Object.keys(localStorage)) if (key.startsWith("webgym")) localStorage.removeItem(key);
 }
 
+// the tour waits for the controls python builds (the first "controls" message)
+let controlsShown;
+setReady(new Promise((resolve) => (controlsShown = resolve)));
 checkRelease().then(() => {
   startWorker("display");
   startWorker("trainer");
+  // the first visit: the welcome card (a tour, help or skip) at once: python loads while
+  // it is read (not in automated tests: they would click into it; ?tour=0 skips it too;
+  // ?welcome=1 shows it always)
+  const firstVisit = !tourDone() && !navigator.webdriver && params.get("tour") !== "0";
+  if (firstVisit || params.get("welcome") === "1") welcome();
 });
 if (MAX_HELPERS > 0) {
   const slider = document.getElementById("helpers");

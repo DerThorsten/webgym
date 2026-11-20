@@ -1,36 +1,49 @@
 // The tours: a few steps, each a frame around one element of the page (the rest dimmed)
 // and a caption with Next / Skip; a step with `tab` opens that tab first, a step whose
-// element isn't there (e.g. no simulation workers on a phone) is left out. The first
+// element isn't there (e.g. no simulation workers) is left out, or, while python still
+// loads (it builds the controls), waited for. The first
 // visit shows a welcome card (remembered in this browser) that offers them; the "Tour" /
 // "Detailed tour" links start them again.
 
 const DONE = "webgym.tour";
+
+// python builds part of the page (the controls): the welcome card and the tours start
+// while it loads; `ready` resolves once it is there (main.js: setReady)
+let ready = Promise.resolve();
+let isReady = true;
+export function setReady(promise) {
+  isReady = false;
+  ready = promise.then(() => (isReady = true));
+}
 
 /** the control (a widget of the app) whose label contains `text` */
 const control = (text) => () =>
   [...document.querySelectorAll(".control")].find((c) => c.querySelector("label")?.textContent.includes(text));
 
 const TOURS = {
+  // (python loads meanwhile: the steps on what it builds (the world select, the world)
+  // come last)
   quick: [
-    { target: "#controls-environment select", tab: "world",
-      text: "<b>Pick a world</b> in the World tab: what it is about is written below it; some have settings (e.g. how many objects)." },
     { target: "#quick",
-      text: "<b>The buttons</b> (hover one for its name): <b>▶</b> trains, ⏸ stops; the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R). Then three switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent, the <b>top hat</b> adds decoration (flames, flags). The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
+      text: "<b>The buttons</b> (hover one for its name): the <b>barbell</b> trains (blue while it does, click again to stop; the world you watch keeps going either way); the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R). Then three switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent, the <b>top hat</b> adds decoration (flames, flags). The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
     { target: "#quick-watch",
       text: "<b>How you watch:</b> − / + sets how many policies you see at once (the current one solid, the best candidates as ghosts); the arrows make the replay slower or faster (training always runs at full speed)." },
-    { target: "#stage", text: "<b>The world.</b> Drag to pan, the wheel (or two fingers) zooms, drag a body to push it. The progress plot is below." },
-    { target: "#tabs", text: "<b>More in the panel:</b> how it trains, the policy, toys, the log." },
+    { target: "#tabs", text: "<b>More in the panel:</b> the world, how it trains, the policy, toys, the log." },
     { target: "#tab-policy", tab: "policy",
       text: "<b>The policy:</b> once there is one (trained or restored), its neural network shows here, live: what the agent sees on the left, its actions on the right. Below it the checkpoints: save runs, restore them, or try a pretrained one." },
     { target: "#tab-toys", tab: "toys",
       text: "<b>Toys:</b> once it walks (or flies), tease it: a click into the world drops a box, a ball or a plank on it, sets off an explosion, or puts a ramp, a step or a seesaw in its way; or change the weather: rain, wind, moon gravity. Opening the tab turns auto reset off and shows one policy: see how it copes. R clears the world." },
     { target: "#code-toggle",
-      text: "<b>The python code</b> of the world and of the algorithm: edit it, press Apply, it runs. That was the quick tour: the <i>Detailed tour</i> (top bar) explains every control.",
+      text: "<b>The python code</b> of the world and of the algorithm: edit it, press Apply, it runs." },
+    { target: "#controls-environment select", tab: "world",
+      text: "<b>Pick a world</b> in the World tab: what it is about is written below it; some have settings (e.g. how many objects). A new world starts training at once." },
+    { target: "#stage",
+      text: "<b>The world.</b> Drag to pan, the wheel (or two fingers) zooms, drag a body to push it. The progress plot is below. That was the quick tour: the <i>Detailed tour</i> (top bar) explains every control.",
       next: "detailed" },
   ],
   detailed: [
     // above the tabs: training's buttons, auto reset
-    { target: "#quick-train", text: "<b>▶ Train / ⏸ Stop.</b> Starts learning; Stop keeps the run, <i>Continue training</i> goes on with it. Training runs in a worker of its own: the page stays responsive." },
+    { target: "#quick-train", text: "<b>Train</b> (the barbell; blue: training). A click starts learning, another stops it and keeps the run: the next click continues it. Training runs in a worker of its own: the page stays responsive, and the world you watch keeps going either way." },
     { target: "#quick-new", text: "<b>New run</b> (the circling arrows) throws the run away (network, history, autosave) and starts training from scratch." },
     { target: "#chips", text: "<b>The live numbers:</b> the world (with its settings), training and its iteration, the population's mean and best return, the episode you watch and its return so far." },
     { target: "#quick-episode", text: "<b>Reset episode</b> (or R): the watched world starts a new episode now." },
@@ -103,8 +116,8 @@ export function welcome() {
       pytorch, compiled to WebAssembly by <a href="https://emscripten-forge.org" target="_blank" rel="noopener">emscripten-forge</a>.
       No server, nothing to install.</p>
     <ul>
-      <li>Press <b>Train</b> and see a whole population learn; the plot below the world
-        shows the progress.</li>
+      <li>Press <b>Train</b> (the barbell) and see a whole population learn; the plot below
+        the world shows the progress.</li>
       <li>Look inside: the agent's <b>neural network</b>, live (Policy tab): what it sees,
         how its neurons fire and its weights, as it acts.</li>
       <li>No time to wait? <b>Pretrained agents come with the page</b>, for every world and
@@ -112,6 +125,7 @@ export function welcome() {
         away, then tease it in the <b>Toys</b> tab: ramps, explosions, rain.</li>
       <li>Every world and algorithm is plain python: open <b>Code</b>, change it, run it.</li>
     </ul>
+    <p class="loading">${isReady ? "" : "⏳ python is loading in the background…"}</p>
     <div class="buttons">
       <button class="skip">Skip</button>
       <button class="to-help">Help page</button>
@@ -119,6 +133,7 @@ export function welcome() {
       <button class="primary quick">Quick tour</button>
     </div>`;
   document.body.append(back, card);
+  ready.then(() => (card.querySelector(".loading").textContent = "✓ python is ready"));
   const close = () => {
     back.remove();
     card.remove();
@@ -172,6 +187,7 @@ export function startTour(kind = "quick") {
     const r = target().getBoundingClientRect();
     const pad = 4;
     Object.assign(frame.style, {
+      display: "",
       left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px`,
     });
     const below = r.top + r.height + pad + 12;
@@ -192,6 +208,17 @@ export function startTour(kind = "quick") {
     if (s.tab) document.querySelector(`#tabs button[data-tab="${s.tab}"]`)?.click();
     app.classList.add("drawer-open");
     if (!drawerOpen && !target()?.closest("#side")) app.classList.remove("drawer-open");
+    if (!target() && !isReady) {  // (python builds it: wait for it, Next / Skip still work)
+      frame.style.display = "none";
+      card.innerHTML = `<div class="step">${step + 1} / ${steps.length}</div>` +
+        "<div>⏳ python is still loading: this step follows in a moment…</div>" +
+        '<div class="buttons"><button class="skip">Skip</button><button class="primary next">Next</button></div>';
+      card.querySelector(".skip").addEventListener("click", end);
+      Object.assign(card.style, { top: `${innerHeight / 3}px`, left: `${(innerWidth - card.offsetWidth) / 2}px` });
+      const waiting = step;
+      ready.then(() => card.isConnected && step === waiting && show(dir));
+      return;
+    }
     if (!target()) {  // (left out)
       if (dir < 0 && step > 0) return step--, show(-1);
       return step < steps.length - 1 ? (step++, show()) : end();
