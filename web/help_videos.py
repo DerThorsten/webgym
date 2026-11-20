@@ -33,7 +33,7 @@ PANEL = "0x1b1b1b"  # (the side panel's color: around a target narrower than 16:
 # in a 16:9 window) with the tab open ("tab"); where the 16:9 cut sits in the target
 # ("center": its middle, as a fraction of the target's height) or all of the target, the
 # rest filled with the panel's color ("fit": the network); more CSS for the recording
-# ("style"). One policy shown (no ghosts), each clip starts a new episode; its poster: the
+# ("style"). No score card, each clip starts a new episode; its poster: the
 # frame at "poster" seconds (the first may be empty)
 DEFAULTS = {"lead": 1.0, "target": "#stage", "tab": "world", "center": 0.5, "fit": False, "style": "",
             "poster": 1.0}
@@ -74,8 +74,6 @@ def record(browser, base, scene, tmp):
         page.goto(f"{base}?tour=0&{scene['query']}")
     page.add_style_tag(content="#score { display: none !important; }" + scene["style"])  # (no score card)
     page.wait_for_timeout(2000)  # (the checkpoint restored)
-    for _ in range(int(page.inner_text("#quick-policies b")) - 1):  # (one policy: no ghosts)
-        page.click("#quick-policies .less")
     page.click(f"#tabs button[data-tab={scene['tab']}]")
     page.wait_for_timeout(1000 * scene["lead"])
     target = scene["target"]

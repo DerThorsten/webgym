@@ -4,7 +4,6 @@ best ones."""
 
 import numpy as np
 
-TOP = 16  # best candidates per iteration reported for the display (stats["top_params"])
 
 
 def population(env):
@@ -55,6 +54,5 @@ def train(env, policy, iterations=1000, elite_frac=0.2, init_std=0.5, min_std=0.
             "mean_return": float(returns.mean()),
             "best_return": float(returns.max()),
             "mean_params": mean,
-            "top_params": params[np.argsort(returns)[::-1][:TOP]],  # (the display shows them)
             "state": {"iteration": iteration + 1, "mean": mean, "std": std},
         }

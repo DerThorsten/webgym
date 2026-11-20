@@ -111,12 +111,13 @@ def test_water_hits_only_its_own_ball():
     """water cannons in one world: each cart's water carries its own ball, not the
     others' (collision groups); a ball without water falls as if alone"""
     env = make("WaterCannon", n=2)
-    env.same_start = True  # (both balls start alike)
-    env.reset(seed=0)
+    alone = make("WaterCannon", n=1)
+    for e in (env, alone):  # (all balls start alike: at rest above their cannon)
+        e.reset(seed=0)
+        e.ball.position = np.tile([0.1, 4.0], (e.n, 1))
+        e.ball.linear_velocity = np.zeros((e.n, 2))
     for _ in range(50):  # agent 0 sprays straight up, agent 1 does nothing
         env.step(np.array([[0.0, 0.0, 1.0, -1.0], [0.0, 0.0, 0.0, -1.0]]))
-    alone = make("WaterCannon", n=1)
-    alone.reset(seed=0)
     for _ in range(50):
         alone.step(np.array([[0.0, 0.0, 0.0, -1.0]]))
     y = env.ball.position[:, 1]
@@ -179,10 +180,9 @@ def test_lander_flies_through_the_flags():
 
 def test_decoration_only_when_watched():
     """a decorated lander (watch mode) has flags and exhaust emitters: the engines that
-    fire emit particles (main: 120 / s at full thrust; a side engine: 60 / s), agent 0's
-    orange, the ghosts' in the ghost color; they expire again. An undecorated lander
-    (training) has none of it"""
-    from webgym.core import GHOST_COLOR, PARTICLE_COLOR
+    fire emit particles (main: 120 / s at full thrust; a side engine: 60 / s); they expire
+    again. An undecorated lander (training) has none of it"""
+    from webgym.core import PARTICLE_COLOR
 
     plain = make("LunarLander", n=2)
     decorated = make("LunarLander", n=2, decorated=True)
@@ -197,7 +197,6 @@ def test_decoration_only_when_watched():
     assert abs(len(main[0]) - 120 * seconds) <= 1 and abs(len(right[1]) - 60 * seconds) <= 1
     assert len(main[1]) == len(left[1]) == 0
     assert (main[0].shapes.custom_color == PARTICLE_COLOR).all()
-    assert (right[1].shapes.custom_color == GHOST_COLOR).all()  # (a ghost's: drawn translucent)
     for _ in range(40):
         decorated.step(np.zeros((2, 2), np.float32))
         decorated.decorate()

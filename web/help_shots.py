@@ -25,18 +25,13 @@ def main():
         page.wait_for_function("document.querySelectorAll('#chips .chip').length > 1", timeout=30_000)
         page.wait_for_timeout(1500)
         page.screenshot(path=OUT / "overview.png")
-        # training: the population (ghosts), the leader solid
+        # training: the current policy in view, the progress plot growing
         page.click("#quick-train[title='Train']")
         page.wait_for_timeout(12_000)
         page.screenshot(path=OUT / "training.png")
         page.locator("#plot-strip").screenshot(path=OUT / "progress.png")
         page.click("#quick-train[title='Stop']")
-        # watching the trained policy (solid) and the best candidates (ghosts, 8 of them):
-        # all start alike, after a while they part
-        for n in range(2, 9):  # (the + of "show policies", above the tabs)
-            page.click("#quick-policies .more")
-            page.wait_for_function(f"document.querySelector('#quick-policies b').textContent === '{n}'",
-                                   timeout=10_000)
+        # watching the trained policy
         page.wait_for_timeout(6500)
         page.locator("#stage").screenshot(path=OUT / "watch.png")
         page.click("#tabs button:text('Policy')")  # (the network and the checkpoints)
@@ -151,14 +146,10 @@ def toys(browser, base):
 
 def worlds(browser, base):
     """the Blob (pretrained ES) and the Drone (pretrained PPO) on their way"""
-    for env, algo, show, seconds in (("Blob", "es", 1, 4000), ("Drone", "ppo_torch", 1, 5000)):
+    for env, algo, seconds in (("Blob", "es", 4000), ("Drone", "ppo_torch", 5000)):
         page = browser.new_page(viewport={"width": 1280, "height": 800})
         pretrained(page, f"{base}?train=0&env={env}&algo={algo}")
         page.click("#tabs button:text('World')")
-        for n in range(2, show + 1):  # (more policies: the best candidates as ghosts)
-            page.click("#quick-policies .more")
-            page.wait_for_function(f"document.querySelector('#quick-policies b').textContent === '{n}'",
-                                   timeout=10_000)
         reset(page)
         page.wait_for_timeout(seconds)
         page.locator("#stage").screenshot(path=OUT / f"{env.lower()}.png")

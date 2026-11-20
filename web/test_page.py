@@ -145,15 +145,15 @@ def main():
         page.dispatch_event("[data-help] >> text=Population", "click")
         assert not page.is_visible("#help-popup")
         page.click("#tabs button:text('World')")
-        # the steppers above the tabs: + / − change how many policies are shown
-        page.click("#quick-policies .more")
-        page.wait_for_function("document.querySelector('#quick-policies b').textContent === '2'", timeout=10_000)
-        page.click("#quick-policies .less")
-        page.wait_for_function("document.querySelector('#quick-policies b').textContent === '1'", timeout=10_000)
+        # the replay speed stepper above the tabs: faster / slower
+        page.click("#quick-speed .more")
+        page.wait_for_function("document.querySelector('#quick-speed b').textContent === '2x'", timeout=10_000)
+        page.click("#quick-speed .less")
+        page.wait_for_function("document.querySelector('#quick-speed b').textContent === '1x'", timeout=10_000)
         # the tours (not by themselves in automated tests: the links), through to the end:
         # the quick one, then from its last step the detailed one
         page.click("#tour-link")
-        for _ in range(7):
+        for _ in range(6):
             assert page.is_visible("#tour-card") and page.is_visible("#tour-frame")
             page.click("#tour-card .next")
         page.click("#tour-card .more")  # (the last step: "Detailed tour")

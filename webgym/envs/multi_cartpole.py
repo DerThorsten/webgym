@@ -2,11 +2,22 @@
 
 As CartPole, with 2 to 5 poles on hinges, each on top of the one below (a multiple
 inverted pendulum on a cart), each shorter than the one below. Every pole falls its own
-way, so each one more is much harder. Setting "poles": how many. With 4 or 5 a little
-friction in the hinges between the poles keeps it learnable.
-obs: cart x, cart velocity, per pole its angle (0: upright) and angular velocity.
-action: the force on the cart. reward: 1 per step while all poles are up.
-The episode ends when a pole tilts more than 20 degrees or the cart leaves |x| < 2.4.
+way, so each one more is much harder. With 4 or 5 a little friction in the hinges
+between the poles keeps it learnable.
+
+Setting "poles": how many (2 .. 5).
+
+Observations (2 + 2 per pole):
+- the cart's position x and velocity
+- per pole its angle (0: upright) and angular velocity
+
+Actions (1):
+- the force on the cart (-1: full left .. 1: full right)
+
+Reward: 1 per step while all poles are up (at most 500).
+
+Episode end: a pole tilts more than 20 degrees, the cart leaves |x| < 2.4, or after
+500 steps.
 """
 
 import numpy as np

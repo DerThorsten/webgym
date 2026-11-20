@@ -208,7 +208,7 @@ class GLDebugDraw(b2d.DebugDraw):
         """draw `world` with this debug draw's options: collected in C++
         (BatchDebugDraw), handed to the GL batches as whole arrays. Several worlds
         can be drawn between begin_draw / end_draw (overlaid); the shapes in the `only`
-        colors (0xRRGGBB) get `alpha` (0..255; webgym: the ghosts), those in the `hide`
+        colors (0xRRGGBB) get `alpha` (0..255, translucent), those in the `hide`
         colors are not drawn (webgym: sensors); `show` (colors): only those are drawn"""
         batch = self.batch
         batch.copy_options(self)
@@ -237,7 +237,7 @@ class GLDebugDraw(b2d.DebugDraw):
 
     def flush(self):
         """draw what is queued so far (each batch empties itself): what is drawn after
-        this lies on top of it (webgym: the ghosts first, behind the current policy)"""
+        this lies on top of it (webgym: the env's own drawing over the world)"""
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         self.solid_circles.draw()

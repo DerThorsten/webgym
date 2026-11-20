@@ -2,8 +2,7 @@
 a batched env (env.n agents): it yields None after every env step (so a frame loop
 can stop it any time) and a stats dict at the end of every iteration
 ({"iteration", "mean_return", "best_return", "mean_params", "state", optional
-"losses": {name: value}, optional "top_params": the best candidates, best first, for
-the display}); stats["state"] passed back as `state` resumes training.
+"losses": {name: value}}); stats["state"] passed back as `state` resumes training.
 "mean_params" are the flat weights of a webgym.policies.MLP (numpy), whatever
 framework trained them: watching a policy never needs torch (NEAT: of a Graph).
 

@@ -25,14 +25,12 @@ const TOURS = {
   // come last)
   quick: [
     { target: "#quick",
-      text: "<b>The buttons</b> (hover one for its name): the <b>barbell</b> trains (blue while it does, click again to stop; the world you watch keeps going either way); the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R); <b>pause</b> stops the world you watch (Space; training goes on). Then two switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent. The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
-    { target: "#quick-watch",
-      text: "<b>How you watch:</b> − / + sets how many policies you see at once (the current one solid, the best candidates as ghosts); the arrows make the replay slower or faster (training always runs at full speed)." },
+      text: "<b>The buttons</b> (hover one for its name): the <b>barbell</b> trains (blue while it does, click again to stop; the world you watch keeps going either way); the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R); <b>pause</b> stops the world you watch (Space; training goes on). Then two switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent. Last the replay speed: slower / faster (training always runs at full speed). The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
     { target: "#tabs", text: "<b>More in the panel:</b> the world, how it trains, the policy, toys, the log." },
     { target: "#tab-policy", tab: "policy",
       text: "<b>The policy:</b> once there is one (trained or restored), its neural network shows here, live: what the agent sees on the left, its actions on the right. Below it the checkpoints: save runs, restore them, or try a pretrained one." },
     { target: "#tab-toys", tab: "toys",
-      text: "<b>Toys:</b> once it walks (or flies), tease it: a click into the world drops a box, a ball or a plank on it, sets off an explosion, or puts a ramp, a step or a seesaw in its way; or change the world's gravity (wind sideways, the moon, upside down), or let it rain. Opening the tab turns auto reset off and shows one policy: see how it copes. R clears the world." },
+      text: "<b>Toys:</b> once it walks (or flies), tease it: a click into the world drops a box, a ball or a plank on it, sets off an explosion, or puts a ramp, a step or a seesaw in its way; or change the world's gravity (wind sideways, the moon, upside down), or let it rain. Opening the tab turns auto reset off: see how it copes. R clears the world." },
     { target: "#code-toggle",
       text: "<b>The python code</b> of the world and of the algorithm: edit it, press Apply, it runs." },
     { target: "#controls-environment select", tab: "world",
@@ -52,7 +50,6 @@ const TOURS = {
     // the World tab
     { target: "#controls-environment select", tab: "world", text: "<b>The world.</b> Each one is a python file: a box2d world with agents in it, what they see, what they do, what earns reward." },
     { target: "#controls-environment .info", tab: "world", text: "<b>What it is about:</b> the task, the observations, the actions and the reward, from the world's own python code." },
-    { target: "#quick-policies", text: "<b>Show policies</b> (− / +): how many policies you watch at once: the current one (solid) and as ghosts the best candidates of the last iteration, all from the same start." },
     { target: "#quick-speed", text: "<b>Replay speed</b> (slower / faster): slow motion or fast forward for watching (training always runs as fast as it can)." },
     { target: "#quick-follow", text: "<b>Camera follows</b> (the crosshair; blue: on): the world moves the camera with its agent (the walkers, the water cannon's cart). Off: pan and zoom yourself." },
     // the Training tab
@@ -62,7 +59,7 @@ const TOURS = {
     { target: "#helpers-control", tab: "training", text: "<b>Simulation workers:</b> more workers, each its own python on another CPU core, run a share of the population: CEM and ES train several times faster." },
     // Policy, Toys, Log
     { target: "#tab-policy", tab: "policy", text: "<b>Policy:</b> the network, live (neurons colored by activation, connections by weight); the checkpoints of this world + algorithm, kept in your browser, and pretrained runs of every algorithm (a restore switches to it)." },
-    { target: "#controls-toys .tools", tab: "toys", text: "<b>Toys:</b> pick a tool in the folds, then click into empty space: drop a box, a ball or a plank, set off an explosion, put a ramp, a step or a seesaw on the ground. They are real bodies: the agent has to deal with them. A click on a body always grabs it; click the tool again to put it away. Opening this tab turns auto reset off and shows one policy; R (reset) clears them." },
+    { target: "#controls-toys .tools", tab: "toys", text: "<b>Toys:</b> pick a tool in the folds, then click into empty space: drop a box, a ball or a plank, set off an explosion, put a ramp, a step or a seesaw on the ground. They are real bodies: the agent has to deal with them. A click on a body always grabs it; click the tool again to put it away. Opening this tab turns auto reset off; R (reset) clears them." },
     { target: "#controls-toys details", tab: "toys", text: "<b>The folds</b> (click a title): each with its tools and their settings: size, weight and bounce of what you drop, the explosion, the ramps and steps, the world's gravity, sideways (wind) and up-down (try the moon: 0.17, or below 0), and the weather (rain)." },
     { target: "#tab-log", tab: "log", text: "<b>Log:</b> the detailed state, the packages loaded (e.g. pytorch) and every message." },
     // the middle, the right

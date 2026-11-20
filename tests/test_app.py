@@ -28,7 +28,6 @@ def cart_x(app):
 def test_drag_the_cart_in_watch_mode():
     """grab the cart, move the pointer right: the cart follows"""
     app = make_app()
-    app.command("show_n", 1)  # (one cart: the grabbed one is agent 0)
     start = tuple(app.env.cart.position[0])
     app.event("down", *screen_of(app, start))
     assert app.mouse_drag.active
@@ -43,7 +42,6 @@ def test_drag_the_cart_in_watch_mode():
 def test_grab_the_water_cannon_ball():
     """the WaterCannon's balls have their own collision filter: the pointer still grabs them"""
     app = make_app(env="WaterCannon")
-    app.command("show_n", 1)
     app.event("down", *screen_of(app, tuple(app.env.ball.position[0])))
     assert app.mouse_drag.active
     app.event("up", 0, 0)
@@ -177,39 +175,27 @@ def test_display_takes_snapshots():
     assert display.env_name == "LunarLander" and display.params is None
 
 
-def test_show_n_best_policies():
-    """watching shows the current policy + the trainer's best candidates (in the
-    snapshot); the score is the current policy's"""
+def test_watched_policy_and_its_score():
+    """watching: one agent, the trainer's current policy; its episode's return is the score"""
     trainer = make_app(population=16)
     trainer.command("train")
     while len(trainer.history) < 2:
         trainer._train_steps()
-    assert trainer.top_params is not None and len(trainer.top_params) >= 8
     display = make_app()
-    assert display.env.n == 1  # (by default: the current policy alone)
-    display.command("show_n", 8)
     display.load_policy(trainer.checkpoint())
-    assert display.env.n == 8
-    params = display._watch_params()
-    assert np.array_equal(params[0], trainer.params) and np.array_equal(params[1], trainer.top_params[0])
+    assert display.env.n == 1 and np.array_equal(display.params, trainer.params)
     while not display.ended:
         display._watch_step()
     assert len(display.scores) == 1 and display.scores[0] == display.env.episode_return[0]
-    display.command("show_n", 3)
-    assert display.env.n == 3
 
 
-def test_watched_policies_start_alike():
-    """the policies you watch all get the same (random) start, a new one each episode;
-    in training every agent gets its own"""
+def test_watched_episodes_and_training_starts():
+    """each watched episode gets a new random start; in training every agent its own"""
     app = App(env="LunarLander", seed=0)
-    app.command("show_n", 3)
     starts = []
     for _ in range(2):  # (the lander starts at the top; its random push differs)
         app.env.reset()
-        vel = app.env.lander.linear_velocity
-        assert np.allclose(vel, vel[0])
-        starts.append(vel[0].copy())
+        starts.append(app.env.lander.linear_velocity[0].copy())
     assert not np.allclose(starts[0], starts[1])
     app.command("train")
     app.pop_env.reset(seed=0)
@@ -251,13 +237,13 @@ def test_code_view_and_apply():
 
 
 def test_non_batchable_env_disables_population(monkeypatch):
-    """an env whose agents change the world (batchable = False): no population /
-    show-policies slider to move"""
+    """an env whose agents change the world (batchable = False): no population slider
+    to move"""
     app = make_app()
     disabled = lambda: {c["name"] for c in app.controls() if c.get("disabled")}  # noqa: E731
-    assert not {"population", "show_n"} & disabled()
+    assert "population" not in disabled()
     monkeypatch.setattr(type(app.env), "batchable", False)
-    assert {"population", "show_n"} <= disabled()
+    assert "population" in disabled()
 
 
 def test_non_batchable_env_trains_in_separate_worlds(monkeypatch):
@@ -276,16 +262,6 @@ def test_non_batchable_env_trains_in_separate_worlds(monkeypatch):
     assert app.env.n == 1
 
 
-@pytest.mark.parametrize("env", ["WaterCannon", "LunarLander", "Walker"])
-def test_show_several_policies(env):
-    """several policies watched side by side start alike (randomize with the same-start
-    rng: every kind of draw must work)"""
-    app = make_app(env=env)
-    app.command("show_n", 3)
-    for _ in range(5):
-        app._watch_step()
-
-
 def test_rain_forgets_the_drops_of_an_old_world():
     """rain, then the watched world is rebuilt: the old drops are forgotten (box2d body ids
     don't name their world: an old id may point to a body of the new one, destroying it
@@ -295,7 +271,7 @@ def test_rain_forgets_the_drops_of_an_old_world():
     app.command("toy.drop life", 0.3)
     for _ in range(40):
         app._watch_step()
-    app.command("show_n", 3)  # (a new world)
+    app.command("env", "Crawler")  # (a new world)
     hull_bodies = app.env.world.counters.body_count
     app._watch_step()
     assert app.rain.world is app.env.world
@@ -322,9 +298,8 @@ def test_toys():
     """the Toys tab: a toy turns auto reset off and shows one policy; a click drops a box
     / a ball or sets off an explosion; rain adds drops; a reset clears them all"""
     app = make_app(env="LunarLander")
-    app.command("show_n", 3)
     app.command("toy_mode", True)  # (the page: the Toys tab was opened)
-    assert app.show_n == 1 and not app.auto_reset and app.env.n == 1
+    assert not app.auto_reset and app.env.n == 1
     assert app.state()["toys"]  # (no scores: no time limit applies)
     while not app.env.done[0]:
         app._watch_step()
@@ -332,10 +307,9 @@ def test_toys():
     assert app.scores == []
     app.command("toy_mode", False)  # (another tab: scores again)
     assert not app.state()["toys"]
-    app.command("show_n", 3)
     app.command("auto_reset", True)
     app.command("toy", "box")  # (a toy: the same)
-    assert app.show_n == 1 and not app.auto_reset and app.env.n == 1
+    assert not app.auto_reset and app.env.n == 1
     start = app.env.world.counters.body_count
     app.event("down", 400, 100)
     app.event("up", 400, 100)
@@ -470,7 +444,7 @@ def test_env_settings():
     sections = {c["name"]: c["section"] for c in app.controls()}
     assert sections["env"] == sections["setting.balls"] == "environment"
     assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run", "reset", "paused",
-                                                              "follow", "show_n", "replay_speed"}
+                                                              "follow", "replay_speed"}
     assert "watch" not in sections.values()
     assert app.env_key == "WaterCannon · balls 1"
     app.command("train")

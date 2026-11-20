@@ -7,26 +7,24 @@ watch them learn as it happens. Everything runs on your machine: python, numpy, 
 [emscripten-forge](https://emscripten-forge.org) and run with
 [pyjs](https://github.com/emscripten-forge/pyjs). No server, nothing to install.
 
-**▶ Try it: [derthorsten.github.io/webgym](https://derthorsten.github.io/webgym/)** ·
-[Help page](https://derthorsten.github.io/webgym/help.html) · e.g. a pretrained ragdoll right
-away: [?env=Ragdoll&checkpoint=ppo](https://derthorsten.github.io/webgym/?env=Ragdoll&checkpoint=ppo)
-(all [URL options](https://derthorsten.github.io/webgym/help.html#url))
+**[▶ Try webgym in your browser](https://derthorsten.github.io/webgym/)** ·
+[Watch a pretrained ragdoll](https://derthorsten.github.io/webgym/?env=Ragdoll&checkpoint=ppo) ·
+[Help](https://derthorsten.github.io/webgym/help.html)
 
 | A pretrained ragdoll | Before it learns: NEAT's first tries |
 |---|---|
 | [![a pretrained ragdoll walking](https://github.com/DerThorsten/webgym/releases/download/videos/ragdoll_pretrained.gif)](https://derthorsten.github.io/webgym/?env=Ragdoll&checkpoint=ppo) | [![an untrained ragdoll stumbling](https://github.com/DerThorsten/webgym/releases/download/videos/ragdoll_neat_fresh.gif)](https://derthorsten.github.io/webgym/?env=Ragdoll&algo=neat) |
 
 Gymnasium-like box2d environments with live training, natively and **in the browser**
-(Python in WebAssembly via pyjs + emscripten-forge). Watch a population of agents learn,
-drag the env around with the mouse.
+(Python in WebAssembly via pyjs + emscripten-forge).
 
 ![training the lunar lander: the whole population in one world](web/public/help/training.png)
 
 ## What you can do
 
 - **Train live.** Press Train (the button with the barbell icon; or just pick a world: it starts by itself): a whole population learns at once in one
-  world, in a worker of its own; you watch the current policy (and the best candidates as
-  ghosts) improve, the progress plot below. Pick a time budget (quick /
+  world, in a worker of its own; you watch the current policy improve, the progress plot
+  below. Pick a time budget (quick /
   medium / long) and each world suggests an algorithm and its settings.
 - **Look inside.** The agent's neural network, live: what it sees, how its neurons fire,
   its weights, as it acts.
@@ -34,9 +32,6 @@ drag the env around with the mouse.
   page) and tease it: grab it with the mouse, or use the *Toys*: boxes, balls,
   planks, explosions, ramps, steps, seesaws, rain, the gravity vector (wind, the moon,
   upside down).
-- **Nice to watch.** WebGL2 from python (PyOpenGL on an OffscreenCanvas): solid shapes, a
-  sky, a ruler as the ground (how far did it walk?), the ghosts behind, the water
-  cannon's water as a liquid (metaballs). An env adds its own looks in a `draw` method.
 - **Change the code.** Every world and algorithm is a plain python file. Open *Code*
   (a Monaco editor), edit it, press *Apply*: it runs at once, in the browser. Open and save
   files of your machine; your edits are kept in the browser.
@@ -50,15 +45,26 @@ drag the env around with the mouse.
 
 ## Worlds and algorithms
 
-**Worlds** (`webgym/envs/`): CartPole, MultiCartPole (2 to 5 poles stacked on top), LunarLander
-(as Gymnasium's), Walker, Crawler (four legs), Ragdoll (a human figure, 11 motor joints),
-WaterCannon (keep one or two balls in the air with water), Blob (a soft ring of balls that
-learns to roll and hop), Drone (fly through a course of gates).
+**Worlds** (`webgym/envs/`):
+
+- **CartPole**: keep a pole upright on a cart
+- **MultiCartPole**: 2 to 5 poles stacked on top of each other
+- **LunarLander**: as Gymnasium's
+- **Walker**: two legs
+- **Crawler**: four legs
+- **Ragdoll**: a human figure, 11 motor joints
+- **WaterCannon**: keep one or two balls in the air with water
+- **Blob**: a soft ring of balls that learns to roll and hop
+- **Drone**: fly through a course of gates
 
 **Algorithms** (`webgym/algos/`):
 
-- numpy: CEM, evolution strategies, NEAT (it grows its own network)
-- pytorch (loaded in the background): PPO, A2C, REINFORCE, SAC, TD3, DQN
+- **CEM**: cross-entropy method (numpy)
+- **ES**: evolution strategies (numpy)
+- **NEAT**: grows its own network (numpy)
+- **PPO**, **A2C**, **REINFORCE**: policy gradients (pytorch)
+- **SAC**, **TD3**: off-policy actor-critic (pytorch)
+- **DQN**: Q-learning with discrete actions (pytorch)
 
 ## How it works
 

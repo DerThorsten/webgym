@@ -80,8 +80,9 @@ Technical considerations:
   `Legged` base of Walker / Crawler / Ragdoll was removed; each repeats its ~15 lines of
   reward / stall rule). Shared helpers are plain functions in `core.py`: `ruler`,
   `draw_ruler_numbers`, `bang_bang`. Joint motors via `RevoluteJoints`, feet sensors. Flat ground (bumpy terrain for the walkers was tried and removed 2026-11-19). Agent bodies
-  never sleep (`core.body`: motors don't wake bodies). Watched episodes: a new seed each; the next starts
-  when agent 0's ends (the ghosts don't hold it back); another run
+  never sleep (`core.body`: motors don't wake bodies). Watched episodes: one agent (the ghosts, more
+  policies watched at once, were removed 2026-11-21: two meanings (CEM candidates / PPO's
+  past policies), off by default, confusing), a new seed each; another run
   (new run, other algorithm / network, a restore: `App.run` in the snapshot) starts a new
   watched episode at once with the new policy; the same run trained on: the newest
   snapshot takes over with the next watched episode (`App._pending`; an episode = one
@@ -144,13 +145,13 @@ Technical considerations:
 - Page layout (`web/index.html`): a top bar always in view (live numbers as chips, the first
   one the env key; Code, the "powered by emscripten-forge" badge (`public/emscripten-forge.svg`),
   Tour, Help, About (= `help.html#about`, About, About the author, Acknowledgments (QuantStack, Bloomberg), Credits; TODOs for the author),
-  GitHub), the left panel: on top two rows of line icons (SVG, Feather style), the app's
+  GitHub), the left panel: on top one row of line icons (SVG, Feather style), the app's
   controls of section "bar", drawn by `showQuick` in main.js (the only place they are):
   `#quick` train (a barbell, a switch: blue while training; ▶/⏸ read as "pause the
   replay"; its title = the app's button label), new run, | reset
   episode, pause / continue (⏸ / ▶, Space: the watched world only, `App.paused`; training
-  goes on), | switches auto reset, camera follows (disabled for fixed views), blue when on; `#quick-watch` steppers − / + for show policies and slower /
-  faster for replay speed. No panel below the tabs any more. Then five tabs, in this order (World: the env select,
+  goes on), | switches auto reset, camera follows (disabled for fixed views), blue when on; | the replay speed stepper
+  (slower / faster, `#quick-speed`). No panel below the tabs any more. Then five tabs, in this order (World: the env select,
   its settings, its description (the module docstring, unwrapped) /
   Training: algorithm, parameters, population, simulation workers / Policy (see below) / Toys (`webgym/toys.py`,
   controls section "toys", commands "toy" / "rain" to both workers: a click on a dynamic
@@ -217,9 +218,9 @@ Technical considerations:
   drops) is drawn as a liquid: metaballs (`gl/draw.py` `GLLiquid`: soft blobs added up
   in a half-resolution offscreen texture, then a threshold pass `liquid.fs`; envs call
   `debug_draw.draw_liquid(positions, radius, color)` in `Env.draw`; the blob radius grows
-  with the spray's spread); the ghosts' drops: plain faint balls. The look (2026-11-20):
-  solid fills, darker outlines, a sky gradient (shaders), `color=` per body, ghosts drawn
-  first (`Env.show_ghosts`, `draw_world(show=/hide=)`), sensors hidden, the walkers' ground
+  with the spray's spread). The look (2026-11-20):
+  solid fills, darker outlines, a sky gradient (shaders), `color=` per body, sensors
+  hidden (`draw_world(hide=)`), the walkers' ground
   a ruler with numbered metres (`core.ruler(env, start, end, depth)`,
   `draw_ruler_numbers(debug_draw, start, end)`; also the Blob, the Drone and the cart
   poles: there 6 m, -3..3, as the old ground). Later the same day: the world is flushed

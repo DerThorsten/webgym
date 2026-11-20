@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>webgym help</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <!-- screenshots: web/help_shots.py writes public/help/*.png -->
     <style>
       body { margin: 0 auto; max-width: 860px; padding: 16px 16px 60px; font: 15px/1.55 system-ui, sans-serif;
@@ -23,19 +24,9 @@
       code, kbd { background: #222; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
       dt { font-weight: 600; color: #fff; margin-top: 8px; }
       dd { margin: 0 0 4px 18px; }
-      /* always in view: the way back to the simulation */
-      #back { position: sticky; top: 0; z-index: 1; margin: -16px -16px 0; padding: 10px 16px;
-              background: #1b1b1b; border-bottom: 1px solid #333; }
-      #back a { display: inline-block; padding: 6px 12px; border-radius: 4px; background: #2f6fd6;
-                color: #fff; text-decoration: none; font-weight: 600; }
     </style>
   </head>
   <body>
-    <div id="back">
-      <!-- (opened from the page, e.g. the welcome card: closing this tab goes back to the
-           running simulation; else: open it) -->
-      <a href="./" onclick="if (window.opener) { window.close(); return false; }">← Back to webgym</a>
-    </div>
     <h1>webgym help</h1>
     <p>
       webgym is a reinforcement learning playground that runs entirely in your browser: the
@@ -71,13 +62,13 @@
       <b>Tour</b> and this help.
     </p>
     <p>
-      <b>Left panel</b>: on top two rows of icons (hover them for what they do). The first:
+      <b>Left panel</b>: on top a row of icons (hover them for what they do):
       the button with the <b>barbell icon</b> trains (blue while training; a click stops it, the next one
       continues; the world you watch keeps going either way); the circling arrows start a new
       run from scratch; the skip-back icon starts a new episode (or R); <b>⏸</b> pauses the
       world you watch (Space; ▶ continues; training goes on); then two switches
-      (blue: on): the loop is auto reset, the crosshair camera follows. The second: <b>− / +</b> how many policies you watch at once, and the
-      replay speed (slower / faster). See "Watching a policy" below.
+      (blue: on): the loop is auto reset, the crosshair camera follows; last the replay
+      speed (slower / faster). See "Watching a policy" below.
       Then five tabs: <i>World</i> (pick the environment and its settings, e.g.
       how many balls; what it is about), <i>Training</i> (time budget, the algorithm and
       its parameters, population, simulation workers), <i>Policy</i> (the network and the
@@ -138,23 +129,18 @@
     <h2 id="watching">Watching a policy</h2>
     <img src="help/watch.png" alt="watching" />
     <p>
-      When not training, the world shows the current policy in
-      <span class="orange">orange</span> and, as <span class="blue">ghosts</span>, the best
-      candidates of the last iteration (CEM / ES) or recent policies (PPO / DQN). They all get
-      the same random start, so you can compare them fairly; each episode a new one.
-      (While training, the page uses a second worker for this: you watch the latest policy
-      while the training goes on.)
+      The world shows one agent acting with the current policy, each episode from a new
+      random start. While training, the page watches in a second worker: you see the latest
+      policy the trainer sent, and it takes over with the next episode.
     </p>
     <p>
-      The ghosts are drawn behind the current policy. The ground is a ruler with the
-      metres numbered, so you see how far a walker got; the cart poles mark their hinges
-      with small discs; the water cannon's water is drawn as a liquid (metaballs: a small
-      shader). Sensors are not drawn.
+      The ground is a ruler with the metres numbered, so you see how far an agent got; a
+      disc marks each joint; the water cannon's water is drawn as a liquid (metaballs: a
+      small shader). Sensors are not drawn.
     </p>
     <dl>
-      <dt>Auto reset (the loop above the tabs)</dt><dd>A new episode starts when all agents are
-        done. Off: the episode goes on after a fall; R starts a new one.</dd>
-      <dt>Show policies (− / + above the tabs)</dt><dd>How many policies you watch at once (1: only the orange one).</dd>
+      <dt>Auto reset (the loop above the tabs)</dt><dd>A new episode starts when the agent's
+        episode ends. Off: the episode goes on after a fall; R starts a new one.</dd>
       <dt>Replay speed (slower / faster above the tabs)</dt><dd>Slow motion or fast forward.</dd>
       <dt>Camera follows (the crosshair above the tabs)</dt><dd>The environment controls the camera: it says which point the
         view follows (the walkers' hull, the water cannon's cart; while training the
@@ -218,8 +204,7 @@
     <ol>
       <li>World tab: pick <b>Walker</b>. Policy tab: <b>Restore</b> a <i>pretrained</i> run
         (they come with the page), or press <b>Train</b> and wait a few minutes, then <b>Stop</b>.</li>
-      <li>Open the <b>Toys</b> tab: it shows only the policy (no ghosts) and switches
-        <b>Auto reset</b> off, so the episode goes on after a fall instead of starting over.</li>
+      <li>Open the <b>Toys</b> tab: it switches <b>Auto reset</b> off, so the episode goes on after a fall instead of starting over.</li>
       <li>Let it walk.</li>
     </ol>
     <img src="help/walker_walks.png" alt="the walker walks" />
@@ -240,7 +225,7 @@
       sideways (a wind) and up-down (the walker on the moon! or everything falling up), or
       let it rain. The settings of each (size, weight, rain rate, ...) are in its
       fold. A click on a body still grabs it. Opening the tab switches auto reset off and
-      shows one policy, without a score (no time limit applies); R (reset) clears the world
+      shows no score (no time limit applies); R (reset) clears the world
       again. Leaving the tab starts a new episode in the world as it was, with auto reset on
       again.
     </p>

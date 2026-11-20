@@ -3,12 +3,20 @@
 Head, torso, upper + lower arms, upper + lower legs, feet: capsules (and the feet)
 connected by 11 joints, each with a motor: neck, shoulders, elbows, hips, knees and
 ankles. Without a policy the motors are limp and it collapses.
-obs: torso angle, angular velocity and velocity, the 11 joint angles and speeds,
-foot contacts, the heels' heights above the ground in m (30 values).
-action: 11 joint torques in [-1, 1] (each joint's strength: TORQUE).
-reward: forward progress, minus a small effort cost, a little for every step it stays
-upright; -100 when it falls (the torso low or tilted). Episodes last 10 s, or end when
-it makes no progress for 1.5 s.
+
+Observations (30):
+- the torso's angle, angular velocity and velocity x, y
+- the 11 joints' angles and speeds
+- the two feet's ground contacts
+- the two heels' heights above the ground (m)
+
+Actions (11):
+- the torques at the 11 joints, each in [-1, 1] (each joint's strength: TORQUE)
+
+Reward: forward progress, minus a small effort cost, a little for every step it stays
+upright; -100 for a fall (the torso low or tilted).
+
+Episode end: a fall, no progress for 1.5 s, or after 10 s.
 """
 
 import numpy as np

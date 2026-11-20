@@ -3,13 +3,24 @@
 As Gymnasium's LunarLander (continuous): the same lander, legs on springy joints, moon
 surface with a flat pad, engines, observations and reward (written anew for box2d 3).
 Only the surface is the same every episode (all agents share one world).
-obs: x, y (relative to the pad), velocity x, y, angle, angular velocity, leg contacts.
-action: main engine (<= 0: off, 0..1: half to full power), side engines (|a| <= 0.5:
-off, else the left (-) or right (+) one, half to full power).
-reward: closer to the pad, slower, upright, legs down (shaping); fuel costs 0.3 per
-step at full main power, 0.03 for the side engines; -100 for a crash (the hull touches
-the ground, or the lander leaves the screen sideways), +100 for landing (it comes to
-rest). An episode lasts up to 1000 steps (20 s).
+
+Observations (8):
+- the position x, y (relative to the pad)
+- the velocity x, y
+- the angle and angular velocity
+- the two legs' ground contacts
+
+Actions (2):
+- the main engine (0 or less: off, 0 .. 1: half to full power)
+- the side engines (between -0.5 and 0.5: off, else the left (-) or the right (+)
+one, half to full power)
+
+Reward: getting closer to the pad, slower, upright, legs down (shaping); fuel costs
+0.3 per step at full main power, 0.03 for the side engines; -100 for a crash, +100 for
+landing (coming to rest).
+
+Episode end: a crash (the hull touches the ground, or the lander leaves the screen
+sideways), a landing, or after 1000 steps (20 s).
 """
 
 import math
@@ -18,7 +29,7 @@ import numpy as np
 import pyb2d3 as b2d
 from pyb2d3 import extensions as ext
 
-from webgym.core import DARK_COLOR, GHOST_COLOR, LIGHT_COLOR, PARTICLE_COLOR, PARTICLE_FILTER, Env, register_env
+from webgym.core import DARK_COLOR, LIGHT_COLOR, PARTICLE_COLOR, PARTICLE_FILTER, Env, register_env
 
 # Gymnasium's constants (pixels / SCALE = meters)
 FPS = 50
@@ -92,8 +103,8 @@ class LunarLander(Env):
         hull = self.sensor(lander, b2d.polygon([(1.05 * x / SCALE, 1.05 * y / SCALE) for x, y in LANDER_POLY]),
                            density=0.0)  # (sensors weigh nothing here: Gymnasium's masses)
         parts = {"lander": lander, "legs": legs, "leg_joints": joints, "feet": feet, "hull": hull}
-        if self.decorated:  # exhaust (looks only): the watched policy's orange, the ghosts' blue
-            color = PARTICLE_COLOR if i == 0 else GHOST_COLOR  # (the ghosts': translucent)
+        if self.decorated:  # exhaust (looks only: the watched env)
+            color = PARTICLE_COLOR
             parts["main_exhaust"] = exhaust(self.world, lander, (0, -MAIN_ENGINE_Y_LOCATION / SCALE), -math.pi / 2,
                                             color)
             parts["left_exhaust"] = exhaust(self.world, lander, (-17 / SCALE, SIDE_ENGINE_HEIGHT / SCALE), math.pi,

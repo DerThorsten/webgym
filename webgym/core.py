@@ -59,7 +59,6 @@ PROP_COLOR = 0xB08850
 AGENT_COLOR = 0xE8955A  # (an agent's bodies, unless the env chooses)
 DARK_COLOR, LIGHT_COLOR = 0x5E6C82, 0xEFE2C8  # (more for an agent's parts: slate, cream)
 SENSOR_COLOR = 0x010203  # (sensor shapes: not drawn)
-GHOST_COLOR = 0x4FA3FF  # (the other policies you watch: drawn in this, translucent)
 
 
 class Box:
@@ -121,7 +120,6 @@ class Env:
         self.decorated = decorated
         self.world = b2d.World(gravity=self.gravity)  # (raises beyond 128 worlds)
         self._bodies, self._owner = [], []  # all agent bodies, the agent of each
-        self._shapes = [[] for _ in range(n)]  # the shapes of each agent (the ghosts' color)
         self.build_scenery()
         parts = {}
         for i in range(n):
@@ -133,7 +131,6 @@ class Env:
         self._hinges = _hinges([b for b, i in zip(self._bodies, self._owner) if i == 0]) if self.hinge_discs else []
         self._bodies = b2d.Bodies(self._bodies)
         self._owner = np.array(self._owner)
-        self._shapes = [b2d.Shapes(s) for s in self._shapes]
         self._start = self.world.get_snapshot()
         self.steps = 0
         self.done = np.zeros(n, dtype=bool)  # the agent's episode ended
@@ -141,10 +138,6 @@ class Env:
         # finished agents are disabled (not simulated, not drawn) until the next reset;
         # False: they go on (watch mode without auto reset)
         self.freeze_done = True
-        # True: every reset gives all agents the same (random) start (the watched env: a
-        # fair comparison of the policies you see); training: each agent its own
-        self.same_start = False
-        self._ghosts = False
 
     @property
     def observation_space(self):
@@ -193,8 +186,8 @@ class Env:
 
     def draw(self, debug_draw):
         """looks only: more to draw after the world (watch mode), e.g. lines with
-        debug_draw.draw_segment(p1, p2, 0xRRGGBB); agent 0 is the current policy, the
-        others are ghosts; default: nothing"""
+        debug_draw.draw_segment(p1, p2, 0xRRGGBB); the watched env has one agent, the
+        current policy; default: nothing"""
 
     # -- building blocks for build_scenery / build_agent -----------------------------
 
@@ -241,9 +234,7 @@ class Env:
         its surface, e.g. rolling_resistance)"""
         shape_def = b2d.shape_def(density=density, filter=filter,
                                   material=b2d.surface_material(friction=friction, custom_color=color, **material))
-        shape = body.create_shape(shape_def, rounded(geometry))
-        self._shapes[self._agent].append(shape)
-        return shape
+        return body.create_shape(shape_def, rounded(geometry))
 
     def sensor(self, body, geometry, filter=SENSOR_FILTER, density=1.0):
         """a sensor shape on an agent body: `sensor_capacity > 0` (batched: b2d.Shapes)
@@ -278,8 +269,7 @@ class Env:
         self.steps = 0
         self.done[:] = False
         self.episode_return[:] = 0.0
-        self._ghosts = False  # (the snapshot brought the agents' own colors back)
-        self.randomize(_SameForAll(self.rng, self.n) if self.same_start and self.n > 1 else self.rng)
+        self.randomize(self.rng)
         return self._observation()
 
     def step(self, actions):
@@ -312,14 +302,6 @@ class Env:
         sized to the parts it joins (the app draws them on top, for every env)"""
         for body, p, radius in self._hinges:
             debug_draw.draw_solid_circle(b2d.transform(p=body.world_point(p)), radius, LIGHT_COLOR)
-
-    def show_ghosts(self):
-        """the agents after the first in GHOST_COLOR (the view draws them translucent);
-        agent 0, the current policy, keeps its own colors"""
-        if not self._ghosts:
-            for shapes in self._shapes[1:]:
-                shapes.custom_color = GHOST_COLOR
-            self._ghosts = True
 
     @property
     def follows(self):
@@ -448,35 +430,6 @@ def _batch(items):
     return batch(items) if batch is not None else items
 
 
-class _SameForAll:
-    """an rng for `randomize` whose draws for the n agents are one draw, repeated: e.g.
-    `rng.uniform(-3, 3, n)` -> n times the same value (a draw for the agents: its size,
-    the last positional argument or `size=`, is n or (n, ...); other draws as they are)"""
-
-    def __init__(self, rng, n):
-        self.rng, self.n = rng, n
-
-    def __getattr__(self, name):
-        draw = getattr(self.rng, name)
-
-        def same(*args, size=None, **kwargs):
-            if size is None and args and np.shape(args[-1]) in ((), (2,)) and _first(args[-1]) == self.n:
-                *args, size = args
-            if size is None:  # (also draws without a size, e.g. permutation)
-                return draw(*args, **kwargs)
-            if _first(size) != self.n:
-                return draw(*args, size=size, **kwargs)
-            shape = (size,) if np.isscalar(size) else tuple(size)
-            return np.repeat(draw(*args, size=(1, *shape[1:]), **kwargs), shape[0], axis=0)
-
-        return same
-
-
-def _first(size):
-    """n of a size n or (n, ...)"""
-    return size if np.isscalar(size) else tuple(size)[0]
-
-
 ENVS = {}
 
 
@@ -519,7 +472,6 @@ class Separate:
     def __init__(self, cls, n, **kwargs):
         self.envs = [cls(n=1, **kwargs) for _ in range(n)]
         self.n = n
-        self.same_start = False
 
     def __getattr__(self, name):  # (the env's settings: names, dt, view, ...)
         return getattr(self.envs[0], name)
@@ -548,8 +500,8 @@ class Separate:
     def reset(self, seed=None):
         if seed is not None or not hasattr(self, "rng"):
             self.rng = np.random.default_rng(seed)
-        seeds = self.rng.integers(2**31, size=1 if self.same_start else self.n)
-        return np.concatenate([e.reset(int(seeds[i % len(seeds)])) for i, e in enumerate(self.envs)])
+        seeds = self.rng.integers(2**31, size=self.n)
+        return np.concatenate([e.reset(int(s)) for s, e in zip(seeds, self.envs)])
 
     def step(self, actions):
         actions = np.asarray(actions, dtype=np.float32).reshape(self.n, -1)

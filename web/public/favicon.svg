@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- webgym's favicon: the ragdoll mid-stride, in the agents' colors -->
+  <rect width="32" height="32" rx="6" fill="#262a33"/>
+  <g stroke-linecap="round" fill="none">
+    <!-- the back arm and leg (behind the torso) -->
+    <path d="M16.5 10.5 L19.5 15 L22 17.5" stroke="#c96f3c" stroke-width="2.2"/>
+    <path d="M15 19.5 L18.5 24 L21 28" stroke="#c96f3c" stroke-width="2.8"/>
+    <path d="M20 28 h3.5" stroke="#5e6c82" stroke-width="2.4"/>
+    <!-- the torso -->
+    <path d="M16.5 9.5 L15 19" stroke="#5e6c82" stroke-width="5"/>
+    <!-- the front leg and arm -->
+    <path d="M15 19.5 L11.5 24 L9 27" stroke="#e8955a" stroke-width="2.8"/>
+    <path d="M8 27.5 h3.5" stroke="#5e6c82" stroke-width="2.4"/>
+    <path d="M16.5 10.5 L13 14.5 L11 17.5" stroke="#e8955a" stroke-width="2.2"/>
+  </g>
+  <!-- the head -->
+  <circle cx="17.5" cy="5.5" r="3" fill="#efe2c8"/>
+</svg>

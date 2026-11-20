@@ -7,8 +7,8 @@ The browser runs two of them (host_web.py): the display worker's draws what you 
 to the display (`load_policy`). Both render `controls()` as widgets (values back via
 `command(name, value)`) and plot `history`.
 
-* watch: the env (n = show policies) driven by the current policy (zero actions before
-  any training), agent 0 solid, the others ghosts; drag its bodies with the pointer
+* watch: the env (one agent) driven by the current policy (zero actions before any
+  training); drag its bodies with the pointer
 * train: the trainer's population (one batched env, n agents in one world). Stop keeps
   the trainer's state: Train continues, "New run" starts over.
 """
@@ -26,13 +26,12 @@ import pyb2d3 as b2d
 
 from webgym import checkpoints, toys
 from webgym.algos import ALGOS, HELP
-from webgym.core import ENVS, GHOST_COLOR, SENSOR_COLOR, env_key, make
+from webgym.core import ENVS, SENSOR_COLOR, env_key, make
 from webgym.gl.debug_draw_gl import Camera, GLDebugDraw
 from webgym.policies import from_sizes
 
 import webgym.envs  # noqa: F401 (registers the built-in envs)
 
-GHOST_ALPHA = 70  # (the ghosts' opacity, 0..255)
 TRAIN_STEPS = 256  # env steps per _train_steps call at most (training: always full speed)
 REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8]  # watch mode: x real time (slow motion .. fast)
 END_SECONDS = 1.0  # watch mode: the world goes on this long after an episode ended
@@ -80,9 +79,6 @@ class App:
         # (see the agent recover), "reset" / R starts a new one
         self.auto_reset = True
         self._auto_reset_before = True  # (playing yourself turns it off; restored after)
-        # watch mode: how many policies run at once: the current one (solid) + the best
-        # candidates (CEM / ES) or the most recent policies (PPO / DQN) as ghosts
-        self.show_n = 1  # (more: the "Show policies" slider)
         # the camera follows the point the env suggests (e.g. the walker); off: fixed view
         self.follow = True
         # watch mode: what a click into the world does ("grab": drag bodies; "box" /
@@ -172,8 +168,6 @@ class App:
         # (discrete: Q-values of the env's discrete actions, acting with argmax)
         self.policy = ALGOS[self.algo].policy(self.env, self.hp[self.algo])
         self.params = None  # the watched policy's parameters (None: zero actions)
-        self.top_params = None  # (k, num_params): more policies to show, best / newest first
-        self.recent = []  # the last policies (for algorithms without top_params)
         self.policy_info = "none yet (zero actions)"
         self.policy_iteration = 0  # the training iteration of the watched policy (0: untrained)
         self.scores = []  # returns of the finished watch-mode episodes (newest last)
@@ -183,21 +177,17 @@ class App:
         self.watch()
 
     def watch(self):
-        """watch mode: the current policy and show_n - 1 more drive the agents of the
-        watched env (the display: the trainer's newest policy takes over now)"""
+        """watch mode: a new episode of the watched env (one agent), driven by the current
+        policy (the display: the trainer's newest policy takes over now)"""
         if self.mouse_drag is not None:
             self.mouse_drag.end()
         if self._pending is not None:
             self._take_policy(*self._pending)
             self._pending = None
-        n = self.show_n if ENVS[self.env_name].batchable else 1
-        if self.env.n != n or self.env.decorated != self.decorated:
+        if self.env.n != 1 or self.env.decorated != self.decorated:
             self.env.close()
-            self.env = make(self.env_name, n=n, decorated=self.decorated, **self.settings)
-        # one agent: it goes on after its end (no auto reset); several: finished ghosts
-        # disappear (with auto reset)
-        self.env.freeze_done = n > 1 and self.auto_reset
-        self.env.same_start = True  # (all you watch start alike: a fair comparison)
+            self.env = make(self.env_name, n=1, decorated=self.decorated, **self.settings)
+        self.env.freeze_done = False  # (it goes on after its end: with auto reset off, you see it recover)
         # (a new seed each watched episode: another start, as in training)
         self.watched += 1
         self.obs = self.env.reset(seed=self.seed + self.watched)
@@ -258,8 +248,6 @@ class App:
         tensors = {}
         if self.params is not None:
             tensors["policy"] = self.params
-        if self.top_params is not None and len(self.top_params):
-            tensors["top"] = self.top_params  # (more policies for the display)
         state = {}
         for key, value in (self.train_state or {}).items():
             if isinstance(value, np.ndarray):
@@ -304,13 +292,12 @@ class App:
         self.watch()
 
     def _take_policy(self, tensors, meta):
-        """the policy of a checkpoint drives the watched agents"""
+        """the policy of a checkpoint drives the watched agent"""
         self.algo = meta["algo"]
         sizes, algo = meta["policy_sizes"], ALGOS[self.algo]
         if sizes != self.policy.sizes or self.policy.tanh_out == algo.discrete or self.policy.kind != algo.network:
             self.policy = from_sizes(algo.network, sizes, tanh_out=not algo.discrete)
         self.params = tensors.get("policy")
-        self.top_params = tensors.get("top")
         self.policy_info = meta["policy_info"]
         self.policy_iteration = meta.get("iteration", 0)
 
@@ -358,7 +345,6 @@ class App:
             self.hp[self.algo].update(layers=len(sizes) - 2, hidden=sizes[1])
         self.policy = from_sizes(algo.network, sizes, tanh_out=not algo.discrete)
         self.params = tensors.get("policy")
-        self.top_params = tensors.get("top")
         state = meta["state"]
         if state is not None:
             state = dict(state, **{k[len("state.") :]: v for k, v in tensors.items() if k.startswith("state.")})
@@ -390,15 +376,10 @@ class App:
              "help": "Start a new watched episode when one ends. Off: the episode goes on, see "
                      "the agent recover; R starts a new one. (Training resets its own episodes "
                      "either way.)"},
-            {"type": "slider", "name": "show_n", "label": "Show policies", "min": 1, "max": 16, "step": 1,
-             "value": self.show_n, "disabled": not self.env.batchable,
-             "help": "How many policies run at once in the view: the current one (solid) and as "
-                     "ghosts the best candidates of the last iteration (CEM / ES) or the most "
-                     "recent policies (PPO / DQN)."},
             {"type": "slider", "name": "replay_speed", "label": "Replay speed", "min": 0,
              "max": len(REPLAY_SPEEDS) - 1, "step": 1, "value": REPLAY_SPEEDS.index(self.replay_speed),
              "labels": [f"{s}x" for s in REPLAY_SPEEDS],
-             "help": "How fast the watched policies run: 1x real time, below slow motion, "
+             "help": "How fast the watched policy runs: 1x real time, below slow motion, "
                      "above fast forward. (Training always runs as fast as it can.)"},
             {"type": "checkbox", "name": "follow", "label": "Camera follows", "value": self.follow,
              "disabled": not self.env.follows, "inline": True,
@@ -438,8 +419,8 @@ class App:
         toy_controls = [
             {"type": "hint", "name": "toys_hint",
              "text": "Pick a tool below, then click into the world (a click on a body still grabs "
-                     "it). Click the tool again to put it away. This tab turns auto reset off and "
-                     "shows one policy; R resets (and clears the toys)."},
+                     "it). Click the tool again to put it away. This tab turns auto reset off; R "
+                     "resets (and clears the toys)."},
         ]
         for group in toys.GROUPS:  # (each a fold of the tab: its tools as buttons, its sliders)
             tools = [[name, label] for name, (label, _, in_group) in toys.TOOLS.items() if in_group == group]
@@ -462,7 +443,7 @@ class App:
         # always in view (the page's icons above the tabs): the training's buttons, reset
         # episode, auto reset, camera follows; how many policies, replay speed
         bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run", "reset", "paused",  # noqa: E731
-                                      "follow", "show_n", "replay_speed")
+                                      "follow", "replay_speed")
         return ([{**c, "section": "bar" if bar(c) else "environment"} for c in env]
                 + [{**c, "section": "bar" if bar(c) else "training"} for c in training]
                 + [{**c, "section": "toys"} for c in toy_controls])
@@ -601,9 +582,6 @@ class App:
             self.paused = bool(value)
         elif name == "replay_speed":
             self.replay_speed = REPLAY_SPEEDS[int(value)]
-        elif name == "show_n":
-            self.show_n = int(value)
-            self.watch()
         elif name == "follow":
             self.follow = bool(value)
             if not self.follow:  # (back to the env's fixed view)
@@ -743,11 +721,6 @@ class App:
                 entry.update(item.get("losses", {}))
                 self.history.append(entry)
                 self.params = item["mean_params"]
-                top = item.get("top_params")
-                if top is None:  # (PPO / DQN: the most recent policies, newest first)
-                    self.recent = [*self.recent[-15:], self.params]
-                    top = np.array(self.recent[-2::-1]) if len(self.recent) > 1 else None
-                self.top_params = top
                 self.train_state = item["state"]
                 self.policy_info = f"{self.algo}, iteration {item['iteration']}"
                 self.policy_iteration = item["iteration"]
@@ -767,13 +740,12 @@ class App:
                 self.watch()
                 self.episodes = episodes
             return
-        n = self.env.n
         if self.params is None:
-            action = np.zeros((n, *self.env.action_space.shape), dtype=np.float32)
+            action = np.zeros((1, *self.env.action_space.shape), dtype=np.float32)
         elif not self.policy.tanh_out:  # Q-values: the best discrete action
-            action = self.env.discrete_actions[np.argmax(self.policy(self._watch_params(), self.obs), axis=1)]
+            action = self.env.discrete_actions[np.argmax(self.policy(self.params[None], self.obs), axis=1)]
         else:
-            action = self.policy(self._watch_params(), self.obs)
+            action = self.policy(self.params[None], self.obs)
         self.mouse_drag.step(self.env.dt)
         if self.toys_on:  # (the world's gravity: only while the Toys tab is open)
             toys.gravity(self.env.world, self.env.gravity, self.toy_params)
@@ -791,43 +763,28 @@ class App:
             # a new best: better than every earlier score (not a tie, not the first)
             self.new_best = bool(self.scores) and self.episode_return > max(self.scores)
             self.scores.append(self.episode_return)
-        # (the current policy's episode decides: the ghosts don't make it wait, frozen)
         if self.env.done[0] and not self.ended:
             self.ended = True
             if self.auto_reset:
                 self.end_timer = END_SECONDS
 
     def _toy_mode(self):
-        """toys: no auto reset (the episode goes on, see how the agent copes) and one
-        policy in view (the toys hit it, not a crowd of ghosts); no scores"""
+        """toys: no auto reset (the episode goes on, see how the agent copes); no scores"""
         self.toys_on = True
         self.auto_reset = False
         self.env.freeze_done = False
         self.end_timer = None  # (an ended episode: no countdown to the next one)
-        if self.show_n != 1:
-            self.show_n = 1
-            self.watch()
-
-    def _watch_params(self):
-        """(n, num_params): agent 0 the current policy, then the best candidates (CEM /
-        ES) or the most recent policies (PPO / DQN), repeated if there are fewer"""
-        rows = [self.params, *(self.top_params if self.top_params is not None else [])]
-        return np.stack([rows[i % len(rows)] for i in range(self.env.n)])
 
     def _draw(self, width, height):
-        """the watched env: agent 0 solid, the other policies as ghosts"""
+        """the watched env"""
         if self.debug_draw is None:
             self.debug_draw = GLDebugDraw(self.camera)
         self.camera.set_size(width, height)
         self._update_view()
         gl.glViewport(0, 0, width, height)
         self.debug_draw.begin_draw()
-        # the ghosts first (the shapes in GHOST_COLOR, see Env.show_ghosts), translucent,
-        # then the rest on top of them; the sensors not at all
-        if self.env.n > 1:
-            self.debug_draw.draw_world(self.env.world, alpha=GHOST_ALPHA, only=(GHOST_COLOR,), show=(GHOST_COLOR,))
-            self.debug_draw.flush()
-        self.debug_draw.draw_world(self.env.world, hide=(GHOST_COLOR, SENSOR_COLOR, toys.RAIN_COLOR))
+        # (not drawn: the sensors; the rain's drops, drawn as water below)
+        self.debug_draw.draw_world(self.env.world, hide=(SENSOR_COLOR, toys.RAIN_COLOR))
         if self.rain is not None:  # (its drops as water)
             self.rain.draw(self.debug_draw, self.toy_params)
         self.debug_draw.flush()  # (the world drawn: the env's own drawing lies on top of it)
@@ -840,11 +797,8 @@ class App:
         self.debug_draw.end_draw()
 
     def _update_view(self):
-        """the other policies as ghosts (agent 0, the current one, in its colors); with
-        "Camera follows" the camera glides to the point the env suggests for it
+        """with "Camera follows" the camera glides to the point the env suggests for it
         (env.camera_target)"""
-        if self.env.n > 1:
-            self.env.show_ghosts()
         if self.follow:
             target = self.env.camera_target(0)
             if target is not None:

@@ -1,9 +1,18 @@
 """CartPole: keep a pole upright by pushing its cart left / right.
 
 A cart on a rail (a prismatic joint) with a pole on a hinge (a revolute joint).
-obs: cart x, cart velocity, pole angle, pole angular velocity.
-action: the force on the cart. reward: 1 per step while the pole is up.
-The episode ends when the pole tilts more than 12 degrees or the cart leaves |x| < 2.4.
+
+Observations (4):
+- the cart's position x and velocity
+- the pole's angle (0: upright) and angular velocity
+
+Actions (1):
+- the force on the cart (-1: full left .. 1: full right)
+
+Reward: 1 per step while the pole is up (at most 500).
+
+Episode end: the pole tilts more than 12 degrees, the cart leaves |x| < 2.4, or after
+500 steps.
 """
 
 import numpy as np

@@ -1,11 +1,19 @@
 """Walker: a two-legged robot learns to walk to the right.
 
 A hull with two legs (thigh + shin), motors at the hips and knees.
-obs: hull angle, angular velocity and velocity, the 4 joint angles and speeds,
-foot contacts (14 values).
-action: 4 joint torques in [-1, 1] (hips, knees).
-reward: forward progress, minus a small effort cost; -100 when the hull hits
-the ground. Episodes last 10 s, or end when the walker makes no progress for 1.5 s.
+
+Observations (14):
+- the hull's angle, angular velocity and velocity x, y
+- the 4 joints' angles and speeds (hip and knee of each leg)
+- the two feet's ground contacts
+
+Actions (4):
+- the torques at the hips and knees, each in [-1, 1]
+
+Reward: forward progress, minus a small effort cost; -100 for a fall (the hull low or
+tilted).
+
+Episode end: a fall, no progress for 1.5 s, or after 10 s.
 """
 
 import numpy as np

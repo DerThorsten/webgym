@@ -40,7 +40,7 @@ let urlPick = params.get("checkpoint");
 let trainerState = null; // the trainer's state message
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
-const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "paused", "show_n", "replay_speed", "follow",
+const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "paused", "replay_speed", "follow",
   "toy", "rain", "toy_mode", "gravity_reset"]);
 
 /** a widget changed: route the command to the worker(s) concerned */
@@ -311,7 +311,7 @@ function showQuick(controls) {
     more.onclick = () => step(1);
   }
 }
-const STEPPERS = { show_n: "quick-policies", replay_speed: "quick-speed" };
+const STEPPERS = { replay_speed: "quick-speed" };
 
 function showControls(controls) {
   showQuick(controls);

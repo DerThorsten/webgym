@@ -5,24 +5,35 @@ up with the jets. The balls can't touch the cart: only the water carries them; t
 also push them sideways, so the cart has to follow, aim and dose the pressure. The water
 drops are real bodies (an emitter at the end of each barrel), their recoil pushes the
 cart. Each cart's water only hits its own balls (collision groups): many carts share one
-world. Setting "balls": keep 1 or 2 up (they bump into each other); the cart has as many
-cannons as balls (two: a wider cart, a cannon at each end).
-obs: per ball its position (relative to the cart) and velocity; the cart's velocity;
-per cannon its angle, pressure and spread.
-action: drive (-1: left .. 1: right), then per cannon: angle (-1: left .. 1: right),
-pressure (<= 0: off, 1: full), spread (-1: a narrow jet .. 1: a wide shower).
-reward: 1 per step while the balls are in the air, up to 0.5 more for keeping them high
-(the lowest at 4 m: all of it), minus the water used (all cannons at full pressure:
-0.2): high balls with little water, more reward. The episode ends when a ball touches
-the ground or flies away, or after 20 s.
+world.
+
+Setting "balls": keep 1 or 2 up (they bump into each other), with as many cannons on
+the cart (for two, a wider cart with a cannon at each end).
+
+Observations (7 per ball + 1; a cannon per ball):
+- per ball its position (relative to the cart) and velocity
+- the cart's velocity
+- per cannon its angle, pressure and spread
+
+Actions (1 + 3 per cannon):
+- drive (-1: left .. 1: right)
+- per cannon its angle (-1: left .. 1: right)
+- per cannon its pressure (0 or less: off, 1: full)
+- per cannon its spread (-1: a narrow jet .. 1: a wide shower)
+
+Reward: 1 per step while the balls are in the air, up to 0.5 more for keeping them high
+(all of it with the lowest at 4 m or above), minus the water used (0.2 with all cannons
+at full pressure), so high balls with little water earn the most.
+
+Episode end: a ball touches the ground or flies away, or after 20 s.
 """
 
 import numpy as np
 import pyb2d3 as b2d
 from pyb2d3 import extensions as ext
 
-from webgym.core import (DARK_COLOR, GHOST_COLOR, LIGHT_COLOR, PARTICLE, SCENERY, SENSOR_COLOR, Env,
-                         draw_ruler_numbers, register_env, ruler)
+from webgym.core import (DARK_COLOR, LIGHT_COLOR, PARTICLE, SCENERY, SENSOR_COLOR, Env, draw_ruler_numbers,
+                         register_env, ruler)
 
 BARREL = 1.0  # a barrel's length (the water leaves at its end)
 FLAP = 0.3  # the length of a nozzle's flaps (they open as wide as the spray: you see it)
@@ -152,9 +163,8 @@ class WaterCannon(Env):
             body=self.barrel[k], seed=seed, local_frame=b2d.transform(p=(0, BARREL), q=b2d.make_rot(np.pi / 2)),
             rate=MAX_RATE, capacity=int(MAX_RATE * DROP_LIFE[1]) + 1, angle_min=-0.04, angle_max=0.04,
             lifetime=ext.uniform(*DROP_LIFE), max_lifetime=DROP_LIFE[1],
-            # (the current policy's drops: not drawn as balls, as a liquid instead (see
-            # draw); the ghosts' as faint blue balls)
-            colors=[(0.0, SENSOR_COLOR if agent == 0 else GHOST_COLOR)] * 2,
+            # (the drops: not drawn as balls, as a liquid instead, see draw)
+            colors=[(0.0, SENSOR_COLOR)] * 2,
         )
 
     def randomize(self, rng):

@@ -5,13 +5,21 @@ the next but one (it keeps its round shape), and five springs across the ring, e
 from a ball to the one opposite. The policy sets the length of the five springs across.
 Squeezing the ring one way and stretching it the other tips it over, it rolls, hops or
 crawls, whatever works. Drag it around with the mouse, it is soft.
-obs: the balls' positions relative to the ring's middle, the middle's velocity, each
-ball touching the ground, the lowest ball's height (in ball radii: 1 touching the
-ground, more in the air) and the balls' mean height (0 at rest, + higher).
-action: per spring across its length (-1: short .. 1: long).
-reward: forward progress of the ring's middle, a bonus for every moment in the air (no
+
+Observations (34):
+- the 10 balls' positions x, y relative to the ring's middle
+- the middle's velocity x, y
+- for each ball whether it touches the ground
+- the lowest ball's height (in ball radii: 1 touching the ground, more in the air)
+- the balls' mean height (0 at rest, + higher)
+
+Actions (5):
+- the length of each spring across (-1: short .. 1: long)
+
+Reward: forward progress of the ring's middle, a bonus for every moment in the air (no
 ball touching the ground, so jumps pay), minus a small effort cost.
-Episodes last 10 s, or end when it makes no progress for 1.5 s.
+
+Episode end: no progress for 1.5 s, or after 10 s.
 """
 
 import math
@@ -31,7 +39,7 @@ RIM_SPRING = (16.0, 0.5)  # of the ring: neighbours, and the next but one (it ke
 # the balls grip and roll with losses, it spins down: without, a blob once rolling rolls on
 # by itself (no effort needed)
 FRICTION, ROLLING, DAMPING = 1.5, 0.2, 2.0  # friction, rolling resistance, angular damping
-LINE_COLOR, GHOST_LINE_COLOR = 0xF0C080, 0x4FA3FF  # the springs (looks: lines between the balls)
+LINE_COLOR = 0xF0C080  # the springs (looks: lines between the balls)
 AIR_BONUS = 0.2  # reward per step with no ball on the ground (rolling well: ~0.3 per step)
 # no progress (the blob did not get STALL_DISTANCE further right than ever before) for
 # STALL_SECONDS: the episode ends (no penalty)
@@ -126,11 +134,9 @@ class Blob(Env):
         return float(self._middle()[i, 0]), self.view_center[1]
 
     def draw(self, debug_draw):
-        """the springs as plain lines between the balls (the current policy's in color,
-        the ghosts' blue); the ruler's numbers"""
+        """the springs as plain lines between the balls (of the watched blob); the ruler's
+        numbers"""
         draw_ruler_numbers(debug_draw)
-        pos = self.balls.position.reshape(self.n, BALLS, 2)
-        for i in reversed(range(self.n)):  # (the current policy's last: on top)
-            color = LINE_COLOR if i == 0 else GHOST_LINE_COLOR
-            for a, b in self.pairs:
-                debug_draw.draw_segment(tuple(pos[i, a]), tuple(pos[i, b]), color)
+        pos = self.balls.position[:BALLS]  # (agent 0)
+        for a, b in self.pairs:
+            debug_draw.draw_segment(tuple(pos[a]), tuple(pos[b]), LINE_COLOR)

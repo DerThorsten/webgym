@@ -1,12 +1,19 @@
 """Crawler: a four-legged robot learns to crawl to the right.
 
-A long, low hull with two leg pairs (back + front, thigh + shin each), torques at the
-8 hips and knees (motors). Hard to tip over, it learns quickly.
-obs: hull angle, angular velocity and velocity, the 8 joint angles and speeds,
-the 4 foot contacts (24 values).
-action: 8 joint torques in [-1, 1].
-reward: forward progress, minus a small effort cost; -100 when it flips over.
-Episodes last 10 s, or end when it makes no progress for 1.5 s.
+A long, low hull with two leg pairs (back + front, thigh + shin each), motors at the
+8 hips and knees. Hard to tip over, it learns quickly.
+
+Observations (24):
+- the hull's angle, angular velocity and velocity x, y
+- the 8 joints' angles and speeds (hip and knee of each leg)
+- the 4 feet's ground contacts
+
+Actions (8):
+- the torques at the hips and knees, each in [-1, 1]
+
+Reward: forward progress, minus a small effort cost; -100 when it flips over.
+
+Episode end: it flips over, no progress for 1.5 s, or after 10 s.
 """
 
 import numpy as np

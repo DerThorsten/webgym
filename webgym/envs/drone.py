@@ -4,13 +4,21 @@ A light frame with a rotor at each end; each rotor's thrust is an action. More t
 on one side tilts the drone, and tilted, its thrust pushes it sideways, so it flies.
 The gates hang at different heights. Their posts are solid, the ground too, and
 touching them is a crash.
-obs: where the next gate and the one after are (relative to the drone), the drone's
-velocity, tilt (sin, cos) and spin.
-action: the thrust of the left and the right rotor (-1: off .. 1: full; both at 0 about
-holds the drone in the air).
-reward: getting closer to the next gate, +10 for each gate passed, -100 for a crash;
-a little for every second it stays in the air. Episodes last 20 s, or end with a crash,
-after the last gate, or when it gets no closer to its gate for 3 s (hovering in place).
+
+Observations (9):
+- where the next gate is (x, y relative to the drone), and the one after it
+- the drone's velocity x, y
+- its tilt (sin, cos) and spin
+
+Actions (2):
+- the thrust of the left and of the right rotor (-1: off .. 1: full; both at 0 about
+hold the drone in the air)
+
+Reward: getting closer to the next gate, +10 for each gate passed, -100 for a crash; a
+little for every second it stays in the air.
+
+Episode end: a crash, the last gate passed, no closer to its gate for 3 s (hovering in
+place), or after 20 s.
 """
 
 import numpy as np

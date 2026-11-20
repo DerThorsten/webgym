@@ -22,7 +22,6 @@ import numpy as np
 
 from webgym.algos.cem import population, rollout
 
-TOP = 16  # best genomes per iteration reported for the display
 SURVIVE = 0.2  # the best share of a species become parents
 STALE = 15  # a species that didn't improve for this many generations dies out
 MAX_WEIGHT = 8.0
@@ -51,7 +50,6 @@ def train(env, policy, iterations=1000, add_node=0.1, add_conn=0.3, weight_power
             "mean_return": float(returns.mean()),
             "best_return": float(returns.max()),
             "mean_params": params[ranked[0]],  # (the watched policy: this generation's best)
-            "top_params": params[ranked[:TOP]],
             "losses": {  # (plotted)
                 "species": len(s["species"]),
                 "neurons": len(champion["nodes"]) - policy.n_out,
