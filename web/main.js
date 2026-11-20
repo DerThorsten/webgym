@@ -37,7 +37,7 @@ let autoTrain = params.get("train") !== "0"; // start training once the page is 
 let trainerState = null; // the trainer's state message
 // commands of the watched env only: to the display (and to the trainer too: its
 // controls show these values as well)
-const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "paused", "show_n", "replay_speed", "follow", "decorate",
+const DISPLAY_COMMANDS = new Set(["auto_reset", "reset", "paused", "show_n", "replay_speed", "follow",
   "toy", "rain", "toy_mode"]);
 
 /** a widget changed: route the command to the worker(s) concerned */
@@ -236,11 +236,11 @@ const openFolds = new Set(["Things to drop"]); // the folds that are open (kept 
 // the app's controls of section "bar", as icons above the tabs: train (a barbell, a
 // switch: blue while training; the title says what a click does: Train / Continue
 // training / Stop), new run, reset episode, pause / continue (the watched world only),
-// the switches auto reset, camera follows, decoration (blue: on); below them the
+// the switches auto reset, camera follows (blue: on); below them the
 // steppers show policies and replay speed
 const quickTrain = document.getElementById("quick-train");
 const quickPause = document.getElementById("quick-pause");
-const SWITCHES = { auto_reset: "quick-reset", follow: "quick-follow", decorate: "quick-decorate" };
+const SWITCHES = { auto_reset: "quick-reset", follow: "quick-follow" };
 const PAUSE = '<svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>';
 const PLAY = '<svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>';
 let paused = false;

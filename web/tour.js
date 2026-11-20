@@ -25,14 +25,14 @@ const TOURS = {
   // come last)
   quick: [
     { target: "#quick",
-      text: "<b>The buttons</b> (hover one for its name): the <b>barbell</b> trains (blue while it does, click again to stop; the world you watch keeps going either way); the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R); <b>pause</b> stops the world you watch (Space; training goes on). Then three switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent, the <b>top hat</b> adds decoration (flames, flags). The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
+      text: "<b>The buttons</b> (hover one for its name): the <b>barbell</b> trains (blue while it does, click again to stop; the world you watch keeps going either way); the <b>circling arrows</b> start a new run from scratch; <b>skip back</b> starts a new episode (or R); <b>pause</b> stops the world you watch (Space; training goes on). Then two switches, blue when on: the <b>loop</b> is auto reset (a new episode when one ends), the <b>crosshair</b> lets the camera follow the agent. The agents learn right here in your browser, live; the numbers in the top bar show how they are doing." },
     { target: "#quick-watch",
       text: "<b>How you watch:</b> − / + sets how many policies you see at once (the current one solid, the best candidates as ghosts); the arrows make the replay slower or faster (training always runs at full speed)." },
     { target: "#tabs", text: "<b>More in the panel:</b> the world, how it trains, the policy, toys, the log." },
     { target: "#tab-policy", tab: "policy",
       text: "<b>The policy:</b> once there is one (trained or restored), its neural network shows here, live: what the agent sees on the left, its actions on the right. Below it the checkpoints: save runs, restore them, or try a pretrained one." },
     { target: "#tab-toys", tab: "toys",
-      text: "<b>Toys:</b> once it walks (or flies), tease it: a click into the world drops a box, a ball or a plank on it, sets off an explosion, or puts a ramp, a step or a seesaw in its way; or change the weather: rain, wind, moon gravity. Opening the tab turns auto reset off and shows one policy: see how it copes. R clears the world." },
+      text: "<b>Toys:</b> once it walks (or flies), tease it: a click into the world drops a box, a ball or a plank on it, sets off an explosion, or puts a ramp, a step or a seesaw in its way; or change the weather: rain, or the gravity vector (wind sideways, the moon, upside down). Opening the tab turns auto reset off and shows one policy: see how it copes. R clears the world." },
     { target: "#code-toggle",
       text: "<b>The python code</b> of the world and of the algorithm: edit it, press Apply, it runs." },
     { target: "#controls-environment select", tab: "world",
@@ -55,7 +55,6 @@ const TOURS = {
     { target: "#quick-policies", text: "<b>Show policies</b> (− / +): how many policies you watch at once: the current one (solid) and as ghosts the best candidates of the last iteration, all from the same start." },
     { target: "#quick-speed", text: "<b>Replay speed</b> (slower / faster): slow motion or fast forward for watching (training always runs as fast as it can)." },
     { target: "#quick-follow", text: "<b>Camera follows</b> (the crosshair; blue: on): the world moves the camera with its agent (the walkers, the water cannon's cart). Off: pan and zoom yourself." },
-    { target: "#quick-decorate", text: "<b>Decoration</b> (the top hat; blue: on): looks only, e.g. the lander's exhaust and flags; never part of training." },
     // the Training tab
     { target: control("Algorithm"), tab: "training", text: "<b>The algorithm.</b> CEM and ES try many variations of the policy and keep the best (fast, robust); PPO and DQN learn from every step with pytorch (loaded in the background)." },
     { target: "#controls-training .group", tab: "training", text: "<b>Its parameters</b>, each with an ⓘ; the network's size (layers, hidden) starts a new run." },
@@ -64,7 +63,7 @@ const TOURS = {
     // Policy, Toys, Log
     { target: "#tab-policy", tab: "policy", text: "<b>Policy:</b> the network, live (neurons colored by activation, connections by weight); the checkpoints of this world + algorithm, kept in your browser, and pretrained runs of every algorithm (a restore switches to it)." },
     { target: "#controls-toys .tools", tab: "toys", text: "<b>Toys:</b> pick a tool in the folds, then click into empty space: drop a box, a ball or a plank, set off an explosion, put a ramp, a step or a seesaw on the ground. They are real bodies: the agent has to deal with them. A click on a body always grabs it; click the tool again to put it away. Opening this tab turns auto reset off and shows one policy; R (reset) clears them." },
-    { target: "#controls-toys details", tab: "toys", text: "<b>The folds</b> (click a title): each with its tools and their settings: size, weight and bounce of what you drop, the explosion, the ramps and steps, and the weather: rain, wind and gravity (try the moon: 0.17)." },
+    { target: "#controls-toys details", tab: "toys", text: "<b>The folds</b> (click a title): each with its tools and their settings: size, weight and bounce of what you drop, the explosion, the ramps and steps, and the weather: rain and the gravity vector, sideways (wind) and up-down (try the moon: 0.17, or below 0)." },
     { target: "#tab-log", tab: "log", text: "<b>Log:</b> the detailed state, the packages loaded (e.g. pytorch) and every message." },
     // the middle, the right
     { target: "#stage", tab: "world", text: "<b>The world</b>, simulated live: drag the background to pan, the wheel zooms, drag a body to push it around (while watching)." },

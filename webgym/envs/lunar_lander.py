@@ -18,7 +18,7 @@ import numpy as np
 import pyb2d3 as b2d
 from pyb2d3 import extensions as ext
 
-from webgym.core import PARTICLE_COLOR, PARTICLE_FILTER, Env, register_env
+from webgym.core import DARK_COLOR, GHOST_COLOR, LIGHT_COLOR, PARTICLE_COLOR, PARTICLE_FILTER, Env, register_env
 
 # Gymnasium's constants (pixels / SCALE = meters)
 FPS = 50
@@ -70,11 +70,11 @@ class LunarLander(Env):
 
     def build_agent(self, i):
         lander = self.body((W / 2, H), b2d.polygon([(x / SCALE, y / SCALE) for x, y in LANDER_POLY]),
-                           density=5.0, friction=0.1, enable_sleep=True)  # (asleep: landed)
+                           density=5.0, friction=0.1, enable_sleep=True, color=LIGHT_COLOR)  # (asleep: landed)
         legs, joints, feet = [], [], []
         for side in (-1, 1):
             leg = self.body((W / 2 - side * LEG_AWAY / SCALE, H), b2d.box(LEG_W / SCALE, LEG_H / SCALE),
-                            density=1.0, friction=0.1, enable_sleep=True, rotation=side * 0.05)
+                            density=1.0, friction=0.1, enable_sleep=True, rotation=side * 0.05, color=DARK_COLOR)
             # (the springy legs: a motor pushes them out against a limit)
             joints.append(self.world.create_revolute_joint(
                 body_a=lander, body_b=leg, local_frame_a=b2d.transform(p=(0, 0)),
@@ -90,7 +90,7 @@ class LunarLander(Env):
                            density=0.0)  # (sensors weigh nothing here: Gymnasium's masses)
         parts = {"lander": lander, "legs": legs, "leg_joints": joints, "feet": feet, "hull": hull}
         if self.decorated:  # exhaust (looks only): the watched policy's orange, the ghosts' blue
-            color = PARTICLE_COLOR if i == 0 else 0  # (0: drawn in the ghost color)
+            color = PARTICLE_COLOR if i == 0 else GHOST_COLOR  # (the ghosts': translucent)
             parts["main_exhaust"] = exhaust(self.world, lander, (0, -MAIN_ENGINE_Y_LOCATION / SCALE), -math.pi / 2,
                                             color)
             parts["left_exhaust"] = exhaust(self.world, lander, (-17 / SCALE, SIDE_ENGINE_HEIGHT / SCALE), math.pi,

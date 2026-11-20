@@ -13,7 +13,7 @@ low or tilted). Episodes last 10 s, or end when it makes no progress for 1.5 s.
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import register_env
+from webgym.core import DARK_COLOR, LIGHT_COLOR, register_env
 from webgym.envs.walker import Legged
 
 KINDS = ("hip", "knee", "ankle", "shoulder", "elbow")  # per side, then the neck
@@ -44,13 +44,13 @@ class Ragdoll(Legged):
     def build_agent(self, i):
         # heights in m above the ground (about 1.35 m tall); "hull" is the torso (the
         # name Legged uses for the main body)
-        torso = self.body((0, 0.68), b2d.capsule((0, 0), (0, 0.37), 0.1), density=10.0)
-        head = self.body((0, 1.2), b2d.capsule((0, -0.04), (0, 0.04), 0.075), density=10.0)
+        torso = self.body((0, 0.68), b2d.capsule((0, 0), (0, 0.37), 0.1), density=10.0, color=DARK_COLOR)
+        head = self.body((0, 1.2), b2d.capsule((0, -0.04), (0, 0.04), 0.075), density=10.0, color=LIGHT_COLOR)
         joints, feet, soles = [], [], []
         for side in "LR":
             thigh = self.body((0, 0.5), b2d.capsule((0, -0.125), (0, 0.125), 0.06), density=10.0)
             shin = self.body((0, 0.2), b2d.capsule((0, -0.155), (0, 0.125), 0.045), density=10.0)
-            foot = self.body((0, 0.2), FOOT, density=10.0, friction=1.0)
+            foot = self.body((0, 0.2), FOOT, density=10.0, friction=1.0, color=DARK_COLOR)
             soles.append(foot)
             # (the sensor: the whole sole, heel to toes, and a little below it)
             feet.append(self.sensor(foot, b2d.box(0.13, 0.04, center=(0.05, -0.18))))

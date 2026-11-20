@@ -53,6 +53,7 @@ def main():
         base = url.split("?")[0]
         walker(browser.new_page(viewport={"width": 1280, "height": 800}), base + "?train=0&env=Walker&algo=ppo_torch")
         toys(browser, base)
+        worlds(browser, base)
         browser.close()
     print("written:", ", ".join(sorted(f.name for f in OUT.glob("*.png"))))
 
@@ -146,6 +147,22 @@ def toys(browser, base):
     page.wait_for_timeout(3000)
     page.locator("#stage").screenshot(path=OUT / "toys_rain.png")
     page.close()
+
+
+def worlds(browser, base):
+    """the Blob (pretrained ES) and the Drone (pretrained PPO) on their way"""
+    for env, algo, show, seconds in (("Blob", "es", 1, 4000), ("Drone", "ppo_torch", 1, 5000)):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        pretrained(page, f"{base}?train=0&env={env}&algo={algo}")
+        page.click("#tabs button:text('World')")
+        for n in range(2, show + 1):  # (more policies: the best candidates as ghosts)
+            page.click("#quick-policies .more")
+            page.wait_for_function(f"document.querySelector('#quick-policies b').textContent === '{n}'",
+                                   timeout=10_000)
+        reset(page)
+        page.wait_for_timeout(seconds)
+        page.locator("#stage").screenshot(path=OUT / f"{env.lower()}.png")
+        page.close()
 
 
 if __name__ == "__main__":

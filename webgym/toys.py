@@ -3,7 +3,7 @@
 A click on a body grabs it (drag it around), always. A click elsewhere into the world
 uses the chosen tool (TOOLS): drop a box, a ball or a plank; set off an
 explosion; put a ramp, a step or a seesaw on the ground (for the walkers to deal with:
-heavy, but dynamic too: they can be pushed and tipped over). Weather: rain, wind, more or less gravity. They are real bodies / forces of the
+heavy, but dynamic too: they can be pushed and tipped over). Weather: rain, and the gravity vector (sideways: wind; up-down: the moon .. upside down). They are real bodies / forces of the
 world: the agent bumps into them, they push it. A reset of the episode (R) removes them
 (the world goes back to its start). Never in training: only the env you watch. Their
 settings (PARAMS) are sliders in the Toys tab, in groups.
@@ -33,8 +33,11 @@ PARAMS = {
     "heaviness": (20.0, 1.0, 100.0, 1.0, "Ramps and steps",
                   "Ramps, steps and seesaws: their density. Heavy ones stay where they are (but can be "
                   "pushed or tipped over), light ones slide away under the agent."),
-    "wind": (0.0, -20.0, 20.0, 0.5, "Weather", "Pushes everything sideways (m/s², + = to the right): a storm at 10."),
-    "gravity": (1.0, 0.1, 2.5, 0.05, "Weather", "Gravity, times the world's own: 0.17 is the moon, 2.5 a heavy planet."),
+    "gravity x": (0.0, -20.0, 20.0, 0.5, "Weather",
+                  "The gravity vector's sideways part (m/s², + = to the right): a wind that pushes everything; a storm at 10."),
+    "gravity y": (1.0, -2.5, 2.5, 0.05, "Weather",
+                  "The gravity vector's up-down part, times the world's own: 0.17 is the moon, 2.5 a heavy planet, "
+                  "0 floats, below 0 everything falls up."),
     "rain rate": (120.0, 10.0, 600.0, 10.0, "Weather", "Rain: drops per second."),
     "drop size": (0.06, 0.02, 0.3, 0.01, "Weather", "Rain: the radius of a drop (m)."),
     "drop weight": (0.5, 0.1, 10.0, 0.1, "Weather", "Rain: the density of a drop: light drizzle .. hail."),
@@ -160,8 +163,9 @@ def draw_blasts(draw, blasts):
 # -- weather -------------------------------------------------------------------------
 
 def weather(world, base_gravity, p):
-    """wind and gravity: the world's gravity tilted by the wind, scaled"""
-    world.gravity = (p["wind"], base_gravity[1] * p["gravity"])
+    """the gravity vector: sideways (gravity x, m/s²) and the world's own up-down part, scaled
+    (gravity y)"""
+    world.gravity = (p["gravity x"], base_gravity[1] * p["gravity y"])
 
 
 class Rain:

@@ -13,20 +13,47 @@ import itertools
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import DECORATION_FILTER, MARK_COLOR, Env, register_env
+from webgym.core import DARK_COLOR, DECORATION_FILTER, LIGHT_COLOR, Env, register_env
 
 # no progress (the hull did not get STALL_DISTANCE further right than ever before) for
 # STALL_SECONDS: the episode ends (no penalty), the population does not wait for it
 STALL_SECONDS, STALL_DISTANCE = 1.5, 0.2
 
 
+RULER_COLOR, RULER_MARKS = 0xE6CF8E, 0x3B3326  # (a wooden ruler, dark marks)
+
+
 def ground_with_ticks(env):
-    """flat ground to the right, with ticks every metre (every 5 m a longer one): you see
-    the progress. The ticks are looks only: nothing collides with them"""
-    ground = env.scenery(b2d.box(200, 0.5, center=(190, -0.5)), friction=1.0)
-    tick = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=MARK_COLOR))
-    for x in range(-10, 390):
-        ground.create_shape(tick, b2d.segment((x, 0), (x, -0.4 if x % 5 == 0 else -0.15)))
+    """flat ground to the right, a ruler: a mark every 10 cm, longer ones every 50 cm and
+    every metre (the metres numbered, see draw_ruler_numbers): you see the progress. The
+    marks are looks only: nothing collides with them"""
+    ground = env.scenery(b2d.box(200, 0.5, center=(190, -0.5)), friction=1.0, color=RULER_COLOR)
+    mark = b2d.shape_def(filter=DECORATION_FILTER, material=b2d.surface_material(custom_color=RULER_MARKS))
+    for k in range(-100, 3900):  # (in cm / 10)
+        length = 0.25 if k % 10 == 0 else 0.15 if k % 5 == 0 else 0.08
+        ground.create_shape(mark, b2d.segment((k / 10, 0), (k / 10, -length)))
+
+
+# the digits of the ruler's numbers as segments (a 7-segment display: a top, b top
+# right, c bottom right, d bottom, e bottom left, f top left, g middle)
+_SEGMENTS = {"a": ((0, 1), (1, 1)), "b": ((1, 1), (1, 0.5)), "c": ((1, 0.5), (1, 0)), "d": ((0, 0), (1, 0)),
+             "e": ((0, 0.5), (0, 0)), "f": ((0, 1), (0, 0.5)), "g": ((0, 0.5), (1, 0.5))}
+_DIGITS = {"0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc",
+           "7": "abc", "8": "abcdefg", "9": "abcdfg", "-": "g"}
+
+
+def draw_ruler_numbers(debug_draw):
+    """the metres in view, under their marks (lines: no text in the view)"""
+    camera = debug_draw.camera
+    half = camera.zoom * camera.width / camera.height
+    w, h, gap = 0.07, 0.13, 0.03  # (a digit's width and height, the gap between digits, m)
+    for metre in range(int(np.floor(camera.center[0] - half)), int(np.ceil(camera.center[0] + half)) + 1):
+        text = str(metre)
+        left = metre - (len(text) * (w + gap) - gap) / 2
+        for i, char in enumerate(text):
+            x = left + i * (w + gap)
+            for (x0, y0), (x1, y1) in (_SEGMENTS[s] for s in _DIGITS[char]):
+                debug_draw.draw_segment((x + x0 * w, -0.45 + y0 * h), (x + x1 * w, -0.45 + y1 * h), RULER_MARKS)
 
 
 def legged_names(legs):
@@ -66,12 +93,13 @@ class Legged(Env):
         ground_with_ticks(self)
 
     def build_agent(self, i):
-        hull = self.body((0, self.HIP_Y + self.HULL[1]), b2d.box(*self.HULL), density=5.0)
+        hull = self.body((0, self.HIP_Y + self.HULL[1]), b2d.box(*self.HULL), density=5.0, color=DARK_COLOR)
         joints, feet = [], []
         for x in self.LEG_XS:
             thigh = self.body((x, self.HIP_Y - self.THIGH), b2d.box(0.07, self.THIGH), density=3.0)
             shin = self.body((x, self.HIP_Y - 2 * self.THIGH - self.SHIN),
-                             b2d.capsule((0, -self.SHIN + 0.05), (0, self.SHIN - 0.05), 0.05), density=3.0)
+                             b2d.capsule((0, -self.SHIN + 0.05), (0, self.SHIN - 0.05), 0.05), density=3.0,
+                             color=LIGHT_COLOR)
             joints.append(self.joint(hull, thigh, (x, -self.HULL[1]), (0, self.THIGH), "hip"))
             joints.append(self.joint(thigh, shin, (0, -self.THIGH), (0, self.SHIN), "knee"))
             feet.append(self.sensor(shin, b2d.circle(radius=0.07, center=(0, -self.SHIN))))
@@ -120,6 +148,9 @@ class Legged(Env):
     def camera_target(self, i):
         """follow the hull to the right (the height stays: no bobbing)"""
         return float(self.hull.position[i, 0]), self.view_center[1]
+
+    def draw(self, debug_draw):
+        draw_ruler_numbers(debug_draw)
 
 
 @register_env("Walker")

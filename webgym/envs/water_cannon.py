@@ -21,7 +21,7 @@ import numpy as np
 import pyb2d3 as b2d
 from pyb2d3 import extensions as ext
 
-from webgym.core import PARTICLE, SCENERY, Env, register_env
+from webgym.core import DARK_COLOR, LIGHT_COLOR, PARTICLE, SCENERY, Env, register_env
 
 BARREL = 1.0  # a barrel's length (the water leaves at its end)
 ANGLE_MAX = 0.8  # a barrel's angle from straight up, either way (radians)
@@ -100,7 +100,7 @@ class WaterCannon(Env):
         cart = self.body((0, 1.0), b2d.box(half, 0.3), density=5.0)
         axles = []
         for x in (-(half - 0.3), half - 0.3):
-            wheel = self.body((x, 0.4), b2d.circle(radius=0.4), density=5.0)
+            wheel = self.body((x, 0.4), b2d.circle(radius=0.4), density=5.0, color=DARK_COLOR)
             axles.append(self.world.create_revolute_joint(
                 body_a=cart, body_b=wheel, local_frame_a=b2d.transform(p=(x, -0.6)),
                 local_frame_b=b2d.transform(p=(0, 0)), enable_motor=True, max_motor_torque=MOTOR_TORQUE,
@@ -108,7 +108,8 @@ class WaterCannon(Env):
         # the cannons: barrels on hinges on top of the cart, pointing up; motors turn them
         barrels, hinges = [], []
         for x in self.guns_x:
-            barrel = self.body((x, 1.3), b2d.box(0.1, BARREL / 2, center=(0, BARREL / 2)), density=1.0)
+            barrel = self.body((x, 1.3), b2d.box(0.1, BARREL / 2, center=(0, BARREL / 2)), density=1.0,
+                               color=DARK_COLOR)
             hinges.append(self.world.create_revolute_joint(
                 body_a=cart, body_b=barrel, local_frame_a=b2d.transform(p=(x, 0.3)),
                 local_frame_b=b2d.transform(p=(0, 0)), enable_limit=True, lower_angle=-ANGLE_MAX,
@@ -117,7 +118,7 @@ class WaterCannon(Env):
             barrels.append(barrel)
         # the balls: light (gravity pulls them only a little, they fall slowly)
         balls = [self.body((x, y), b2d.circle(radius=BALL_RADIUS), density=0.2,
-                           filter=own(BALL, i), gravity_scale=BALL_GRAVITY)
+                           filter=own(BALL, i), gravity_scale=BALL_GRAVITY, color=LIGHT_COLOR)
                  for x, y in self.ball_starts]
         # (self.ball / self.barrel / self.hinge: all of them, agent after agent;
         # self.balls: how many each agent has)

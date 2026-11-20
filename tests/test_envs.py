@@ -182,7 +182,7 @@ def test_decoration_only_when_watched():
     fire emit particles (main: 120 / s at full thrust; a side engine: 60 / s), agent 0's
     orange, the ghosts' in the ghost color; they expire again. An undecorated lander
     (training) has none of it"""
-    from webgym.core import PARTICLE_COLOR
+    from webgym.core import GHOST_COLOR, PARTICLE_COLOR
 
     plain = make("LunarLander", n=2)
     decorated = make("LunarLander", n=2, decorated=True)
@@ -197,23 +197,18 @@ def test_decoration_only_when_watched():
     assert abs(len(main[0]) - 120 * seconds) <= 1 and abs(len(right[1]) - 60 * seconds) <= 1
     assert len(main[1]) == len(left[1]) == 0
     assert (main[0].shapes.custom_color == PARTICLE_COLOR).all()
-    assert (right[1].shapes.custom_color == 0).all()  # (the ghost color)
+    assert (right[1].shapes.custom_color == GHOST_COLOR).all()  # (a ghost's: drawn translucent)
     for _ in range(40):
         decorated.step(np.zeros((2, 2), np.float32))
         decorated.decorate()
     assert sum(len(e) for e in main + right + left) == 0  # (all expired)
 
 
-def test_decoration_switch():
-    """'Decoration' off: the watched env is rebuilt without it; an app that draws
-    nothing (the training worker) never decorates, whatever the checkbox says"""
+def test_decoration_where_drawn():
+    """the app that draws (the display worker) decorates the watched env, always; an app
+    that draws nothing (the training worker) never does"""
     from webgym.app import App
 
-    app = App(env="LunarLander")
-    assert app.env.decorated
-    app.command("decorate", False)
-    assert not app.env.decorated and not hasattr(app.env, "main_exhaust")
-    app.command("decorate", True)
-    assert app.env.decorated
+    assert App(env="LunarLander").env.decorated
     trainer = App(env="LunarLander", draws=False)
-    assert not trainer.env.decorated and trainer.show_deco  # (the checkbox: on)
+    assert not trainer.env.decorated and not hasattr(trainer.env, "main_exhaust")

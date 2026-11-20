@@ -357,11 +357,35 @@ def test_toys():
         app.event("down", x, 150)  # (each in empty space)
         app.event("up", x, 150)
         assert app.env.world.counters.body_count == count + bodies, tool
-    # weather: wind and gravity
-    app.command("toy.wind", 10)
-    app.command("toy.gravity", 0.5)
+    # weather: the gravity vector (sideways, up-down; upside down too)
+    app.command("toy.gravity x", 10)
+    app.command("toy.gravity y", -0.5)
     app._watch_step()
-    assert tuple(app.env.world.gravity) == pytest.approx((10, app.env.gravity[1] * 0.5))
+    assert tuple(app.env.world.gravity) == pytest.approx((10, app.env.gravity[1] * -0.5))
+
+
+def test_leaving_the_toys_starts_afresh():
+    """leaving the Toys tab: a new episode in the world as it was (no rain, the env's own
+    gravity, no toy on a click); back in the tab, the settings are still there"""
+    app = make_app(env="Walker")
+    app.command("toy_mode", True)
+    app.command("rain", True)
+    app.command("toy.gravity y", -0.5)
+    for _ in range(30):
+        app._watch_step()
+    assert app.rain.drops and tuple(app.env.world.gravity) != tuple(app.env.gravity)
+    app.command("toy", "box")
+    app.command("toy_mode", False)  # (another tab)
+    assert app.env.steps == 0 and tuple(app.env.world.gravity) == pytest.approx(app.env.gravity)
+    count = app.env.world.counters.body_count
+    for _ in range(30):
+        app._watch_step()
+    app.event("down", 400, 100)  # (empty space: no box outside the Toys tab)
+    app.event("up", 400, 100)
+    assert app.env.world.counters.body_count == count  # (no drops, no box)
+    app.command("toy_mode", True)  # (back: rain and gravity again)
+    app._watch_step()
+    assert tuple(app.env.world.gravity) != tuple(app.env.gravity)
 
 
 def test_watched_episodes_get_new_seeds():
@@ -412,7 +436,7 @@ def test_env_settings():
     sections = {c["name"]: c["section"] for c in app.controls()}
     assert sections["env"] == sections["setting.balls"] == "environment"
     assert {n for n, s in sections.items() if s == "bar"} == {"auto_reset", "train", "new_run", "reset", "paused",
-                                                              "follow", "decorate", "show_n", "replay_speed"}
+                                                              "follow", "show_n", "replay_speed"}
     assert "watch" not in sections.values()
     assert app.env_key == "WaterCannon · balls 1"
     app.command("train")

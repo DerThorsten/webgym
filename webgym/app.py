@@ -26,14 +26,13 @@ import pyb2d3 as b2d
 
 from webgym import checkpoints, toys
 from webgym.algos import ALGOS, HELP
-from webgym.core import ENVS, LEADER_COLOR, MARK_COLOR, PARTICLE_COLOR, PROP_COLOR, SCENERY_COLOR, env_key, make
+from webgym.core import ENVS, GHOST_COLOR, SENSOR_COLOR, env_key, make
 from webgym.gl.debug_draw_gl import Camera, GLDebugDraw
 from webgym.policies import from_sizes
 
 import webgym.envs  # noqa: F401 (registers the built-in envs)
 
-GHOST_COLOR = 0x4FA3FF
-GHOST_ALPHA = 70
+GHOST_ALPHA = 70  # (the ghosts' opacity, 0..255)
 TRAIN_STEPS = 256  # env steps per _train_steps call at most (training: always full speed)
 REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8]  # watch mode: x real time (slow motion .. fast)
 END_SECONDS = 1.0  # watch mode: the world goes on this long after an episode ended
@@ -64,10 +63,8 @@ class App:
         self.helpers = helpers
         self.waiting = False  # the trainer waits for the helpers' answers
         # decoration of the watched env (flags, thrust particles: looks only, never in
-        # training): wanted by the user (the checkbox) and only where something is drawn
-        # (not in the training worker, whose controls the page shows: hence two flags)
+        # training): only where something is drawn (not in the training worker)
         self.draws = draws
-        self.show_deco = True
         self.hp = {name: a.defaults() for name, a in ALGOS.items()}  # parameters per algorithm
         self.population = min(population, MAX_POPULATION)
         self.seed = seed
@@ -121,8 +118,8 @@ class App:
 
     @property
     def decorated(self):
-        """is the watched env decorated (the user wants it, and this app draws)?"""
-        return self.show_deco and self.draws
+        """is the watched env decorated (this app draws)?"""
+        return self.draws
 
     # -- modes ------------------------------------------------------------------
 
@@ -407,10 +404,6 @@ class App:
              "help": "The camera follows the agent the environment suggests (e.g. the walker; "
                      "the current policy). Off: a fixed view (pan with the "
                      "mouse, zoom with the wheel). Environments with a fixed scene offer none."},
-            {"type": "checkbox", "name": "decorate", "label": "Decoration", "value": self.show_deco,
-             "inline": True,
-             "help": "Looks only, in the env you watch (never in training): e.g. the lander's "
-                     "flags and thrust particles. Off: just the physics."},
             {"type": "button", "name": "reset", "label": "Reset episode (R)"},
             {"type": "checkbox", "name": "paused", "label": "Pause", "value": self.paused,
              "help": "Stops the world you watch (look closely, drag the view); training goes "
@@ -462,9 +455,9 @@ class App:
                  "value": self.toy_params[name], "help": explanation, "group": group, "fold": True}
                 for name, (_, low, high, step, in_group, explanation) in toys.PARAMS.items() if in_group == group]
         # always in view (the page's icons above the tabs): the training's buttons, reset
-        # episode, auto reset, camera follows, decoration; how many policies, replay speed
+        # episode, auto reset, camera follows; how many policies, replay speed
         bar = lambda c: c["name"] in ("auto_reset", "train", "stop", "new_run", "reset", "paused",  # noqa: E731
-                                      "follow", "decorate", "show_n", "replay_speed")
+                                      "follow", "show_n", "replay_speed")
         return ([{**c, "section": "bar" if bar(c) else "environment"} for c in env]
                 + [{**c, "section": "bar" if bar(c) else "training"} for c in training]
                 + [{**c, "section": "toys"} for c in toy_controls])
@@ -554,7 +547,12 @@ class App:
             self.toy_params[name[len("toy."):]] = float(value)
         elif name == "toy_mode":  # (the Toys tab was opened; False: left)
             if value is False:
-                self.toys_on = False
+                # (left: a new episode, the world as it was: no toys, rain or other gravity;
+                # their settings stay for the next visit of the tab)
+                if self.toys_on:
+                    self.toys_on = False
+                    self.env.world.gravity = self.env.gravity
+                    self.watch()
             else:
                 self._toy_mode()
         elif name in ("toy", "rain"):  # (the Toys tab)
@@ -591,10 +589,6 @@ class App:
         elif name == "show_n":
             self.show_n = int(value)
             self.watch()
-        elif name == "decorate":
-            self.show_deco = bool(value)
-            if self.env.decorated != self.decorated:
-                self.watch()  # (builds the watched env anew, with / without decoration)
         elif name == "follow":
             self.follow = bool(value)
             if not self.follow:  # (back to the env's fixed view)
@@ -688,7 +682,7 @@ class App:
             body = self.mouse_drag.begin(pos)
             if body is not None:
                 body.awake = True
-            elif self.toy != "grab" and toys.empty(self.env.world, pos):
+            elif self.toy != "grab" and self.toys_on and toys.empty(self.env.world, pos):
                 blast = toys.TOOLS[self.toy][1](self.env.world, pos, self.toy_params)
                 if blast is not None:  # (an explosion: drawn for a moment)
                     self.blasts.append(blast)
@@ -766,8 +760,9 @@ class App:
         else:
             action = self.policy(self._watch_params(), self.obs)
         self.mouse_drag.step(self.env.dt)
-        toys.weather(self.env.world, self.env.gravity, self.toy_params)  # (wind, gravity)
-        if self.rain is not None:  # (drops from just above the view, across its width)
+        if self.toys_on:  # (the weather: only while the Toys tab is open)
+            toys.weather(self.env.world, self.env.gravity, self.toy_params)  # (the gravity vector)
+        if self.rain is not None and self.toys_on:  # (drops from just above the view, across its width)
             corner = self.camera.convert_screen_to_world(b2d.Vec2(0, 0))
             other = self.camera.convert_screen_to_world(b2d.Vec2(self.camera.width, 0))
             self.rain.step(self.env.world, corner[0], other[0], corner[1] + 0.5, self.env.dt, self.toy_params)
@@ -812,23 +807,23 @@ class App:
         self._update_view()
         gl.glViewport(0, 0, width, height)
         self.debug_draw.begin_draw()
-        if self.env.n > 1:  # ghosts, agent 0 solid
-            self.debug_draw.draw_world(
-                self.env.world, color=GHOST_COLOR, alpha=GHOST_ALPHA,
-                keep=(LEADER_COLOR, SCENERY_COLOR, PROP_COLOR, PARTICLE_COLOR, MARK_COLOR),
-            )
-        else:
-            self.debug_draw.draw_world(self.env.world)
+        # the ghosts first (the shapes in GHOST_COLOR, see Env.show_ghosts), translucent,
+        # then the rest on top of them; the sensors not at all
+        if self.env.n > 1:
+            self.debug_draw.draw_world(self.env.world, alpha=GHOST_ALPHA, only=(GHOST_COLOR,), show=(GHOST_COLOR,))
+            self.debug_draw.flush()
+        self.debug_draw.draw_world(self.env.world, hide=(GHOST_COLOR, SENSOR_COLOR))
         self.env.draw(self.debug_draw)  # (the env's own lines, if any)
         if self.blasts:  # (the Toys tab's explosions)
             self.blasts = toys.draw_blasts(self.debug_draw, self.blasts)
         self.debug_draw.end_draw()
 
     def _update_view(self):
-        """the current policy (agent 0) highlighted; with "Camera follows" the camera
-        glides to the point the env suggests for it (env.camera_target)"""
+        """the other policies as ghosts (agent 0, the current one, in its colors); with
+        "Camera follows" the camera glides to the point the env suggests for it
+        (env.camera_target)"""
         if self.env.n > 1:
-            self.env.set_leader(0)
+            self.env.show_ghosts()
         if self.follow:
             target = self.env.camera_target(0)
             if target is not None:

@@ -29,28 +29,20 @@ void main()
     // radius in unit quad
     float radius = 1.0;
 
-    // distance to axis line segment
-    vec2 e = vec2(radius, 0);
+    // distance to the circle (webgym: the outline only, no radius line)
     vec2 w = f_position;
-    float we = dot(w, e);
-    vec2 b = w - e * clamp(we / dot(e, e), 0.0, 1.0);
-    float da = length(b);
-
-    // distance to circle
     float dw = length(w);
-    float dc = abs(dw - radius);
+    float d = abs(dw - radius);
 
-    // union of circle and axis
-    float d = min(da, dc);
-
-    vec4 borderColor = f_color;
-    vec4 fillColor = 0.6f * borderColor;
+    // webgym: a solid fill in the shape's color, a darker outline (both with its alpha)
+    vec4 fillColor = f_color;
+    vec4 borderColor = vec4(0.55 * f_color.rgb, f_color.a);
 
     // roll the fill alpha down at the border
     vec4 back = vec4(fillColor.rgb, fillColor.a * smoothstep(radius + f_thickness, radius, dw));
 
     // roll the border alpha down from 1 to 0 across the border thickness
-    vec4 front = vec4(borderColor.rgb, smoothstep(f_thickness, 0.0f, d));
+    vec4 front = vec4(borderColor.rgb, borderColor.a * smoothstep(f_thickness, 0.0f, d));
 
     fragColor = blend_colors(front, back);
 }

@@ -19,14 +19,10 @@ void main()
 {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
 
-    // Create some noise
-    float noise = random(uv + time * 0.1);
-
-    // Adjust these values to control the intensity and color of the grain
-    float grainIntensity = 0.01;
-
-    // Mix the base color with the noise
-    vec3 color = baseColor + vec3(noise * grainIntensity);
+    // webgym: a soft sky, a little lighter towards the bottom, a slight blue
+    vec3 top = baseColor * vec3(0.62, 0.68, 0.82);
+    vec3 bottom = baseColor * vec3(1.05, 1.08, 1.15);
+    vec3 color = mix(bottom, top, uv.y);
 
     FragColor = vec4(color, 1.0);
 }

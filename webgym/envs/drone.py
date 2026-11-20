@@ -16,7 +16,7 @@ after the last gate, or when it gets no closer to its gate for 3 s (hovering in 
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import SENSOR_FILTER, Env, register_env
+from webgym.core import DARK_COLOR, SENSOR_FILTER, Env, register_env
 
 GATES = 10
 GATE_GAP = 6.0  # m between gates
@@ -52,7 +52,7 @@ class Drone(Env):
             self.scenery(b2d.box(0.1, (TOP - high) / 2, center=(x, (TOP + high) / 2)))
 
     def build_agent(self, i):
-        frame = self.body((0, 3.0), b2d.box(ARM, 0.05), density=MASS_FRAME / (4 * ARM * 0.05))
+        frame = self.body((0, 3.0), b2d.box(ARM, 0.05), density=MASS_FRAME / (4 * ARM * 0.05), color=DARK_COLOR)
         for x in (-ARM, ARM):  # the rotors (looks: small round heads)
             self.shape(frame, b2d.circle(center=(x, 0.08), radius=0.07), density=0.1 / (np.pi * 0.07**2))
         # (a crash: the frame touches the ground or a gate; a sensor around it)

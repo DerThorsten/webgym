@@ -74,8 +74,9 @@ float sdConvexPolygon(in vec2 p, in vec2[8] v, in int count)
 
 void main()
 {
-    vec4 borderColor = f_color;
-    vec4 fillColor = 0.6f * borderColor;
+    // webgym: a solid fill in the shape's color, a darker outline (both with its alpha)
+    vec4 fillColor = f_color;
+    vec4 borderColor = vec4(0.55 * f_color.rgb, f_color.a);
 
     float dw = sdConvexPolygon(f_position, f_points, f_count);
     float d = abs(dw - f_radius);
@@ -84,7 +85,7 @@ void main()
     vec4 back = vec4(fillColor.rgb, fillColor.a * smoothstep(f_radius + f_thickness, f_radius, dw));
 
     // roll the border alpha down from 1 to 0 across the border thickness
-    vec4 front = vec4(borderColor.rgb, smoothstep(f_thickness, 0.0f, d));
+    vec4 front = vec4(borderColor.rgb, borderColor.a * smoothstep(f_thickness, 0.0f, d));
 
     fragColor = blend_colors(front, back);
 

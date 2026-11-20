@@ -51,11 +51,14 @@ SENSOR_FILTER = b2d.make_filter(category_bits=SENSOR, mask_bits=SCENERY)  # (sen
 # decoration particles (watch mode only): bounce off the scenery, not off the agents or
 # each other, not grabbable
 PARTICLE_FILTER = b2d.make_filter(category_bits=PARTICLE, mask_bits=SCENERY)
+# colors (0xRRGGBB): an env may give its bodies their own (body / shape: color=)
 PARTICLE_COLOR = 0xFFA040
-SCENERY_COLOR = 0x4E8A68  # custom debug draw colors (the view keeps these opaque)
+SCENERY_COLOR = 0x4E8A68
 PROP_COLOR = 0xB08850
-LEADER_COLOR = 0xFF8C42
-MARK_COLOR = 0xA8B8B0  # (marks on the scenery, e.g. the walkers' ground ticks)
+AGENT_COLOR = 0xE8955A  # (an agent's bodies, unless the env chooses)
+DARK_COLOR, LIGHT_COLOR = 0x5E6C82, 0xEFE2C8  # (more for an agent's parts: slate, cream)
+SENSOR_COLOR = 0x010203  # (sensor shapes: not drawn)
+GHOST_COLOR = 0x4FA3FF  # (the other policies you watch: drawn in this, translucent)
 
 
 class Box:
@@ -115,7 +118,7 @@ class Env:
         self.decorated = decorated
         self.world = b2d.World(gravity=self.gravity)  # (raises beyond 128 worlds)
         self._bodies, self._owner = [], []  # all agent bodies, the agent of each
-        self._shapes = [[] for _ in range(n)]  # the shapes of each agent (leader color)
+        self._shapes = [[] for _ in range(n)]  # the shapes of each agent (the ghosts' color)
         self.build_scenery()
         parts = {}
         for i in range(n):
@@ -137,7 +140,7 @@ class Env:
         # True: every reset gives all agents the same (random) start (the watched env: a
         # fair comparison of the policies you see); training: each agent its own
         self.same_start = False
-        self._leader = None
+        self._ghosts = False
 
     @property
     def observation_space(self):
@@ -191,13 +194,14 @@ class Env:
 
     # -- building blocks for build_scenery / build_agent -----------------------------
 
-    def scenery(self, geometry, position=(0, 0), solid=True, **material):
+    def scenery(self, geometry, position=(0, 0), solid=True, color=SCENERY_COLOR, **material):
         """a static body with one shape (ground, walls, ...) -> the body; solid=False:
-        decoration only, drawn but nothing collides with it (e.g. the lander's flags)"""
+        decoration only, drawn but nothing collides with it (e.g. the lander's flags);
+        `color`: how it looks (0xRRGGBB)"""
         body = self.world.create_static_body(position=position)
         shape_def = b2d.shape_def(
             filter=SCENERY_FILTER if solid else DECORATION_FILTER,
-            material=b2d.surface_material(custom_color=SCENERY_COLOR, **material),
+            material=b2d.surface_material(custom_color=color, **material),
             enable_sensor_events=solid,  # (foot sensors see it, see sensor)
         )
         body.create_shape(shape_def, geometry)
@@ -214,24 +218,25 @@ class Env:
         body.create_shape(shape_def, geometry)
         return body
 
-    def body(self, position, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, material=None,
-             **body_settings):
+    def body(self, position, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, color=AGENT_COLOR,
+             material=None, **body_settings):
         """a dynamic body of the agent being built, with one shape (more: self.shape);
         `filter`: what it collides with (default: the scenery, not other agents);
-        `material`: more of its surface ({"rolling_resistance": 0.2}). Agent bodies never
-        sleep: a joint motor doesn't wake a sleeping body, and an agent lying still
-        (fallen, auto reset off) must still move when its policy acts"""
+        `color`: how it looks (0xRRGGBB); `material`: more of its surface
+        ({"rolling_resistance": 0.2}). Agent bodies never sleep: a joint motor doesn't
+        wake a sleeping body, and an agent lying still (fallen, auto reset off) must still
+        move when its policy acts"""
         body = self.world.create_dynamic_body(position=position, **{"enable_sleep": False, **body_settings})
         self._bodies.append(body)
         self._owner.append(self._agent)
-        self.shape(body, geometry, density, friction, filter, **(material or {}))
+        self.shape(body, geometry, density, friction, filter, color, **(material or {}))
         return body
 
-    def shape(self, body, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, **material):
-        """one more shape on an agent body (`material`: more of its surface, e.g.
-        rolling_resistance)"""
+    def shape(self, body, geometry, density=1.0, friction=0.8, filter=AGENT_FILTER, color=AGENT_COLOR, **material):
+        """one more shape on an agent body (`color`: how it looks; `material`: more of
+        its surface, e.g. rolling_resistance)"""
         shape_def = b2d.shape_def(density=density, filter=filter,
-                                  material=b2d.surface_material(friction=friction, **material))
+                                  material=b2d.surface_material(friction=friction, custom_color=color, **material))
         shape = body.create_shape(shape_def, geometry)
         self._shapes[self._agent].append(shape)
         return shape
@@ -240,7 +245,8 @@ class Env:
         """a sensor shape on an agent body: `sensor_capacity > 0` (batched: b2d.Shapes)
         while it overlaps the scenery, e.g. a foot touching the ground. (It has mass, as
         any shape: `density=0` for none; the older envs were trained with 1)"""
-        shape_def = b2d.shape_def(is_sensor=True, enable_sensor_events=True, filter=filter, density=density)
+        shape_def = b2d.shape_def(is_sensor=True, enable_sensor_events=True, filter=filter, density=density,
+                                  material=b2d.surface_material(custom_color=SENSOR_COLOR))  # (not drawn)
         return body.create_shape(shape_def, geometry)
 
     # -- the API (used by the trainers and the app) ----------------------------------
@@ -268,7 +274,7 @@ class Env:
         self.steps = 0
         self.done[:] = False
         self.episode_return[:] = 0.0
-        self._leader = None
+        self._ghosts = False  # (the snapshot brought the agents' own colors back)
         self.randomize(_SameForAll(self.rng, self.n) if self.same_start and self.n > 1 else self.rng)
         return self._observation()
 
@@ -297,15 +303,13 @@ class Env:
     def _observation(self):
         return np.column_stack(self.observe()).astype(np.float32)
 
-    def set_leader(self, i):
-        """draw agent i (None: none) in LEADER_COLOR"""
-        if i == self._leader:
-            return
-        if self._leader is not None:
-            self._shapes[self._leader].custom_color = 0
-        if i is not None:
-            self._shapes[i].custom_color = LEADER_COLOR
-        self._leader = i
+    def show_ghosts(self):
+        """the agents after the first in GHOST_COLOR (the view draws them translucent);
+        agent 0, the current policy, keeps its own colors"""
+        if not self._ghosts:
+            for shapes in self._shapes[1:]:
+                shapes.custom_color = GHOST_COLOR
+            self._ghosts = True
 
     @property
     def follows(self):
@@ -396,21 +400,19 @@ def make(name, n=1, **kwargs):
 class Separate:
     """n one-agent envs, each in its own world, with the batched API of one env with n
     agents: for envs whose agents change the world (batchable = False, e.g. an agent
-    pushing boxes around). Slower (n world steps per step); drawn: the leader's world"""
+    pushing boxes around). Slower (n world steps per step); for training (never drawn)"""
 
     def __init__(self, cls, n, **kwargs):
         self.envs = [cls(n=1, **kwargs) for _ in range(n)]
         self.n = n
         self.same_start = False
-        self._leader = None
 
     def __getattr__(self, name):  # (the env's settings: names, dt, view, ...)
         return getattr(self.envs[0], name)
 
     @property
     def world(self):
-        """the world to draw: the leader's"""
-        return self.envs[self._leader or 0].world
+        return self.envs[0].world
 
     @property
     def done(self):
@@ -439,13 +441,6 @@ class Separate:
         actions = np.asarray(actions, dtype=np.float32).reshape(self.n, -1)
         steps = [e.step(actions[i : i + 1]) for i, e in enumerate(self.envs)]
         return tuple(np.concatenate(values) for values in zip(*steps))
-
-    def set_leader(self, i):
-        if self._leader is not None:
-            self.envs[self._leader].set_leader(None)
-        if i is not None:
-            self.envs[i].set_leader(0)
-        self._leader = i
 
     def decorate(self):
         for e in self.envs:

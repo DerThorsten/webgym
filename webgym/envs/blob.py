@@ -20,7 +20,7 @@ import numpy as np
 import pyb2d3 as b2d
 
 from webgym.core import AGENT, SCENERY, Env, register_env
-from webgym.envs.walker import STALL_DISTANCE, STALL_SECONDS, bang_bang, ground_with_ticks
+from webgym.envs.walker import STALL_DISTANCE, STALL_SECONDS, bang_bang, draw_ruler_numbers, ground_with_ticks
 
 BALLS = 10
 ACROSS = BALLS // 2  # the springs across the ring (the actions)
@@ -125,9 +125,10 @@ class Blob(Env):
 
     def draw(self, debug_draw):
         """the springs as plain lines between the balls (the current policy's in color,
-        the ghosts' blue)"""
+        the ghosts' blue); the ruler's numbers"""
+        draw_ruler_numbers(debug_draw)
         pos = self.balls.position.reshape(self.n, BALLS, 2)
-        for i in range(self.n):
+        for i in reversed(range(self.n)):  # (the current policy's last: on top)
             color = LINE_COLOR if i == 0 else GHOST_LINE_COLOR
             for a, b in self.pairs:
                 debug_draw.draw_segment(tuple(pos[i, a]), tuple(pos[i, b]), color)

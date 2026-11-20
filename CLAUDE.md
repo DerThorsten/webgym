@@ -153,13 +153,16 @@ Technical considerations:
   body always grabs it (mouse joint); a click into empty space (`toys.empty`) uses the
   chosen tool of `toys.TOOLS` (box, ball, plank, explosion, ramp, step, seesaw; all dynamic,
   ramps & co. heavy ("heaviness") on the ground below the click), chosen with buttons (control type
-  "tools") in the folds, a click on the active one puts it away ("grab"); weather (rain, wind = gravity tilted sideways,
-  gravity scale, set on the watched world every step); sliders from `toys.PARAMS` in
+  "tools") in the folds, a click on the active one puts it away ("grab"); weather (rain, the gravity vector:
+  "gravity x" m/s² sideways, "gravity y" times the world's own, -2.5..2.5 (below 0: falls
+  up), set on the watched world every step, only while the Toys tab is open); sliders from `toys.PARAMS` in
   folds per `toys.GROUPS` (controls with "group" + "fold": `<details>` in main.js, open
   state kept in `openFolds`; commands "toy.<name>"); an
   explosion is drawn as growing rings + a flash (`toys.draw_blasts`, as pyb2d3's tank
   sample); opening the tab (command "toy_mode") or a toy turns auto reset off and shows
-  one policy; R clears them: the snapshot reset drops later bodies) / Policy: network +
+  one policy; R clears them: the snapshot reset drops later bodies; leaving the tab starts
+  a new episode in the world as it was: no rain, the env's gravity, no toy on a click; the
+  settings stay for the next visit) / Policy: network +
   checkpoints / Log: state, packages, log; the tab is remembered), the world with the training progress plot in a strip below it (closable,
   remembered). First visit: a welcome card at once, while python loads (a status line
   "loading" → "ready"; the quick tour puts the steps on what python builds, the world

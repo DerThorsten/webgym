@@ -143,19 +143,31 @@ class Camera:
 ensure_hex = b2d.ensure_hex_color
 
 
-def _recolored(block, dtype, color, alpha, keep=()):
-    """a float32 copy of a BatchDebugDraw block, its packed RGBA8 colors replaced by
-    `color` (0xRRGGBB, None: keep) with `alpha` (None: keep); shapes drawn in one of
-    the `keep` colors (0xRRGGBB, e.g. custom colors) stay as they are"""
+def _rgb(colors):
+    """packed RGBA8 0xRRGGBB colors -> their packed rgb part, to compare with"""
+    return [make_rgba8(c, 0) & 0x00FFFFFF for c in colors]
+
+
+def _faded(block, dtype, alpha, only=(), hide=(), show=None):
+    """a float32 copy of a BatchDebugDraw block; the shapes drawn in one of the `only`
+    colors (0xRRGGBB) get `alpha` (0..255; None: nothing changes), those in the `hide`
+    colors are left out; `show` (colors): only those are kept"""
     out = np.array(block, dtype=np.float32, copy=True)
-    if len(out) == 0 or (color is None and alpha is None):
+    if len(out) == 0:
         return out
-    colors = out.view(dtype).reshape(-1)["color"]
-    rgb = colors & 0x00FFFFFF
-    change = ~np.isin(rgb, [make_rgba8(k, 0) & 0x00FFFFFF for k in keep])
-    if color is not None:
-        colors[change] = (colors[change] & 0xFF000000) | (make_rgba8(color, 0) & 0x00FFFFFF)
-    if alpha is not None:
+    rows = out.view(dtype).reshape(-1)
+    keep = None
+    if hide:
+        keep = ~np.isin(rows["color"] & 0x00FFFFFF, _rgb(hide))
+    if show is not None:
+        shown = np.isin(rows["color"] & 0x00FFFFFF, _rgb(show))
+        keep = shown if keep is None else keep & shown
+    if keep is not None:
+        kept = rows[keep]
+        out, rows = kept.view(np.float32).reshape((-1, *out.shape[1:])), kept
+    if alpha is not None and only and len(out):
+        colors = rows["color"]
+        change = np.isin(colors & 0x00FFFFFF, _rgb(only))
         colors[change] = (colors[change] & 0x00FFFFFF) | np.uint32(alpha << 24)
     return out
 
@@ -191,12 +203,12 @@ class GLDebugDraw(b2d.DebugDraw):
 
         self.batch = b2d.BatchDebugDraw(on_string=on_string)
 
-    def draw_world(self, world, color=None, alpha=None, keep=()):
+    def draw_world(self, world, alpha=None, only=(), hide=(), show=None):
         """draw `world` with this debug draw's options: collected in C++
         (BatchDebugDraw), handed to the GL batches as whole arrays. Several worlds
-        can be drawn between begin_draw / end_draw (overlaid); `color` (0xRRGGBB)
-        and / or `alpha` (0..255) override the shapes' colors (webgym: ghosts),
-        except for shapes in the `keep` colors (0xRRGGBB)"""
+        can be drawn between begin_draw / end_draw (overlaid); the shapes in the `only`
+        colors (0xRRGGBB) get `alpha` (0..255; webgym: the ghosts), those in the `hide`
+        colors are not drawn (webgym: sensors); `show` (colors): only those are drawn"""
         batch = self.batch
         batch.copy_options(self)
         batch.clear()
@@ -211,7 +223,19 @@ class GLDebugDraw(b2d.DebugDraw):
         )
         for target, block, dtype in targets:
             # a copy: the batch reuses its arrays for the next world
-            target.add_block(_recolored(block, dtype, color, alpha, keep))
+            target.add_block(_faded(block, dtype, alpha, only, hide, show))
+
+    def flush(self):
+        """draw what is queued so far (each batch empties itself): what is drawn after
+        this lies on top of it (webgym: the ghosts first, behind the current policy)"""
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        self.solid_circles.draw()
+        self.solid_capsules.draw()
+        self.solid_polygons.draw()
+        self.circles.draw()
+        self.lines.draw()
+        self.points.draw()
 
     def begin_draw(self):
         self._draw_start_time = time.perf_counter()  # start timing
@@ -222,14 +246,7 @@ class GLDebugDraw(b2d.DebugDraw):
         # the GL state is set once per frame, not per shape type (every GL call
         # costs, especially python -> wasm -> JS in the browser): blending for all
         # shapes, a reset at the end (the imgui frontend draws after us)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        self.solid_circles.draw()
-        self.solid_capsules.draw()
-        self.solid_polygons.draw()
-        self.circles.draw()
-        self.lines.draw()
-        self.points.draw()
+        self.flush()
         glDisable(GL_BLEND)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)

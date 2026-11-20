@@ -66,9 +66,8 @@
       the <b>barbell</b> trains (blue while training; a click stops it, the next one
       continues; the world you watch keeps going either way); the circling arrows start a new
       run from scratch; the skip-back icon starts a new episode (or R); <b>⏸</b> pauses the
-      world you watch (Space; ▶ continues; training goes on); then three switches
-      (blue: on): the loop is auto reset, the crosshair camera follows, the top hat
-      decoration. The second: <b>− / +</b> how many policies you watch at once, and the
+      world you watch (Space; ▶ continues; training goes on); then two switches
+      (blue: on): the loop is auto reset, the crosshair camera follows. The second: <b>− / +</b> how many policies you watch at once, and the
       replay speed (slower / faster). See "Watching a policy" below.
       Then five tabs: <i>World</i> (pick the environment and its settings, e.g.
       how many balls; what it is about), <i>Training</i> (time budget, the algorithm and
@@ -143,7 +142,6 @@
         leading agent). Off: a fixed view you pan and zoom yourself. Environments with a fixed
         scene (CartPole, the lander) don't move the camera, so the option is greyed out there.
         In your own env: return the point from <code>camera_target(i)</code>.</dd>
-      <dt>Decoration (the top hat above the tabs)</dt><dd>Looks only: the lander's flags and thrust particles. Never used in training.</dd>
       <dt>Reset episode (above the tabs, or R)</dt><dd>A new episode now.</dd>
     </dl>
 
@@ -204,8 +202,8 @@
     <p>
       Even more mischief: in the <b>Toys</b> tab you choose what a click into the world does:
       drop a box, a ball or a plank, set off an explosion, or put a ramp, a step or a seesaw
-      on the ground in front of the agent. Or change the weather: rain, wind, gravity (the
-      walker on the moon!). The settings of each (size, weight, rain rate, ...) are in its
+      on the ground in front of the agent. Or change the weather: rain, or the gravity vector,
+      sideways (a wind) and up-down (the walker on the moon! or everything falling up). The settings of each (size, weight, rain rate, ...) are in its
       fold. A click on a body still grabs it. Opening the tab switches auto reset off and
       shows one policy, without a score (no time limit applies); R (reset) clears the world
       again.
@@ -220,6 +218,15 @@
       More to try: push the lander sideways while it lands; give the lander wind; or edit the
       walker's code (e.g. its gravity) and see whether the trained policy still walks.
     </p>
+    <h3>The Blob and the Drone</h3>
+    <p>The <b>Blob</b>, a soft ring of balls on springs, learns within a minute to roll and
+      hop to the right by stretching and squeezing its five springs across. Grab a ball and
+      pull: it is soft.</p>
+    <img src="help/blob.png" alt="the blob rolls along" />
+    <p>The <b>Drone</b> learns to fly through a course of gates by tilting itself with its two
+      rotors (PPO learns it in a minute or two). Push it off course with the mouse and
+      watch it find its way back.</p>
+    <img src="help/drone.png" alt="the drone flies through a gate" />
 
     <h2 id="tips">Tips</h2>
     <ul>

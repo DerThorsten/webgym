@@ -35,8 +35,9 @@ void main()
     // radius in unit quad
     float radius = 0.5 * (2.0 - f_length);
 
-    vec4 borderColor = f_color;
-    vec4 fillColor = 0.6f * borderColor;
+    // webgym: a solid fill in the shape's color, a darker outline (both with its alpha)
+    vec4 fillColor = f_color;
+    vec4 borderColor = vec4(0.55 * f_color.rgb, f_color.a);
 
     vec2 v1 = vec2(-0.5 * f_length, 0);
     vec2 v2 = vec2(0.5 * f_length, 0);
@@ -48,14 +49,14 @@ void main()
     vec2 b = w - e * clamp(we / dot(e, e), 0.0, 1.0);
     float dw = length(b);
 
-    // SDF union of capsule and line segment
-    float d = min(dw, abs(dw - radius));
+    // the outline only (no line along the axis)
+    float d = abs(dw - radius);
 
     // roll the fill alpha down at the border
     vec4 back = vec4(fillColor.rgb, fillColor.a * smoothstep(radius + f_thickness, radius, dw));
 
     // roll the border alpha down from 1 to 0 across the border thickness
-    vec4 front = vec4(borderColor.rgb, smoothstep(f_thickness, 0.0f, d));
+    vec4 front = vec4(borderColor.rgb, borderColor.a * smoothstep(f_thickness, 0.0f, d));
 
     color = blend_colors(front, back);
 }

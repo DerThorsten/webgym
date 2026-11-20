@@ -9,7 +9,7 @@ The episode ends when the pole tilts more than 12 degrees or the cart leaves |x|
 import numpy as np
 import pyb2d3 as b2d
 
-from webgym.core import Env, register_env
+from webgym.core import DARK_COLOR, Env, register_env
 
 MAX_FORCE = 10.0  # N; the cart weighs 1 kg, the pole 0.1 kg (as the classic cart-pole)
 
@@ -31,7 +31,7 @@ class CartPole(Env):
         self.ground = self.scenery(b2d.box(3.0, 0.05))
 
     def build_agent(self, i):
-        cart = self.body((0, 0.3), b2d.box(0.25, 0.12), density=1 / 0.12)  # (1 kg)
+        cart = self.body((0, 0.3), b2d.box(0.25, 0.12), density=1 / 0.12, color=DARK_COLOR)  # (1 kg)
         pole = self.body((0, 0.92), b2d.box(0.025, 0.5), density=2.0)  # (0.1 kg)
         # the rail, with stops at its ends (the episode ends before, at |x| = 2.4)
         self.world.create_prismatic_joint(
