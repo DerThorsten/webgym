@@ -38,6 +38,7 @@ class Pool:
         self.spec = {}  # what they simulate: {"env", "settings"} (set by the app)
         self.next_id = 0
         self.pending = {}  # request id -> Request
+        self.steps = 0  # agent-steps the helpers simulated (the steps/s in the top bar)
 
     def submit(self, policy, params, seed):
         """run `params` (k, num_params) on the helpers (in `count` chunks) -> a Request"""
@@ -57,7 +58,8 @@ class Pool:
         return request
 
     def receive(self, message):
-        """a helper's answer {"id", "part", "returns"}"""
+        """a helper's answer {"id", "part", "returns", "steps"}"""
+        self.steps += message.get("steps", 0)
         request = self.pending.get(message["id"])
         if request is not None:
             request.done(message["part"], np.asarray(message["returns"], dtype=float))
@@ -90,7 +92,8 @@ _envs = {}  # the helper's envs (kept: building one takes a while), by (env, set
 
 def evaluate(message):
     """the helper's side: one episode per candidate of `message` (see Pool.submit) ->
-    the answer {"type": "evaluated", "id", "part", "returns"}"""
+    the answer {"type": "evaluated", "id", "part", "returns", "steps" (agent-steps
+    simulated)}"""
     from webgym.algos.cem import rollout
 
     key = (message["env"], json.dumps(message["settings"], sort_keys=True), message["n"])
@@ -100,10 +103,14 @@ def evaluate(message):
         _envs[key] = make(message["env"], n=message["n"], **message["settings"])
     policy = from_sizes(message.get("kind", "mlp"), message["sizes"], message["tanh_out"])
     params = decode(message["params"], (message["n"], policy.num_params))
-    episode = rollout(_envs[key], policy, params, message["seed"])
+    env = _envs[key]
+    episode = rollout(env, policy, params, message["seed"])
+    steps = 0
     try:
         while True:
             next(episode)
+            steps += int(env.n - env.done.sum())  # (the agents still going)
     except StopIteration as end:
         returns = end.value
-    return {"type": "evaluated", "id": message["id"], "part": message["part"], "returns": returns.tolist()}
+    return {"type": "evaluated", "id": message["id"], "part": message["part"], "returns": returns.tolist(),
+            "steps": steps}

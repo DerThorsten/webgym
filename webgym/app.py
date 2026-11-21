@@ -68,6 +68,12 @@ class App:
         self.population = min(population, MAX_POPULATION)
         self.seed = seed
         self.watched = 0  # watched episodes so far (each gets its own seed)
+        # the Signals tab: per watched step, agent 0's observations + action + reward (the
+        # rows since the last state(), which sends and clears them)
+        self.trace = []
+        # agent-steps simulated by training here (+ the helpers': Pool.steps), ever growing;
+        # the page shows the rate (steps/s) next to the iteration
+        self.sim_steps = 0
         # watch mode: env steps per frame (x real time); `_replay_due`: steps owed
         self.replay_speed = 1
         self._replay_due = 0.0
@@ -191,6 +197,7 @@ class App:
         # (a new seed each watched episode: another start, as in training)
         self.watched += 1
         self.obs = self.env.reset(seed=self.seed + self.watched)
+        self.trace = []
         self.episode_return = 0.0
         self.end_timer = None  # seconds until the next episode (after all ended)
         self.ended = False  # all agents' episodes ended
@@ -393,7 +400,7 @@ class App:
         ]
         suggested = self.suggestions()
         training = [
-            {"type": "select", "name": "budget", "label": "Time budget",
+            {"type": "select", "name": "budget", "label": "Suggest an algorithm for this time budget",
              "options": [["quick", "Quick (~1 min)"], ["medium", "Medium (~5 min)"], ["long", "Long (~20 min)"]],
              "value": self.budget,
              "help": "How long you want to train: picks the algorithm (and its settings) that "
@@ -614,9 +621,17 @@ class App:
             "best_score": round(max(self.scores), 1) if self.scores else None,
             "new_best": self.new_best,
             "network": None if self.training else self.network(),
-            "iteration": last.get("iteration", 0),
+            "trace": self._take_trace(),
+            "sim_steps": self.sim_steps + (self.helpers.steps if self.helpers is not None else 0),            "iteration": last.get("iteration", 0),
             "frame_ms": round(self.frame_ms, 2),
         }
+
+    def _take_trace(self):
+        """the Signals tab: the watched steps since the last call (one row each: the
+        observations, the action, the reward), then forgotten"""
+        rows, self.trace = self.trace, []
+        return {"episode": self.watched, "dt": self.env.dt, "obs": list(self.env.obs_names),
+                "actions": list(self.env.action_names), "rows": rows}
 
     def network(self):
         """the watched policy's network for the view: layer sizes, weights (rounded),
@@ -716,7 +731,9 @@ class App:
             if item == "waiting":  # (for the simulation helpers' answers: the host takes them)
                 self.waiting = True
                 return
-            if item is not None:
+            if item is None:  # (an env step: the steps/s count the agents still going)
+                self.sim_steps += int(self.pop_env.n - self.pop_env.done.sum())
+            else:
                 entry = {k: item[k] for k in ("iteration", "mean_return", "best_return")}
                 entry.update(item.get("losses", {}))
                 self.history.append(entry)
@@ -753,7 +770,10 @@ class App:
             corner = self.camera.convert_screen_to_world(b2d.Vec2(0, 0))
             other = self.camera.convert_screen_to_world(b2d.Vec2(self.camera.width, 0))
             self.rain.step(self.env.world, corner[0], other[0], corner[1] + 0.5, self.env.dt, self.toy_params)
+        seen = self.obs[0]  # (what the policy saw when it chose the action)
         self.obs, reward, terminated, truncated = self.env.step(action)
+        if len(self.trace) < 1000:  # (the Signals tab; capped: no state() reads them)
+            self.trace.append(np.round(np.concatenate([seen, action[0], reward[:1]]), 3).tolist())
         if self.env.decorated:  # (looks only: the watched env, never a training one)
             self.env.decorate()
         self.episode_return = float(self.env.episode_return[0])

@@ -99,7 +99,7 @@ Technical considerations:
   last in its list (the env select sorts it last in `App.controls`); not pretrained
   (`pretrain.py` skips it); help.html#own explains them. Keep both minimal.
 - `Env.suggested` = {budget: {algo: params}} for "quick" / "medium" / "long" (~1 / 5 / 20 min),
-  best first; guesstimates, not measured. The "Time budget" select (Training tab) and opening
+  best first; guesstimates, not measured. The "Suggest an algorithm for this time budget" select (Training tab) and opening
   an env pick the first one with its params (`App.suggest`); ★ marks them in the algorithm
   select; an algo given explicitly (URL `?algo=`) is kept.
 - Env settings (`Env.settings = {name: (default, choices, help)}`, e.g. the WaterCannon's
@@ -179,7 +179,11 @@ Technical considerations:
   a new episode in the world as it was: no rain, the env's gravity, no toy on a click,
   auto reset on again; the
   settings stay for the next visit) / Policy: network +
-  checkpoints / Log: state, packages, log; the tab is remembered), the world with the training progress plot in a strip below it (closable,
+  checkpoints / Signals (2026-11-21: agent 0's observations, actions, reward per watched
+  step as low stacked strips, the last 2.5 s (slider "Time shown" 0.1..5 s, step 0.1,
+  remembered, `webgym.signalSeconds`; 5 s buffered), no time axis; `App.trace` rows sent with each
+  state (only the new ones), `web/signals.js` buffers + draws while the tab is open) /
+  Log: state, packages, log; the tab is remembered), the world with the training progress plot in a strip below it (closable,
   remembered). First visit: a welcome card at once, while python loads (a status line
   "loading" → "ready"; the quick tour puts the steps on what python builds, the world
   select and the world, last; a step whose element python hasn't built yet waits:
@@ -289,6 +293,11 @@ Technical considerations:
   answers are in; no answer in 60 s: those candidates count as the worst). Slider
   "Simulation workers" (0 .. cores - 2, default half, remembered; `?helpers=N`); started
   once the trainer is ready. Measured: Walker, 20 s: 20 iterations alone, 72 with 3.
+  The top bar's training chip shows steps/s (2026-11-21): agent-steps simulated per
+  second, the trainer's (`App.sim_steps`, the agents still going per env step) + the
+  helpers' (`Pool.steps`, each answer's "steps"), sent as `state()["sim_steps"]`;
+  main.js `throughput` averages over 5 s. Chosen over iterations/s: those drop as
+  episodes get longer while learning.
 - Query params: `env`, `algo`, `population`, `seed`, `train=0` (no autostart; picking another world or a
   setting in the page always starts training, after restoring its autosave),
   `arch`, `dpr`, `tour=0`, `welcome=1`, env settings (`poles=4`), `checkpoint=NAME` (one

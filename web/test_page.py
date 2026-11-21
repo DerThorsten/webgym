@@ -163,6 +163,13 @@ def main():
             page.click("#tour-card .next")
             steps += 1
         assert steps >= 18 and not page.is_visible("#tour-frame"), steps
+        # the Signals tab: a strip per observation / action + the reward, drawn live
+        page.click("#tabs button:text('Signals')")
+        page.wait_for_function("document.getElementById('signals').clientHeight > 100", timeout=10_000)
+        page.fill("#signal-seconds", "1.5")  # (the window: redrawn, remembered)
+        assert page.evaluate("localStorage.getItem('webgym.signalSeconds')") == "1.5"
+        assert page.inner_text("#signal-seconds-value") == "1.5 s"
+        page.fill("#signal-seconds", "2.5")
         page.click("#tabs button:text('World')")  # (the tour opened other tabs)
         # the code panel (right, closed): edit the env's source (a comment), apply: the env
         # is rebuilt with it in the worker(s), no error

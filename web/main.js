@@ -12,6 +12,7 @@ import { setupPanel } from "./checkpoints.js";
 import { createEditor, forgetFile, openFile, saveFile } from "./editor.js";
 import { removeEdit, saveEdit, storedEdits } from "./edits.js";
 import { drawNetwork } from "./network.js";
+import { addSignals, drawSignals, setSignalSeconds } from "./signals.js";
 import { plot } from "./plot.js";
 import { ask, setReady, startTour, tourDone, welcome } from "./tour.js";
 
@@ -506,7 +507,8 @@ function showState() {
   const t = trainerState;
   const training = t?.mode === "train";
   stateEl.textContent =
-    `training  ${training ? `running, iteration ${t.iteration}` : "stopped"} (training worker)\n` +
+    `training  ${training ? `running, iteration ${t.iteration}` : "stopped"} (training worker)` +
+    (training && throughput() ? `, ${throughput()} agent-steps/s` : "") + "\n" +
     `policy    ${s.policy}\n` +
     `episode   #${s.episode}, return ${s.episode_return.toFixed(0)}` +
     (s.episode_over ? (s.auto_reset ? " (over, restarting)" : " (over, keeps going)") : "") +
@@ -518,7 +520,8 @@ function showState() {
   const of = s.max_return != null ? ` / ${s.max_return}` : ""; // (the best possible, if the env knows it)
   document.getElementById("chips").innerHTML =
     (worldKey ? chip(`<b>${worldKey}</b>`, "world") : "") +
-    (training ? chip(`training · iteration <b>${t.iteration}</b>`, "running") : chip("not training")) +
+    (training ? chip(`training · iteration <b>${t.iteration}</b>` +
+      (throughput() ? ` · <b>${throughput()}</b> steps/s` : ""), "running") : chip("not training")) +
     (last ? chip(`mean <b>${last.mean_return.toFixed(0)}</b>${of}`) + chip(`best <b>${last.best_return.toFixed(0)}</b>${of}`, "best") : "") +
     (s.toys
       ? chip("watching: toys (no score)", "watch")
@@ -526,6 +529,28 @@ function showState() {
           `return <b>${s.episode_return.toFixed(0)}</b>`, "watch")); // (the policy you watch: its training iteration)
 }
 let displayState = null;
+
+// the training speed: agent-steps simulated per second (the trainer + the simulation
+// helpers; doesn't change with the episodes' length, unlike iterations/s), a running
+// average over the last few seconds of trainer states
+const RATE_WINDOW = 5000; // ms
+let rateSamples = []; // [{t, steps}]
+function addRateSample(state) {
+  const last = rateSamples.at(-1);
+  // (stopped, or a new worker: start over)
+  if (state.mode !== "train" || state.sim_steps == null || (last && state.sim_steps < last.steps)) rateSamples = [];
+  if (state.mode !== "train" || state.sim_steps == null) return;
+  const t = performance.now();
+  rateSamples.push({ t, steps: state.sim_steps });
+  while (rateSamples.length > 2 && t - rateSamples[0].t > RATE_WINDOW) rateSamples.shift();
+}
+/** the steps per second as text ("12.3k"), or "" while there is too little to tell */
+function throughput() {
+  const first = rateSamples[0], last = rateSamples.at(-1);
+  if (!first || last.t - first.t < 1500) return "";
+  const rate = ((last.steps - first.steps) * 1000) / (last.t - first.t);
+  return rate >= 1000 ? `${(rate / 1000).toFixed(1)}k` : rate.toFixed(0);
+}
 let worldKey = ""; // the env with its settings (e.g. "WaterCannon · balls 2"): a chip in the bar
 
 /** a message from a worker: `role` "display" or "trainer" */
@@ -563,7 +588,10 @@ function onMessage(role, { data }) {
     lastSnapshot = data.data;
     toDisplay({ type: "snapshot", data: data.data });
   } else if (data.type === "state") {
-    if (role === "trainer") trainerState = data.state;
+    if (role === "trainer") {
+      trainerState = data.state;
+      addRateSample(data.state);
+    }
     else {
       displayState = data.state;
       showScore(data.state);
@@ -571,6 +599,9 @@ function onMessage(role, { data }) {
       const net = data.state.network;
       document.getElementById("network-section").hidden = !net;
       if (net && !document.getElementById("tab-policy").hidden) drawNetwork(document.getElementById("network"), net);
+      // the observations / actions over time (always collected, drawn while in view)
+      addSignals(data.state.trace);
+      if (!document.getElementById("tab-signals").hidden) drawSignals(document.getElementById("signals"));
     }
     showState();
   } else if (!training) {
@@ -762,6 +793,21 @@ for (const button of document.querySelectorAll("#tabs button")) {
   };
 }
 showTab(document.getElementById(`tab-${remembered(TAB, "world")}`) ? remembered(TAB, "world") : "world");
+
+// the Signals tab: how many seconds the strips show (remembered)
+const SIGNAL_SECONDS = "webgym.signalSeconds";
+const signalSeconds = document.getElementById("signal-seconds");
+signalSeconds.value = remembered(SIGNAL_SECONDS, "2.5"); // (the slider keeps it in its range)
+const showSignalSeconds = () => {
+  setSignalSeconds(signalSeconds.value);
+  document.getElementById("signal-seconds-value").textContent = `${Number(signalSeconds.value).toFixed(1)} s`;
+};
+showSignalSeconds();
+signalSeconds.oninput = () => {
+  showSignalSeconds();
+  remember(SIGNAL_SECONDS, signalSeconds.value);
+  drawSignals(document.getElementById("signals"));
+};
 
 // the training progress under the world: open / closed (remembered; small devices:
 // closed at first)

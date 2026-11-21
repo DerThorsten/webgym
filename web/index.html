@@ -99,6 +99,7 @@
       #plot, #loss-plot { width: 100%; display: block; --grid: #444; color: #aaa; }
       #network { width: 100%; aspect-ratio: 4 / 3; display: block; color: #aaa; }  /* grows with the panel */
       #network-section[hidden] { display: none; }
+      #signals { width: 100%; display: block; }  /* grows with the panel (its height: signals.js) */
       #loss-plot[hidden] { display: none; }
       .group { margin: 8px 0; padding: 4px 8px; background: #222; border-radius: 3px; }
       .group-title { font-size: 12px; color: #bbb; }
@@ -281,6 +282,7 @@
           <button data-tab="world">World</button>
           <button data-tab="training">Training</button>
           <button data-tab="policy">Policy</button>
+          <button data-tab="signals">Signals</button>
           <button data-tab="toys">Toys</button>
           <button data-tab="log">Log</button>
         </div>
@@ -309,6 +311,14 @@
             <button id="ckpt-save">Save</button>
           </div>
           <div id="ckpt-list"></div>
+        </div>
+        <div class="tab" id="tab-signals" hidden>
+          <h4>Signals <span class="help" data-help="What the watched agent sees (observations, blue), what it does (actions, orange, each -1 .. 1) and its reward (green), over the last seconds, live. Each strip has its own scale; the number on the right is the current value." title="Observations, actions and reward over time">ⓘ</span></h4>
+          <div class="control">
+            <label for="signal-seconds"><span>Time shown</span><span id="signal-seconds-value"></span></label>
+            <input type="range" id="signal-seconds" min="0.1" max="5" step="0.1" />
+          </div>
+          <canvas id="signals"></canvas>
         </div>
         <div class="tab" id="tab-log" hidden>
           <h4>State</h4>

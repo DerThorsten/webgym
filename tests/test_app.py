@@ -189,6 +189,21 @@ def test_watched_policy_and_its_score():
     assert len(display.scores) == 1 and display.scores[0] == display.env.episode_return[0]
 
 
+def test_signals_trace():
+    """the Signals tab: one row per watched step (observations, action, reward), sent
+    once by state(); a new episode starts afresh"""
+    app = make_app()
+    for _ in range(5):
+        app._watch_step()
+    trace = app.state()["trace"]
+    width = len(app.env.obs_names) + len(app.env.action_names) + 1
+    assert len(trace["rows"]) == 5 and all(len(r) == width for r in trace["rows"])
+    assert app.state()["trace"]["rows"] == []
+    episode = trace["episode"]
+    app.watch()
+    assert app.state()["trace"]["episode"] == episode + 1
+
+
 def test_watched_episodes_and_training_starts():
     """each watched episode gets a new random start; in training every agent its own"""
     app = App(env="LunarLander", seed=0)
@@ -487,6 +502,8 @@ def test_simulation_helpers():
             pool.receive(answers.pop())
     first, last = app.history[0]["mean_return"], app.history[-1]["mean_return"]
     assert last > 3 * first  # (CartPole learns, with all 64)
+    # the steps/s count every agent-step: the helpers' 48 agents do about 3x this env's 16
+    assert pool.steps > 2 * app.sim_steps > 0 and app.state()["sim_steps"] == app.sim_steps + pool.steps
     app.command("helpers", 0)  # (the helpers went away: all in this env again)
     assert app.pop_env.n == 64
 

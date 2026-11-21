@@ -19,6 +19,9 @@
       figure.clip video { width: 100%; display: block; border: 1px solid #333; border-radius: 4px; background: #222; }
       figure.clip figcaption { color: #999; font-size: 13px; margin-top: 4px; }
       .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 14px; }
+      .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 14px; }
+      .shots figure { margin: 0; }
+      .shots figcaption { color: #999; font-size: 13px; margin-top: -4px; }
       .orange { color: #ff8c42; font-weight: 600; }
       .blue { color: #4fa3ff; font-weight: 600; }
       code, kbd { background: #222; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
@@ -67,7 +70,9 @@
     <img class="strip" src="help/ui/chips.png" alt="the live numbers in the top bar" />
     <ul>
       <li>the world (here the Walker)</li>
-      <li>whether it is training, and which iteration</li>
+      <li>whether it is training, which iteration, and how fast: <b>steps/s</b>, the
+        simulation steps of all agents per second, all workers together (an average over
+        the last few seconds)</li>
       <li>the population's <b>mean</b> and <b>best</b> return</li>
       <li>what you watch: the training iteration its policy comes from, and the episode's
         return so far</li>
@@ -103,9 +108,10 @@
     <ul>
       <li><b>World</b>: pick the environment and its settings (e.g. how many balls), and
         read what it is about.</li>
-      <li><b>Training</b>: time budget, algorithm and its parameters, population, simulation
-        workers.</li>
+      <li><b>Training</b>: an algorithm suggested for your time budget, the algorithm and its
+        parameters, population, simulation workers.</li>
       <li><b>Policy</b>: the network and the checkpoints.</li>
+      <li><b>Signals</b>: what the agent sees and does, plotted live.</li>
       <li><b>Toys</b>: things to throw into the world.</li>
       <li><b>Log</b>: state, loaded packages, messages.</li>
     </ul>
@@ -147,9 +153,10 @@
     </figure>
     <h3>The Training tab</h3>
     <dl>
-      <dt>Time budget</dt>
-      <dd>Quick (~1 min), medium (~5 min) or long (~20 min). Picks the algorithm and settings
-        the environment suggests for that time (★ in the algorithm list). Rough guesses.</dd>
+      <dt>Suggest an algorithm for this time budget</dt>
+      <dd>How long you want to train: quick (~1 min), medium (~5 min) or long (~20 min).
+        Picks the algorithm and settings the environment suggests for that time (★ in the
+        algorithm list). Rough guesses; you can still pick any algorithm below.</dd>
       <dt>Algorithm</dt>
       <dd>
         <p>Evolutionary (numpy): they try many variations of the policy, each for a whole
@@ -202,6 +209,8 @@
           <li>More workers (each its own python and box2d, on another CPU core) run a share of
             the population's episodes.</li>
           <li>CEM and ES train several times faster with them.</li>
+          <li>Whether more pay off on your machine: watch the <b>steps/s</b> in the top bar
+            while you move the slider. Where it stops rising, more workers don't help.</li>
           <li>Each costs memory; more than your CPU cores don't help.</li>
         </ul>
       </dd>
@@ -272,6 +281,30 @@
         <figcaption>NEAT training the lander: its network changes shape (new parts glow green).</figcaption>
       </figure>
     </div>
+    <p><b>Signals</b> (its own tab): what the watched agent sees and does, over the last
+      seconds, live (the <i>Time shown</i> slider: 0.1 to 5 s, 2.5 at first).</p>
+    <div class="shots">
+      <figure>
+        <img src="help/signals_crawler.png" alt="the Signals tab of the pretrained crawler" />
+        <figcaption>A pretrained crawler: its four legs in a steady rhythm.</figcaption>
+      </figure>
+      <figure>
+        <img src="help/signals_drone.png" alt="the Signals tab of the pretrained drone" />
+        <figcaption>A pretrained drone: the two rotors' thrust as it flies from gate to gate
+          (the reward's spike: a gate passed, the next one becomes the target).</figcaption>
+      </figure>
+    </div>
+    <ul>
+      <li>One low strip per value, time running to the right.</li>
+      <li><span class="blue">Observations</span> (blue): the network's inputs, in the
+        order of the World tab's description.</li>
+      <li><span class="orange">Actions</span> (orange): what the policy did, each from -1
+        to 1.</li>
+      <li><b>Reward</b> (green): what each step earned.</li>
+      <li>Each strip has its own scale; the number on the right is the current value.</li>
+      <li>Try it with the Toys: push the walker and watch its joint angles and motors
+        react.</li>
+    </ul>
     <p><b>Checkpoints</b> (Policy tab, below the network), stored in your browser per
       environment (with its settings) and algorithm:</p>
     <ul>

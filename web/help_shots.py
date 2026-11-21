@@ -47,6 +47,7 @@ def main():
         page.close()
         base = url.split("?")[0]
         ui_parts(browser, base)
+        signals(browser, base)
         walker(browser.new_page(viewport={"width": 1280, "height": 800}), base + "?train=0&env=Walker&algo=ppo_torch")
         toys(browser, base)
         worlds(browser, base)
@@ -178,6 +179,24 @@ def ui_parts(browser, base):
                            ("#code-revert", "code_revert"), ("#code-apply", "code_apply")):
         shot(selector, name)
     page.close()
+
+
+def signals(browser, base):
+    """the Signals tab of the pretrained crawler and drone (PPO): their observations,
+    actions and reward, live (public/help/signals_<env>.png)"""
+    for env in ("Crawler", "Drone"):
+        page = browser.new_page(viewport={"width": 1280, "height": 1400})  # (tall: the crawler's 31 strips fit)
+        with page.expect_console_message(lambda m: READY in m.text, timeout=120_000):
+            page.goto(f"{base}?tour=0&train=0&env={env}&checkpoint=ppo")
+        page.wait_for_timeout(2000)
+        page.click("#tabs button:text('Signals')")
+        reset(page)
+        page.wait_for_timeout(4000)  # (the window full: 2.5 s)
+        # (from the tab's top to the plots' bottom: not the empty panel below)
+        tab, plots = page.locator("#tab-signals").bounding_box(), page.locator("#signals").bounding_box()
+        page.screenshot(path=OUT / f"signals_{env.lower()}.png", clip={
+            "x": tab["x"], "y": tab["y"], "width": tab["width"], "height": plots["y"] + plots["height"] - tab["y"] + 8})
+        page.close()
 
 
 def worlds(browser, base):
