@@ -46,6 +46,7 @@ def main():
         page.screenshot(path=OUT / "code.png")
         page.close()
         base = url.split("?")[0]
+        ui_parts(browser, base)
         walker(browser.new_page(viewport={"width": 1280, "height": 800}), base + "?train=0&env=Walker&algo=ppo_torch")
         toys(browser, base)
         worlds(browser, base)
@@ -141,6 +142,41 @@ def toys(browser, base):
     reset(page)
     page.wait_for_timeout(3000)
     page.locator("#stage").screenshot(path=OUT / "toys_rain.png")
+    page.close()
+
+
+def ui_parts(browser, base):
+    """small pictures of the page's controls, shown next to the help text that explains
+    them (public/help/ui/*.png; at twice the pixels: sharp when small)"""
+    out = OUT / "ui"
+    out.mkdir(exist_ok=True)
+    page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
+    with page.expect_console_message(lambda m: READY in m.text, timeout=120_000):
+        page.goto(base + "?tour=0&env=Walker&checkpoint=ppo")  # (a pretrained walker: numbers in the top bar)
+    page.wait_for_timeout(3000)
+    shot = lambda selector, name: page.locator(selector).first.screenshot(path=out / f"{name}.png")  # noqa: E731
+    for selector, name in (("#quick-train", "train"), ("#quick-new", "new_run"), ("#quick-episode", "episode"),
+                           ("#quick-pause", "pause"), ("#quick-reset", "auto_reset"), ("#quick-follow", "follow"),
+                           ("#quick-speed", "speed"), ("#quick", "icons"), ("#tabs", "tabs"), ("#chips", "chips"),
+                           ("#code-toggle", "code"), ("#plot-toggle", "progress_toggle")):
+        shot(selector, name)
+    page.click("#quick-train")  # (training: the barbell turns blue)
+    page.wait_for_timeout(1500)
+    shot("#quick-train", "train_on")
+    page.click("#quick-train")
+    page.click("#tabs button:text('Training')")
+    page.wait_for_timeout(500)
+    shot("#tab-training", "training_tab")
+    shot("#tab-training .help", "info")  # (the ⓘ next to a control)
+    page.click("#tabs button:text('Toys')")
+    page.wait_for_timeout(500)
+    shot("#controls-toys .control.tools", "toys_tools")
+    page.click("#tabs button:text('World')")
+    page.click("#code-toggle")  # (the editor's buttons)
+    page.wait_for_function("document.querySelectorAll('#code .view-line').length > 5", timeout=30_000)
+    for selector, name in (("#code-kind", "code_kind"), ("#code-open", "code_open"), ("#code-save", "code_save"),
+                           ("#code-revert", "code_revert"), ("#code-apply", "code_apply")):
+        shot(selector, name)
     page.close()
 
 

@@ -103,6 +103,7 @@ HELP = {
     "add_conn": "NEAT: the chance that a child gets a new connection between two of its "
                 "neurons.",
     "weight_power": "NEAT: size of the random weight changes of a child.",
+    "change": "My algorithm: size of the random weight changes that are tried.",
     "species": "NEAT: about this many species of similar networks. They compete mostly "
                "among themselves: new structure gets time to tune its weights.",
 }
@@ -168,5 +169,10 @@ ALGOS = {
          "noise": (0.1, 0.0, 1.0, 0.05), "batch": (256, 32, 1024, 32), "updates": (2, 1, 16, 1),
          "layers": (2, 1, 3, 1), "hidden": (64, 8, 256, 8)},
         requires="pytorch",
+    ),
+    # the last in the list: a starting point for your own (algos/my_algorithm.py)
+    "my_algorithm": Algo(
+        "my_algorithm", "My algorithm (numpy, edit me)",
+        {"change": (0.1, 0.01, 1.0, 0.01), "layers": (1, 1, 3, 1), "hidden": (16, 4, 128, 4)},
     ),
 }

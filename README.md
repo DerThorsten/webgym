@@ -56,6 +56,8 @@ Gymnasium-like box2d environments with live training, natively and **in the brow
 - **WaterCannon**: keep one or two balls in the air with water
 - **Blob**: a soft ring of balls that learns to roll and hop
 - **Drone**: fly through a course of gates
+- **MyEnvironment**: a ball rolls to a target; the smallest world, a starting point for
+  your own
 
 **Algorithms** (`webgym/algos/`):
 
@@ -65,6 +67,7 @@ Gymnasium-like box2d environments with live training, natively and **in the brow
 - **PPO**, **A2C**, **REINFORCE**: policy gradients (pytorch)
 - **SAC**, **TD3**: off-policy actor-critic (pytorch)
 - **DQN**: Q-learning with discrete actions (pytorch)
+- **My algorithm**: a simple hill climber (numpy), a starting point for your own
 
 ## How it works
 

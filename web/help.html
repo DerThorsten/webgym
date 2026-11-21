@@ -24,6 +24,12 @@
       code, kbd { background: #222; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
       dt { font-weight: 600; color: #fff; margin-top: 8px; }
       dd { margin: 0 0 4px 18px; }
+      li { margin: 5px 0; }
+      /* small pictures of the page's controls (web/help_shots.py ui_parts: help/ui/*.png) */
+      img.ui { display: inline-block; height: 1.7em; width: auto; margin: 0 3px; vertical-align: middle;
+               border: none; border-radius: 4px; }
+      img.strip { height: 34px; width: auto; max-width: 100%; object-fit: contain; object-position: left;
+                  border: none; margin: 6px 0; }
     </style>
   </head>
   <body>
@@ -45,6 +51,7 @@
       <li><a href="#watching">Watching a policy</a></li>
       <li><a href="#panels">Progress, network, checkpoints</a></li>
       <li><a href="#code">Editing the python code</a></li>
+      <li><a href="#own">Your own environment and algorithm</a></li>
       <li><a href="#fun">Having fun with agents</a> (and the Toys tab)</li>
       <li><a href="#tips">Tips</a></li>
       <li><a href="#about">About</a></li>
@@ -55,111 +62,206 @@
 
     <h2 id="overview">The page</h2>
     <img src="help/overview.png" alt="the page" />
-    <p>
-      <b>Top bar</b> (always in view): the live numbers: the world, is it training, which
-      iteration, the population's mean and best return, and what you watch: the training
-      iteration its policy comes from and the episode's return so far. On the right: <b>&lt;/&gt; Code</b> (the python editor), the
-      <b>Tour</b> and this help.
-    </p>
-    <p>
-      <b>Left panel</b>: on top a row of icons (hover them for what they do):
-      the button with the <b>barbell icon</b> trains (blue while training; a click stops it, the next one
-      continues; the world you watch keeps going either way); the circling arrows start a new
-      run from scratch; the skip-back icon starts a new episode (or R); <b>⏸</b> pauses the
-      world you watch (Space; ▶ continues; training goes on); then two switches
-      (blue: on): the loop is auto reset, the crosshair camera follows; last the replay
-      speed (slower / faster). See "Watching a policy" below.
-      Then five tabs: <i>World</i> (pick the environment and its settings, e.g.
-      how many balls; what it is about), <i>Training</i> (time budget, the algorithm and
-      its parameters, population, simulation workers), <i>Policy</i> (the network and the
-      checkpoints), <i>Toys</i> (things to throw into the world), <i>Log</i> (state, packages,
-      messages).
-      <b>Middle</b>: the world, the training progress below it (click its title to hide it).
-      The <span class="blue">ⓘ</span> next to a control explains it (click it).
-    </p>
-    <p>In the world: drag the background to pan, the mouse wheel zooms, drag a body to
-      push it around (while watching). On a touch screen one finger is the mouse, two
-      fingers pinch to zoom and pan.</p>
-    <p>
-      <b>On a phone</b>: upright, the world is on top and the tabs below it; sideways, the
-      world fills the screen and <b>☰</b> opens the tabs over it. Tour, Help, About and GitHub
-      are in the <b>⋯</b> menu; the code editor opens full screen (<b>✕</b> closes it).
-    </p>
+    <h3>The top bar</h3>
+    <p>Always in view. On the left the live numbers:</p>
+    <img class="strip" src="help/ui/chips.png" alt="the live numbers in the top bar" />
+    <ul>
+      <li>the world (here the Walker)</li>
+      <li>whether it is training, and which iteration</li>
+      <li>the population's <b>mean</b> and <b>best</b> return</li>
+      <li>what you watch: the training iteration its policy comes from, and the episode's
+        return so far</li>
+    </ul>
+    <p>On the right: <img class="ui" src="help/ui/code.png" alt="Code" /> opens the python
+      editor (see <a href="#code">Editing the python code</a>), then the <b>Tour</b>, this
+      <b>Help</b>, <b>About</b> and GitHub.</p>
+
+    <h3>The buttons</h3>
+    <p>On top of the left panel, a row of icons (hover one for what it does):</p>
+    <img class="strip" src="help/ui/icons.png" alt="the row of buttons" />
+    <ul>
+      <li><img class="ui" src="help/ui/train.png" alt="train" /> <b>Train</b>: starts learning.
+        Blue <img class="ui" src="help/ui/train_on.png" alt="training" /> while training; a click
+        stops it, the next one continues.</li>
+      <li><img class="ui" src="help/ui/new_run.png" alt="new run" /> <b>New run</b>: forget
+        what was learned, start from scratch.</li>
+      <li><img class="ui" src="help/ui/episode.png" alt="new episode" /> <b>New episode</b>
+        (or <kbd>R</kbd>): the watched agent starts over.</li>
+      <li><img class="ui" src="help/ui/pause.png" alt="pause" /> <b>Pause</b> (or
+        <kbd>Space</kbd>): freezes the world you watch; ▶ continues. Training goes on.</li>
+      <li><img class="ui" src="help/ui/auto_reset.png" alt="auto reset" /> <b>Auto reset</b>
+        (a switch, blue: on): a new episode starts when one ends.</li>
+      <li><img class="ui" src="help/ui/follow.png" alt="camera follows" /> <b>Camera
+        follows</b> (a switch): the view follows the agent.</li>
+      <li><img class="ui" src="help/ui/speed.png" alt="replay speed" /> <b>Replay speed</b>:
+        slow motion or fast forward.</li>
+    </ul>
+    <p>More on them in <a href="#watching">Watching a policy</a>.</p>
+
+    <h3>The tabs</h3>
+    <img class="strip" src="help/ui/tabs.png" alt="the tabs" />
+    <ul>
+      <li><b>World</b>: pick the environment and its settings (e.g. how many balls), and
+        read what it is about.</li>
+      <li><b>Training</b>: time budget, algorithm and its parameters, population, simulation
+        workers.</li>
+      <li><b>Policy</b>: the network and the checkpoints.</li>
+      <li><b>Toys</b>: things to throw into the world.</li>
+      <li><b>Log</b>: state, loaded packages, messages.</li>
+    </ul>
+    <p>The <img class="ui" src="help/ui/info.png" alt="ⓘ" /> next to a control explains it
+      (click it).</p>
+
+    <h3>The world</h3>
+    <ul>
+      <li>In the middle: the world, and below it the training progress
+        (<img class="ui" src="help/ui/progress_toggle.png" alt="Training progress" />: click
+        the title to hide it).</li>
+      <li>Drag the background to pan, the mouse wheel zooms.</li>
+      <li>Drag a body to push it around.</li>
+      <li>On a touch screen: one finger is the mouse, two fingers pinch to zoom and pan.</li>
+    </ul>
+
+    <h3>On a phone</h3>
+    <ul>
+      <li>Upright: the world on top, the tabs below it.</li>
+      <li>Sideways: the world fills the screen, <b>☰</b> opens the tabs over it.</li>
+      <li>Tour, Help, About and GitHub are in the <b>⋯</b> menu.</li>
+      <li>The code editor opens full screen (<b>✕</b> closes it).</li>
+    </ul>
 
     <h2 id="training">Training</h2>
     <img src="help/training.png" alt="training" />
-    <p>
-      <b>Train</b> (the button with the barbell icon) starts learning: a whole <b>population</b> of agents in one
-      world (they don't collide with each other), each trying a different policy, in a
-      worker of its own, as fast as it can. The world you see shows the current policy,
-      updated as it learns.
-    </p>
+    <p><img class="ui" src="help/ui/train.png" alt="train" /> <b>Train</b> starts learning:</p>
+    <ul>
+      <li>a whole <b>population</b> of agents in one world (they don't collide with each
+        other), each trying a different policy;</li>
+      <li>in a worker of its own, as fast as it can;</li>
+      <li>the world you see shows the current policy, updated as it learns.</li>
+    </ul>
+    <p>Picking another world starts training by itself.</p>
     <figure class="clip">
       <video src="help/videos/ragdoll_neat_fresh.mp4" poster="help/videos/ragdoll_neat_fresh.jpg" muted loop playsinline preload="none"></video>
       <figcaption>The first minute: NEAT starts training the ragdoll from scratch, every
         episode a new attempt.</figcaption>
     </figure>
+    <h3>The Training tab</h3>
     <dl>
       <dt>Time budget</dt>
-      <dd>Quick (~1 min), medium (~5 min) or long (~20 min): picks the algorithm and settings
+      <dd>Quick (~1 min), medium (~5 min) or long (~20 min). Picks the algorithm and settings
         the environment suggests for that time (★ in the algorithm list). Rough guesses.</dd>
       <dt>Algorithm</dt>
-      <dd><b>CEM</b>, <b>ES</b> and <b>NEAT</b> (numpy): evolutionary; they try many random
-        variations of the policy and keep the best ones (NEAT also grows the network itself).
-        Fast and robust for small problems.
-        <b>PPO</b>, <b>A2C</b>, <b>REINFORCE</b>, <b>SAC</b>, <b>TD3</b> and <b>DQN</b>
-        (pytorch, loaded in the background the first time): gradient based. DQN uses a few
-        discrete actions (e.g. the lander: nothing / main engine / left / right).</dd>
+      <dd>
+        <p>Evolutionary (numpy): they try many variations of the policy, each for a whole
+          episode, and keep what scored best. Simple, robust, fast for small problems.</p>
+        <ul>
+          <li><b>CEM</b> (cross-entropy method): samples a population of random policies
+            around a mean, then moves the mean to the best few of them.</li>
+          <li><b>ES</b> (evolution strategies): nudges the policy in random directions and
+            steps towards the directions that scored better, weighted by how much
+            better.</li>
+          <li><b>NEAT</b> (neuro-evolution of augmenting topologies): evolves the network's
+            shape too. It starts tiny and adds neurons and connections over the
+            generations.</li>
+        </ul>
+        <p>Gradient based (pytorch, loaded in the background the first time): they learn
+          from every step, which works better for harder problems.</p>
+        <ul>
+          <li><b>REINFORCE</b>: the classic policy gradient. Makes the actions of good
+            episodes more likely, those of bad ones less.</li>
+          <li><b>A2C</b> (advantage actor-critic): REINFORCE plus a critic that estimates how
+            good a state is. Actions are judged against that estimate, which steadies the
+            learning.</li>
+          <li><b>PPO</b> (proximal policy optimization): actor-critic with small, careful
+            update steps, so one bad batch can't ruin the policy. A good default.</li>
+          <li><b>SAC</b> (soft actor-critic): learns from a memory of past steps (replay
+            buffer) and rewards exploring. Data-efficient for continuous actions.</li>
+          <li><b>TD3</b> (twin delayed DDPG): also learns from a replay buffer, with a
+            deterministic policy and two critics against overestimating.</li>
+          <li><b>DQN</b> (deep Q-network): learns the value of each action from a replay
+            buffer and picks the best one. It works only with a few discrete actions (e.g.
+            the lander: nothing / main engine / left / right).</li>
+        </ul>
+        <p>Your own:</p>
+        <ul>
+          <li><b>My algorithm</b> (numpy): a hill climber, about the simplest thing that
+            learns. It tries small random changes of the best policy so far and keeps the one
+            that scored best. A starting point for your own algorithm, see
+            <a href="#own">Your own environment and algorithm</a>.</li>
+        </ul>
+      </dd>
       <dt>Algorithm parameters</dt>
-      <dd>Each has an ⓘ. <i>layers</i> and <i>hidden</i> set the size of the policy network
-        (shown below as "Policy network 8 → 16 → 2"); changing them starts a new run.</dd>
+      <dd>Each has an <img class="ui" src="help/ui/info.png" alt="ⓘ" />. <i>layers</i> and
+        <i>hidden</i> set the size of the policy network (shown as "Policy network 8 → 16 →
+        2"); changing them starts a new run.</dd>
       <dt>Population</dt>
       <dd>How many agents learn at once.</dd>
       <dt>Simulation workers</dt>
-      <dd>More workers (each its own python and box2d, on another CPU core) run a share of the
-        population's episodes: CEM and ES train several times faster. Each costs memory;
-        more than your CPU cores don't help.</dd>
-      <dt>Train / new run (above the tabs)</dt>
-      <dd>The button with the barbell icon (blue: training): a click stops and keeps the run,
-        the next continues it. <b>New run</b> (the circling arrows)
-        starts from scratch.
-        Picking another world starts training by itself.</dd>
+      <dd>
+        <ul>
+          <li>More workers (each its own python and box2d, on another CPU core) run a share of
+            the population's episodes.</li>
+          <li>CEM and ES train several times faster with them.</li>
+          <li>Each costs memory; more than your CPU cores don't help.</li>
+        </ul>
+      </dd>
     </dl>
+    <p>Stop and continue with <img class="ui" src="help/ui/train_on.png" alt="training" />
+      (blue: training; a stopped run is kept), start from scratch with
+      <img class="ui" src="help/ui/new_run.png" alt="new run" />.</p>
 
     <h2 id="watching">Watching a policy</h2>
     <img src="help/watch.png" alt="watching" />
-    <p>
-      The world shows one agent acting with the current policy, each episode from a new
-      random start. While training, the page watches in a second worker: you see the latest
-      policy the trainer sent, and it takes over with the next episode.
-    </p>
-    <p>
-      The ground is a ruler with the metres numbered, so you see how far an agent got; a
-      disc marks each joint; the water cannon's water is drawn as a liquid (metaballs: a
-      small shader). Sensors are not drawn.
-    </p>
+    <ul>
+      <li>The world shows one agent acting with the current policy, each episode from a new
+        random start.</li>
+      <li>While training, the page watches in a second worker: the latest policy the trainer
+        sent takes over with the next episode.</li>
+      <li>The ground is a ruler with numbered metres: you see how far an agent got.</li>
+      <li>A disc marks each joint; the water cannon's water is drawn as a liquid (metaballs:
+        a small shader). Sensors are not drawn.</li>
+    </ul>
     <dl>
-      <dt>Auto reset (the loop above the tabs)</dt><dd>A new episode starts when the agent's
-        episode ends. Off: the episode goes on after a fall; R starts a new one.</dd>
-      <dt>Replay speed (slower / faster above the tabs)</dt><dd>Slow motion or fast forward.</dd>
-      <dt>Camera follows (the crosshair above the tabs)</dt><dd>The environment controls the camera: it says which point the
-        view follows (the walkers' hull, the water cannon's cart; while training the
-        leading agent). Off: a fixed view you pan and zoom yourself. Environments with a fixed
-        scene (CartPole, the lander) don't move the camera, so the option is greyed out there.
-        In your own env: return the point from <code>camera_target(i)</code>.</dd>
-      <dt>Reset episode (above the tabs, or R)</dt><dd>A new episode now.</dd>
+      <dt><img class="ui" src="help/ui/auto_reset.png" alt="" /> Auto reset</dt>
+      <dd>A new episode starts when the agent's episode ends. Off: the episode goes on after
+        a fall; <kbd>R</kbd> starts a new one.</dd>
+      <dt><img class="ui" src="help/ui/follow.png" alt="" /> Camera follows</dt>
+      <dd>
+        <ul>
+          <li>The environment says which point the view follows (the walkers' hull, the water
+            cannon's cart).</li>
+          <li>Off: a fixed view you pan and zoom yourself.</li>
+          <li>Worlds with a fixed scene (CartPole, the lander) never move the camera: the
+            switch is greyed out there.</li>
+          <li>In your own env: return the point from <code>camera_target(i)</code>.</li>
+        </ul>
+      </dd>
+      <dt><img class="ui" src="help/ui/speed.png" alt="" /> Replay speed</dt>
+      <dd>Slow motion or fast forward.</dd>
+      <dt><img class="ui" src="help/ui/episode.png" alt="" /> New episode (or <kbd>R</kbd>)</dt>
+      <dd>A new episode now.</dd>
+      <dt><img class="ui" src="help/ui/pause.png" alt="" /> Pause (or <kbd>Space</kbd>)</dt>
+      <dd>Freezes the world you watch; training goes on.</dd>
     </dl>
 
     <h2 id="panels">Progress, network, checkpoints</h2>
     <img src="help/progress.png" alt="training progress" />
-    <p><b>Training progress</b> (under the world): per iteration the
-      <span class="blue">mean</span> and the <span class="orange">best</span> return of the
-      population (higher is better); PPO / DQN also show their losses next to it.</p>
+    <p><b>Training progress</b> (under the world,
+      <img class="ui" src="help/ui/progress_toggle.png" alt="Training progress" />), per
+      iteration:</p>
+    <ul>
+      <li>the population's <span class="blue">mean</span> and
+        <span class="orange">best</span> return (higher is better);</li>
+      <li>PPO / DQN also show their losses next to it.</li>
+    </ul>
     <img class="small" src="help/policy.png" alt="the Policy tab: network and checkpoints" />
-    <p><b>Network</b> (Policy tab): the watched policy's neural network, live. Left the inputs
-      (what the agent sees, with their values), right the actions. Neurons are colored by
-      activation (<span class="orange">orange</span> positive, <span class="blue">blue</span>
-      negative), connections by their weight.</p>
+    <p><b>Network</b> (Policy tab): the watched policy's neural network, live.</p>
+    <ul>
+      <li>Left the inputs (what the agent sees, with their values), right the actions.</li>
+      <li>Neurons are colored by activation: <span class="orange">orange</span> positive,
+        <span class="blue">blue</span> negative.</li>
+      <li>Connections are colored by their weight.</li>
+    </ul>
     <div class="clips">
       <figure class="clip">
         <video src="help/videos/walker_network.mp4" poster="help/videos/walker_network.jpg" muted loop playsinline preload="none"></video>
@@ -170,31 +272,84 @@
         <figcaption>NEAT training the lander: its network changes shape (new parts glow green).</figcaption>
       </figure>
     </div>
-    <p><b>Checkpoints</b> (Policy tab, below the network): stored in your browser, per
-      environment (with its settings) + algorithm. The <i>autosave</i> is updated while
-      training (a reload continues where you were); give a name and press Save to keep one.
-      Restore loads it, Delete removes it. Below them the <b>pretrained runs</b> that come
-      with the page, one per algorithm, the best first, named after their algorithm
-      (<code>ppo</code>, <code>cem</code>, <code>neat</code>, …): Restore switches
-      to that algorithm and its network, and Train continues it. A link can open any of
-      them by name, yours too: <code>?env=Walker&amp;checkpoint=ppo</code> (see
-      <a href="#url">URL options</a>).</p>
+    <p><b>Checkpoints</b> (Policy tab, below the network), stored in your browser per
+      environment (with its settings) and algorithm:</p>
+    <ul>
+      <li><i>autosave</i>: updated while training, so a reload continues where you were.</li>
+      <li>Your own: give a name and press <b>Save</b>. <b>Restore</b> loads one,
+        <b>Delete</b> removes it.</li>
+      <li><b>Pretrained runs</b> come with the page, one per algorithm, named after it
+        (<code>ppo</code>, <code>cem</code>, <code>neat</code>, …). Restore switches to that
+        algorithm and its network; Train continues it.</li>
+      <li>A link opens any of them by name, yours too:
+        <code>?env=Walker&amp;checkpoint=ppo</code> (see <a href="#url">URL options</a>).</li>
+    </ul>
     <p><b>Log</b> tab: the detailed state, what was loaded (e.g. pytorch), messages / errors.</p>
 
     <h2 id="code">Editing the python code</h2>
     <img src="help/code.png" alt="the code editor" />
-    <p>
-      <b>&lt;/&gt; Code</b> opens the source of the current <b>environment</b> or
-      <b>algorithm</b>. Edit it and press <b>Apply</b> (<kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd>):
-      the python module is reloaded in the browser. An edited environment starts a new run, an
-      edited algorithm takes over the training. <b>Open…</b> loads a <code>.py</code> file
-      from your machine, <b>Save…</b> writes one. Your edits are kept in this browser (also
-      after a reload); <b>Revert</b> brings the original back.
-    </p>
-    <p>Try: in the lander, change <code>gravity</code> or <code>PAD</code> (the width of the
-      landing pad), or the reward in <code>reward</code>. Or the looks: a body's
-      <code>color=</code>, or a <code>draw(debug_draw)</code> method that adds lines, discs or
-      water to the picture (the blob's springs, the cart pole's hinge).</p>
+    <p><img class="ui" src="help/ui/code.png" alt="Code" /> (top bar) opens the source of the
+      current <b>environment</b> or <b>algorithm</b> (choose which in the select above the
+      editor).</p>
+    <ul>
+      <li><img class="ui" src="help/ui/code_apply.png" alt="Apply" /> (or
+        <kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd>): reloads the python module in the browser. An
+        edited environment starts a new run, an edited algorithm takes over the training.</li>
+      <li><img class="ui" src="help/ui/code_open.png" alt="Open" /> loads a <code>.py</code>
+        file from your machine, <img class="ui" src="help/ui/code_save.png" alt="Save" />
+        writes one.</li>
+      <li><img class="ui" src="help/ui/code_revert.png" alt="Revert" /> brings the original
+        back.</li>
+      <li>Your edits are kept in this browser, also after a reload.</li>
+    </ul>
+    <p>Things to try:</p>
+    <ul>
+      <li>In the lander: change <code>gravity</code> or <code>PAD</code> (the width of the
+        landing pad), or the reward in <code>reward</code>.</li>
+      <li>The looks: a body's <code>color=</code>.</li>
+      <li>A <code>draw(debug_draw)</code> method that adds lines, discs or water to the
+        picture (as the blob's springs, the cart pole's hinge).</li>
+    </ul>
+
+    <h2 id="own">Your own environment and algorithm</h2>
+    <p>Two entries are there just for you to change. They are starting points for your own
+      experiments and fun ideas:</p>
+    <ul>
+      <li><b>MyEnvironment</b> (last in the World tab's list): a ball learns to roll to a
+        target. It is the smallest world, and it shows every part an environment needs:
+        <ul>
+          <li><code>build_scenery</code>: the static world (the ground);</li>
+          <li><code>build_agent</code>: one agent (a ball);</li>
+          <li><code>randomize</code>: the start of an episode (a new target);</li>
+          <li><code>act</code>: what the actions do (push the ball);</li>
+          <li><code>observe</code>: what the agent sees (where the target is, how fast it rolls);</li>
+          <li><code>reward</code>: what counts as good (being close to the target);</li>
+          <li><code>draw</code>: extra looks (the target disc).</li>
+        </ul>
+      </li>
+      <li><b>My algorithm</b> (last in the Training tab's list): a hill climber in about 30
+        lines. Each iteration it runs one episode with all agents, each with a small random
+        change of the best policy so far, and keeps the one that scored best.</li>
+    </ul>
+    <p>How to make them yours:</p>
+    <ol>
+      <li>Pick MyEnvironment (World tab) or My algorithm (Training tab).</li>
+      <li>Open <img class="ui" src="help/ui/code.png" alt="Code" /> and choose
+        <i>environment</i> or <i>algorithm</i> above the editor.</li>
+      <li>Change something and press <img class="ui" src="help/ui/code_apply.png" alt="Apply" />.</li>
+      <li>Press <img class="ui" src="help/ui/train.png" alt="train" /> and watch what happens.</li>
+    </ol>
+    <p>Ideas to start with:</p>
+    <ul>
+      <li>A target in the air: the ball has to jump.</li>
+      <li>A wall or a slope in the way.</li>
+      <li>A second ball, or a box on top of the ball.</li>
+      <li>In the algorithm: keep the best few and average them, or shrink the changes over
+        time.</li>
+    </ul>
+    <p>Your edits stay in this browser. <img class="ui" src="help/ui/code_save.png" alt="Save" />
+      writes the file to your machine. The other worlds and algorithms show more (joints,
+      motors, sensors, pytorch); their code is open the same way.</p>
 
     <h2 id="fun">Having fun with agents</h2>
     <p>
@@ -203,8 +358,10 @@
     </p>
     <ol>
       <li>World tab: pick <b>Walker</b>. Policy tab: <b>Restore</b> a <i>pretrained</i> run
-        (they come with the page), or press <b>Train</b> and wait a few minutes, then <b>Stop</b>.</li>
-      <li>Open the <b>Toys</b> tab: it switches <b>Auto reset</b> off, so the episode goes on after a fall instead of starting over.</li>
+        (they come with the page), or press <img class="ui" src="help/ui/train.png" alt="train" />
+        and wait a few minutes, then stop it.</li>
+      <li>Open the <b>Toys</b> tab: it switches <img class="ui" src="help/ui/auto_reset.png" alt="auto reset" />
+        auto reset off, so the episode goes on after a fall instead of starting over.</li>
       <li>Let it walk.</li>
     </ol>
     <img src="help/walker_walks.png" alt="the walker walks" />
@@ -218,17 +375,27 @@
     </ol>
     <img src="help/walker_reacts.png" alt="the walker after the fall" />
     <h3>The Toys tab</h3>
-    <p>
-      Even more mischief: in the <b>Toys</b> tab you choose what a click into the world does:
-      drop a box, a ball or a plank, set off an explosion, or put a ramp, a step or a seesaw
-      on the ground in front of the agent. Or change the world's gravity (its own fold),
-      sideways (a wind) and up-down (the walker on the moon! or everything falling up), or
-      let it rain. The settings of each (size, weight, rain rate, ...) are in its
-      fold. A click on a body still grabs it. Opening the tab switches auto reset off and
-      shows no score (no time limit applies); R (reset) clears the world
-      again. Leaving the tab starts a new episode in the world as it was, with auto reset on
-      again.
-    </p>
+    <p>Even more mischief. In the <b>Toys</b> tab you choose what a click into the world
+      does, with buttons like these:</p>
+    <img class="strip" src="help/ui/toys_tools.png" alt="tool buttons: Box, Ball, Plank" />
+    <ul>
+      <li><b>Things to drop</b>: a box, a ball or a plank.</li>
+      <li><b>Explosion</b>: blows everything nearby away.</li>
+      <li><b>Ramps and steps</b>: a ramp, a step or a seesaw on the ground in front of the
+        agent.</li>
+      <li><b>Gravity</b>: sideways (a wind) and up-down (the walker on the moon! or
+        everything falling up); an arrow in the world shows it while its fold is open.</li>
+      <li><b>Weather</b>: let it rain.</li>
+    </ul>
+    <p>Good to know:</p>
+    <ul>
+      <li>The settings of each (size, weight, rain rate, …) are in its fold.</li>
+      <li>A click on a body still grabs it; a click on the active tool puts it away.</li>
+      <li>Opening the tab switches <img class="ui" src="help/ui/auto_reset.png" alt="auto reset" />
+        auto reset off: no score, no time limit.</li>
+      <li><kbd>R</kbd> clears the world again.</li>
+      <li>Leaving the tab starts a new episode in the world as it was, auto reset on.</li>
+    </ul>
     <p>A ramp in the walker's way: it never saw a slope in training, does it make it up?</p>
     <img src="help/toys_ramp.png" alt="the walker in front of a ramp" />
     <p>An explosion right behind it:</p>
@@ -314,7 +481,8 @@
       <dt><code>env</code></dt>
       <dd>The world: <code>CartPole</code>, <code>MultiCartPole</code>, <code>LunarLander</code>,
         <code>Walker</code>, <code>Crawler</code>, <code>Ragdoll</code>, <code>WaterCannon</code>,
-        <code>Blob</code>, <code>Drone</code>. Unknown: the default (CartPole).</dd>
+        <code>Blob</code>, <code>Drone</code>, <code>MyEnvironment</code>. Unknown: the default
+        (CartPole).</dd>
       <dt>a world's settings</dt>
       <dd>As in its World tab: <code>poles=2</code> … <code>5</code> (MultiCartPole),
         <code>balls=1</code> or <code>2</code> (WaterCannon), e.g.
@@ -322,7 +490,8 @@
       <dt><code>algo</code></dt>
       <dd>The algorithm: <code>cem</code>, <code>es</code>, <code>neat</code> (numpy);
         <code>ppo_torch</code>, <code>a2c_torch</code>, <code>reinforce_torch</code>,
-        <code>sac_torch</code>, <code>td3_torch</code>, <code>dqn_torch</code> (pytorch).
+        <code>sac_torch</code>, <code>td3_torch</code>, <code>dqn_torch</code> (pytorch);
+        <code>my_algorithm</code>.
         Without it: the world's suggestion for the time budget.</dd>
       <dt><code>checkpoint</code></dt>
       <dd>Watch a checkpoint of the world right away, by its name as listed in the Policy tab

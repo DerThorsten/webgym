@@ -93,6 +93,11 @@ Technical considerations:
   the Blob, all 32 combinations of its 5 springs)
   (`discrete_actions` + names; the walkers: bang-bang per joint / joint pair). Also
   `camera_target` ("Camera follows"). No keyboard play (removed 2026-11-19; R = reset stays).
+- Starting points for the user's own (2026-11-21): `MyEnvironment` (`envs/my_environment.py`:
+  a ball rolls to a target, the same for all agents; every Env method once, commented) and
+  `my_algorithm` (`algos/my_algorithm.py`: a hill climber, its own episode loop). Each is
+  last in its list (the env select sorts it last in `App.controls`); not pretrained
+  (`pretrain.py` skips it); help.html#own explains them. Keep both minimal.
 - `Env.suggested` = {budget: {algo: params}} for "quick" / "medium" / "long" (~1 / 5 / 20 min),
   best first; guesstimates, not measured. The "Time budget" select (Training tab) and opening
   an env pick the first one with its params (`App.suggest`); ★ marks them in the algorithm

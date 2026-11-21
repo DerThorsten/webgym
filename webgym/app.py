@@ -365,7 +365,7 @@ class App:
         resume = self.train_state is not None and not self.training
         env = [
             # ("key": the env with its settings: the page keeps checkpoints per key)
-            {"type": "select", "name": "env", "label": "Environment", "options": sorted(ENVS), "value": self.env_name,
+            {"type": "select", "name": "env", "label": "Environment", "options": sorted(ENVS, key=lambda e: (e == "MyEnvironment", e)), "value": self.env_name,
              "key": self.env_key},
             *({"type": "select", "name": f"setting.{name}", "label": name, "options": list(choices),
                "value": self.settings[name], "help": f"{explanation} A change starts a new run."}
