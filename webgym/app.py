@@ -26,7 +26,7 @@ import pyb2d3 as b2d
 
 from webgym import checkpoints, toys
 from webgym.algos import ALGOS, HELP
-from webgym.core import ENVS, SENSOR_COLOR, env_key, make
+from webgym.core import ENVS, MAX_SEPARATE, SENSOR_COLOR, env_key, make
 from webgym.gl.debug_draw_gl import Camera, GLDebugDraw
 from webgym.policies import from_sizes
 
@@ -205,6 +205,18 @@ class App:
         self.episodes = 1
         self.mouse_drag = b2d.MouseDrag(self.env.world)
 
+    @property
+    def max_population(self):
+        """the most agents this env trains with: a non-batchable env needs a box2d world
+        per agent (MAX_SEPARATE of them), a batchable one has all in one world"""
+        return MAX_POPULATION if self.env.batchable else MAX_SEPARATE
+
+    @property
+    def used_population(self):
+        """the population training uses: the chosen one (kept for other envs), at most
+        max_population"""
+        return min(self.population, self.max_population)
+
     def train(self):
         """train mode: continue the trainer from its last state (or start); while
         training: restart the trainer from its state (e.g. a new population size)"""
@@ -215,13 +227,14 @@ class App:
         # simulation helpers (more workers, CEM / ES): this env runs a share of the
         # population, the helpers the rest (webgym/helpers.py)
         helpers = self.helpers if self.helpers is not None and self.helpers.count and algo.parallel else None
-        local = -(-self.population // (helpers.count + 1)) if helpers else self.population
-        if self.pop_env is None or self.pop_key != (self.env_key, self.population, local):
+        population = self.used_population
+        local = -(-population // (helpers.count + 1)) if helpers else population
+        if self.pop_env is None or self.pop_key != (self.env_key, population, local):
             self._close_population()
-            self.pop_env = make(self.env_name, n=local, **self.settings)  # (non-batchable: fewer)
-            self.pop_key = (self.env_key, self.population, local)
+            self.pop_env = make(self.env_name, n=local, **self.settings)
+            self.pop_key = (self.env_key, population, local)
             if helpers:
-                self.pop_env.helpers, self.pop_env.population = helpers, self.population
+                self.pop_env.helpers, self.pop_env.population = helpers, population
         if helpers:
             helpers.spec = {"env": self.env_name, "settings": self.settings}
         if not algo.available():
@@ -372,7 +385,7 @@ class App:
         resume = self.train_state is not None and not self.training
         env = [
             # ("key": the env with its settings: the page keeps checkpoints per key)
-            {"type": "select", "name": "env", "label": "Environment", "options": sorted(ENVS, key=lambda e: (e == "MyEnvironment", e)), "value": self.env_name,
+            {"type": "select", "name": "env", "label": "Environment", "options": sorted(ENVS, key=lambda e: (e.startswith("My"), e)), "value": self.env_name,
              "key": self.env_key},
             *({"type": "select", "name": f"setting.{name}", "label": name, "options": list(choices),
                "value": self.settings[name], "help": f"{explanation} A change starts a new run."}
@@ -414,8 +427,8 @@ class App:
                      "few discrete actions."},
             *self._param_controls(),
             {"type": "hint", "name": "network", "text": self._network_hint()},
-            {"type": "slider", "name": "population", "label": "Population", "min": 8, "max": MAX_POPULATION,
-             "step": 8, "value": self.population, "disabled": not self.env.batchable,
+            {"type": "slider", "name": "population", "label": "Population", "min": 8, "max": self.max_population,
+             "step": 8, "value": self.used_population,
              "help": "How many agents learn at once (in one world, in the training worker): candidates "
                      "for CEM / ES, parallel episodes for PPO / DQN."},
             {"type": "button", "name": "stop" if self.training else "train",

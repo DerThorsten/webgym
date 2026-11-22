@@ -439,9 +439,7 @@ function showControls(controls) {
     } else {
       // (step null: a free slider, no steps)
       input = Object.assign(document.createElement("input"), { type: "range", min: c.min, max: c.max, step: c.step ?? "any", value: c.value });
-      // (e.g. the population of an env that runs one agent at a time)
       input.disabled = Boolean(c.disabled);
-      if (c.disabled) el.title = "this environment runs one agent at a time";
       // optional labels per slider position (e.g. "4x")
       const show = () =>
         (value.textContent = c.labels ? c.labels[input.value] : c.step == null ? freeLabel(Number(input.value)) : input.value);

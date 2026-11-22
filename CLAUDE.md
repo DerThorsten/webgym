@@ -96,8 +96,13 @@ Technical considerations:
 - Starting points for the user's own (2026-11-21): `MyEnvironment` (`envs/my_environment.py`:
   a ball rolls to a target, the same for all agents; every Env method once, commented) and
   `my_algorithm` (`algos/my_algorithm.py`: a hill climber, its own episode loop). Each is
-  last in its list (the env select sorts it last in `App.controls`); not pretrained
-  (`pretrain.py` skips it); help.html#own explains them. Keep both minimal.
+  last in its list (the env select sorts names starting with "My" last in `App.controls`);
+  not pretrained (`pretrain.py` skips "My*"); help.html#own explains them. Keep them minimal.
+  `MyBallPit` (2026-11-22, `envs/my_ball_pit.py`): the non-batchable example, a ball
+  pushes through 60 loose balls (`Env.prop`), `batchable = False` (`Separate`); its
+  docstring says it could be batched (own collision group per agent, as the Blob) but a
+  world full of loose things per agent is simpler in separate worlds. (A box pusher was
+  tried first and dropped the same day: one box is trivially batchable with filters.)
 - `Env.suggested` = {budget: {algo: params}} for "quick" / "medium" / "long" (~1 / 5 / 20 min),
   best first; guesstimates, not measured. The "Suggest an algorithm for this time budget" select (Training tab) and opening
   an env pick the first one with its params (`App.suggest`); ★ marks them in the algorithm
@@ -116,7 +121,10 @@ Technical considerations:
 - `batchable = False` (no env now; was the Car: it pushed loose crates and gravel, `Env.prop`;
   tested with CartPole marked so): `make(name, n > 1)` returns
   `Separate`, n one-agent envs in their own worlds behind the batched API (at most
-  `MAX_SEPARATE` = 32); the view shows one agent.
+  `MAX_SEPARATE` = 32: box2d allows 128 worlds per worker, some kept free); the view shows
+  one agent. The Population slider's max is then 32 (`App.max_population`; training uses
+  `App.used_population`, the chosen population stays for the other envs); the limit is
+  not mentioned to users (decided 2026-11-22).
 - Decoration (looks only): `make(name, decorated=True)` builds it (e.g. the lander's flags,
   which collide with nothing, as in the classic lander) and `Env.decorate()` runs after each
   watched step (the lander's exhaust: pyb2d3 emitters, `pyb2d3.extensions.RadialEmitter`).

@@ -94,8 +94,8 @@ class Env:
     view_center = (0.0, 0.0)
     view_zoom = 10.0
     # True: n agents share one world without affecting each other (only static scenery);
-    # False: the agents change the world (e.g. a dynamic parcours): one agent at a time
-    # (the population / show-policies sliders are disabled)
+    # False: the agents change the world (e.g. a heap of loose balls): a world per agent
+    # (make() returns Separate; the Population slider ends at MAX_SEPARATE)
     batchable = True
     # optional: the env also works with a few discrete actions (for DQN & co): their
     # action vectors (k, len(action_names)) and names; None: continuous only

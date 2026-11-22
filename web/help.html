@@ -345,7 +345,7 @@
     </ul>
 
     <h2 id="own">Your own environment and algorithm</h2>
-    <p>Two entries are there just for you to change. They are starting points for your own
+    <p>Three entries are there just for you to change. They are starting points for your own
       experiments and fun ideas:</p>
     <ul>
       <li><b>MyEnvironment</b> (last in the World tab's list): a ball learns to roll to a
@@ -360,6 +360,11 @@
           <li><code>draw</code>: extra looks (the target disc).</li>
         </ul>
       </li>
+      <li><b>MyBallPit</b> (also at the end of the World list): a ball pushes its way through
+        a heap of 60 loose balls. The loose balls belong to the world, and the agent changes
+        it, so every agent gets a world of its own (<code>batchable = False</code>). Its
+        description explains when that is worth it, and that this one could also be
+        batched.</li>
       <li><b>My algorithm</b> (last in the Training tab's list): a hill climber in about 30
         lines. Each iteration it runs one episode with all agents, each with a small random
         change of the best policy so far, and keeps the one that scored best.</li>
@@ -514,7 +519,7 @@
       <dt><code>env</code></dt>
       <dd>The world: <code>CartPole</code>, <code>MultiCartPole</code>, <code>LunarLander</code>,
         <code>Walker</code>, <code>Crawler</code>, <code>Ragdoll</code>, <code>WaterCannon</code>,
-        <code>Blob</code>, <code>Drone</code>, <code>MyEnvironment</code>. Unknown: the default
+        <code>Blob</code>, <code>Drone</code>, <code>MyEnvironment</code>, <code>MyBallPit</code>. Unknown: the default
         (CartPole).</dd>
       <dt>a world's settings</dt>
       <dd>As in its World tab: <code>poles=2</code> … <code>5</code> (MultiCartPole),

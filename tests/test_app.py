@@ -189,6 +189,21 @@ def test_watched_policy_and_its_score():
     assert len(display.scores) == 1 and display.scores[0] == display.env.episode_return[0]
 
 
+def test_population_of_a_non_batchable_env():
+    """a world per agent (MyBallPit): the Population slider ends at the limit and training
+    uses at most that many; the chosen population is kept for the other envs"""
+    from webgym.core import MAX_SEPARATE
+
+    app = make_app(env="MyBallPit", population=64)
+    slider = next(c for c in app.controls() if c["name"] == "population")
+    assert slider["max"] == MAX_SEPARATE and slider["value"] == MAX_SEPARATE and not slider.get("disabled")
+    app.command("train")
+    assert app.pop_env.n == MAX_SEPARATE
+    app.command("stop")
+    app.command("env", "CartPole")
+    assert app.used_population == 64
+
+
 def test_signals_trace():
     """the Signals tab: one row per watched step (observations, action, reward), sent
     once by state(); a new episode starts afresh"""
@@ -249,16 +264,6 @@ def test_code_view_and_apply():
     with pytest.raises(SyntaxError):
         app.command("code", json.dumps({"kind": "algo", "text": "def train(:"}))
     assert app.code() == code
-
-
-def test_non_batchable_env_disables_population(monkeypatch):
-    """an env whose agents change the world (batchable = False): no population slider
-    to move"""
-    app = make_app()
-    disabled = lambda: {c["name"] for c in app.controls() if c.get("disabled")}  # noqa: E731
-    assert "population" not in disabled()
-    monkeypatch.setattr(type(app.env), "batchable", False)
-    assert "population" in disabled()
 
 
 def test_non_batchable_env_trains_in_separate_worlds(monkeypatch):

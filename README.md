@@ -58,6 +58,8 @@ Gymnasium-like box2d environments with live training, natively and **in the brow
 - **Drone**: fly through a course of gates
 - **MyEnvironment**: a ball rolls to a target; the smallest world, a starting point for
   your own
+- **MyBallPit**: a ball pushes through a heap of loose balls; a starting point for a
+  world the agent changes (one world per agent, not batched)
 
 **Algorithms** (`webgym/algos/`):
 

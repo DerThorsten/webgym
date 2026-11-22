@@ -43,7 +43,7 @@ def runs(only_env=None, only_algo=None, only_settings=()):
     from webgym.core import ENVS, make
 
     for name in sorted(ENVS):
-        if name == "MyEnvironment":  # (a starting point for the user's own: nothing to watch)
+        if name.startswith("My"):  # (starting points for the user's own: not pretrained)
             continue
         for settings in SETTINGS.get(name, [{}]):
             if only_settings and (not settings or any(f"{k}={v}" not in only_settings for k, v in settings.items())):
