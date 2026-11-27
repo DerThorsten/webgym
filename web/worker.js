@@ -78,16 +78,16 @@ async function init(canvas, base, role, wasmModule, sources = []) {
     onProgress: reportTo("startup"),
   });
   lap("python");
-  await pyjs.async_exec_eval('import sys, importlib\nsys.path.insert(0, "/app")\nimportlib.invalidate_caches()');
+  await pyjs.runPythonAsync('import sys, importlib\nsys.path.insert(0, "/app")\nimportlib.invalidate_caches()');
   // the python files edited in this browser (edits.js), over the originals, before
   // webgym is imported; one that doesn't compile is skipped (and reported)
   if (sources.length) {
     self.webgymSources = JSON.stringify(sources);
-    const skipped = await pyjs.async_exec_eval(EDITED_SOURCES);
+    const skipped = await pyjs.runPythonAsync(EDITED_SOURCES);
     if (String(skipped)) post({ type: "error", error: `edited code not applied (it doesn't compile): ${skipped}` });
   }
   // no role: a compute-only worker (benchmarks)
-  if (role) await pyjs.async_exec_eval("from webgym import host_web\n_host = host_web.start()");
+  if (role) await pyjs.runPythonAsync("from webgym import host_web\n_host = host_web.start()");
   // keep the bytecode of the startup imports (numpy, pyopengl, pyb2d3, webgym) for the
   // next visit: in a worker pyjs saves it only when asked (>= 5.2)
   await pyjs.saveBytecode();
@@ -105,7 +105,7 @@ async function install(name, check) {
   progress(name, "importing");
   let result;
   try {
-    result = await pyjs.async_exec_eval(check);
+    result = await pyjs.runPythonAsync(check);
     await pyjs.saveBytecode(); // (the next visit imports it without compiling the sources)
   } catch (e) {
     // a failed check (python exception): reported as the result, the page goes on
@@ -150,7 +150,7 @@ self.onmessage = async ({ data }) => {
     } else if (data.type === "install") await install(data.name, data.check);
     else if (data.type === "exec") {
       // compute-only workers: run python, the value of the last expression comes back
-      const value = await pyjs.async_exec_eval(data.code);
+      const value = await pyjs.runPythonAsync(data.code);
       post({ type: "result", id: data.id, value: String(value), memory: pyjs.HEAPU8?.byteLength });
     }
   } catch (e) {
