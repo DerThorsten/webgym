@@ -275,7 +275,7 @@ Technical considerations:
   open / save), `network.js`, `plot.js`, `build_page.py`, `test_page.py`, bench page.
 
 ### Browser specifics (pyjs 6)
-- pyjs 6.0.0 from npm (`web/package.json`). pyjs 6 has the pyodide / PEP 818 API:
+- pyjs 6.0.1 from npm (`web/package.json`). pyjs 6 has the pyodide / PEP 818 API:
   `pyjs.runPythonAsync(code)` (was `async_exec_eval`), `pyjs.create_proxy(fn)` (was
   `create_callable`, which returned `(js_fn, handle)`). Our content-hashed sources archive is passed with
   `cache: true`: after the first visit pyjs serves it (unpacked + bytecode) from its cache.
