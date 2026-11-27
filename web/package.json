@@ -6,7 +6,7 @@
     "postinstall": "pyjs copy-assets public/pyjs"
   },
   "dependencies": {
-    "@derthorsten/pyjs": "5.2.0",
+    "@derthorsten/pyjs": "6.0.0",
     "monaco-editor": "0.52.2"
   },
   "devDependencies": {

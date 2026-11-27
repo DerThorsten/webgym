@@ -122,12 +122,13 @@ class WebHost:
         # worker.js forwards the page's pointer events / widget changes / checkpoints
         # to restore / snapshots of the trainer's policy to these
         functions = (self.event, self.command, self.restore, self.snapshot, self.evaluated)
-        self._callables = [pyjs.create_callable(f) for f in functions]
+        # (JS functions calling them, alive as long as the host: never destroyed)
+        self._proxies = [pyjs.create_proxy(f) for f in functions]
         pyjs.js.Function(
             "e", "c", "r", "s", "v",
             "self.webgymEvent = e; self.webgymCommand = c; self.webgymRestore = r; self.webgymSnapshot = s; "
             "self.webgymEvaluated = v",
-        )(*(js for js, _ in self._callables))
+        )(*self._proxies)
         self.send_controls()
         if self.role == "trainer":
             self.send_snapshot()
@@ -302,8 +303,8 @@ class HelperHost:
     (helpers.evaluate), nothing else"""
 
     def __init__(self):
-        self._callable = pyjs.create_callable(self.evaluate)
-        pyjs.js.Function("v", "self.webgymEvaluate = v")(self._callable[0])
+        self._proxy = pyjs.create_proxy(self.evaluate)
+        pyjs.js.Function("v", "self.webgymEvaluate = v")(self._proxy)
 
     def evaluate(self, text):
         """a request (JSON) -> its answer to the page"""

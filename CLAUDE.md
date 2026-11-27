@@ -274,8 +274,10 @@ Technical considerations:
   (IndexedDB, per env + algo, autosave + named saves), `editor.js` (Monaco, python only, loaded when the Code panel first shows; `window.codeText()` for tests; + local file
   open / save), `network.js`, `plot.js`, `build_page.py`, `test_page.py`, bench page.
 
-### Browser specifics (pyjs 5.1)
-- pyjs 5.2.0 from npm (`web/package.json`). Our content-hashed sources archive is passed with
+### Browser specifics (pyjs 6)
+- pyjs 6.0.0 from npm (`web/package.json`). pyjs 6 has the pyodide / PEP 818 API:
+  `pyjs.runPythonAsync(code)` (was `async_exec_eval`), `pyjs.create_proxy(fn)` (was
+  `create_callable`, which returned `(js_fn, handle)`). Our content-hashed sources archive is passed with
   `cache: true`: after the first visit pyjs serves it (unpacked + bytecode) from its cache.
 - Rule (pyjs 5.2: workers no longer save bytecode by themselves): every
   worker calls `await pyjs.saveBytecode()` after each group of heavy imports. `worker.js`
